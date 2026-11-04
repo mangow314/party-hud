@@ -176,7 +176,7 @@ CARD_ROWS = (15, 20)  # the "auth-refactor" card in the fixture frame
 MARKS = [
     ("agent: claude, codex, agy or grok", (10.2, 0)),
     ("portrait: one of 8 classes per member", (0.6, 2)),
-    ("class icon and tmux window name", (24.9, 1)),
+    ("class icon and name (session or window)", (24.9, 1)),
     ("status: busy, idle, wait or done", (32.5, 1)),
     ("HP: context window left", (24.3, 2)),
     ("model", (32.5, 2)),

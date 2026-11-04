@@ -28,7 +28,7 @@ jobs:
       - name: Install tmux and jq (macOS)
         if: runner.os == 'macOS'
         run: brew install tmux jq
-      - name: Install ruff (pinned: new releases change the default rules)
+      - name: "Install ruff (pinned: new releases change the default rules)"
         run: pip install ruff==0.17.1
       - name: Lint and format check
         run: |

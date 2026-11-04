@@ -20,9 +20,11 @@ with a portrait, a status, **HP** (context left) and **SP** (prompt cache minute
 
 ## Reading a card
 
-<img src="docs/img/card.png" width="590" alt="One member card with numbered marks: agent, portrait, class icon and window name, status, HP, model, SP, subagents">
+<img src="docs/img/card.png" width="590" alt="One member card with numbered marks: agent, portrait, class icon and name, status, HP, model, SP, subagents">
 
 Every member gets one of 8 classes (portrait and icon), picked from its session id; members of one squad do not repeat.
+The name (3) is the Claude Code session name (`/rename` or its automatic title), else the tmux window name;
+other agents show their kind (`codex`, `agy`, `grok`).
 Above the cards, each tmux session is a squad with its own crest. The squad you are looking at has a gold background
 and bar, and a pin marks the session the sidebar itself is in.
 

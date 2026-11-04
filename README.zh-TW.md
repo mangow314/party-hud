@@ -24,13 +24,13 @@
 
 ## 怎麼看隊員卡
 
-<img src="docs/img/card.png" width="590" alt="一張隊員卡，編號標出：agent 種類、頭像、職業圖示與 window 名稱、狀態、HP、模型、SP、子代理">
+<img src="docs/img/card.png" width="590" alt="一張隊員卡，編號標出：agent 種類、頭像、職業圖示與名稱、狀態、HP、模型、SP、子代理">
 
 | 編號 | 意思 |
 |---|---|
 | 1 | agent 種類：claude、codex、agy 或 grok |
 | 2 | 頭像：8 種職業之一，依 session id 分配，同一小隊不重複 |
-| 3 | 職業圖示和 tmux window 名稱 |
+| 3 | 職業圖示和名稱：Claude Code 的 session 名稱（`/rename` 或自動標題），沒有才用 tmux window 名稱；其他 agent 顯示種類（`codex`、`agy`、`grok`） |
 | 4 | 狀態：busy（工作中）、idle（閒置）、wait（等你）、done（做完） |
 | 5 | HP：剩餘的 context |
 | 6 | 模型 |
