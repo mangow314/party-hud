@@ -124,7 +124,7 @@ def squad_marks(t, lit, cursor):
 
 def squad_summary(agents):
     segs = []
-    for status in ("waiting", "working", "done", "sleep"):
+    for status in ("waiting", "working", "done", "idle", "sleep"):
         n = sum(a["status"] == status for a in agents)
         if n:
             icon = "zzz " if status == "sleep" else status_icon(status)

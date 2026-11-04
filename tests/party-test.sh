@@ -66,7 +66,7 @@ check "Layout: Squads 2, then cards of the viewed squad right below (Studio: 2 a
 lacks() { ! grep -q -- "$1" "$2"; } # file $2 does not contain $1
 check "Cards don't list other squads' members" lacks "z zzz" "$tmp/out.txt"
 check "Viewed squad (Studio): gold ▌ bar in the left column" grep -qE "^│▌ .* Studio" "$tmp/out.txt"
-check "Studio summary: waiting !1, busy ⠋1 (idle not counted); own squad gets the location pin after its name" grep -qE "Studio 󰍎 +!1 ⠋1 +│" "$tmp/out.txt"
+check "Studio summary: waiting !1, busy ⠋1; own squad gets the location pin after its name" grep -qE "Studio 󰍎 +!1 ⠋1 +│" "$tmp/out.txt"
 check "Server: only an asleep member -> summary zzz 1 (expired cache still visible)" grep -qE "Server +zzz 1 │" "$tmp/out.txt"
 next_line_has() { grep -A1 -- "$1" "$tmp/out.txt" | sed -n 2p | grep -q -- "$2"; } # the line after $1 contains $2
 check "Waiting member sorts before busy (Frontend)" across "審查員.*! wait.*Frontend.*⠋ busy" "$tmp/out.txt"
@@ -212,6 +212,8 @@ ok(all(w(l) == 33 for l in aw if l[:1] in "╭│╰"), "Art: every box line is 
 ok(re.search(r"Studio +!1 ⠋1 │\n│▌\U0010EEEE.{8}\U0010EEEE.{2} 2 members · 1 waiting +\U000F034E │", "\n".join(aw))
    and re.search(r"Server +zzz 1 │\n│ \U0010EEEE.{8}\U0010EEEE.{2} 1 member · 1 asleep +│", "\n".join(aw)),
    "Art: two rows per squad (crest + name + summary; row 2 N members, plus · N waiting or · N asleep)")
+ok(strip(render.squad_summary([{"status": s} for s in ("sleep", "idle", "idle", "done")])[0]) == "✓1 ·2 zzz 1",
+   "Squad summary counts idle members (·N) between done and asleep")
 hr = render.render(towns, 33, "%4", art=True, here="Studio").splitlines()
 tinted = [strip(l) for l in hr if common.bg("view") in l]
 ok(len(tinted) == 2 and "Server" in tinted[0] and "member" in tinted[1] and all(t.startswith("│▌") for t in tinted)

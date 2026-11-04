@@ -9,7 +9,8 @@ with a portrait, a status, **HP** (context left) and **SP** (prompt cache minute
 <img src="docs/img/window.png" width="780" alt="A tmux window: the party-hud sidebar on the left with four squads and three member cards, an agent working in the pane on the right">
 
 - **See who needs you.** Squads light up orange when someone is waiting for you, green when someone finished and
-  you have not looked yet, purple (`zzz 1`) when a member's prompt cache has expired. A bell rings in windows you are not looking at.
+  you have not looked yet, purple (`zzz 1`) when a member's prompt cache has expired. A gray `·1` counts idle members.
+  A bell rings in windows you are not looking at.
 - **Jump there.** `n` goes to the next member that is waiting (then finished). `Enter` switches to the member's pane.
 - **Know when to compact.** HP is the context window left (`620k/1M`), blinking under 10%.
   SP counts down the prompt cache (`59/60m`); after it hits 0 the next message re-reads the whole context.
