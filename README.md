@@ -108,6 +108,8 @@ Set these in `~/.tmux.conf` before the plugin loads.
 | Codex | screen changes | rollout file in `~/.codex/sessions` | not available (`--`) |
 | agy, Grok | screen changes | `--` | `--` |
 
+A pane counts when its command is one of these agents, or when an agent runs among its child processes (for example
+under `node` or a wrapper script).
 If you use [workmux](https://github.com/raine/workmux), its waiting / done pane status is used too.
 Everything is read locally; nothing is sent anywhere. More: [docs/architecture.md](docs/architecture.md).
 

@@ -40,7 +40,7 @@ TMUX_FIELDS = [
     "pane_dead",
     "pane_tty",
 ]
-# codex runs under node (the pane shows `node`), so child processes are checked too
+# wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
 
 
@@ -246,12 +246,17 @@ def screen_changed(panes, now):
 def agent_kind(cmd, pane_pid, cmdlines=child_cmdlines):
     if cmd in AGENT_CMDS:
         return AGENT_CMDS[cmd]
-    if cmd == "node" and pane_pid:
-        for args in cmdlines(pane_pid):
-            names = {os.path.basename(a) for a in args[:2]}
-            hit = next((AGENT_CMDS[n] for n in names if n in AGENT_CMDS), None)
-            if hit:
-                return hit
+    if not pane_pid:
+        return None
+    for args in cmdlines(pane_pid):
+        if not args:
+            continue
+        names = [os.path.basename(args[0])]
+        if len(args) > 1 and (names[0] in ("node", "bun", "deno") or names[0].startswith("python")):
+            names.append(os.path.basename(args[1]))
+        hit = next((AGENT_CMDS[n] for n in names if n in AGENT_CMDS), None)
+        if hit:
+            return hit
     return None
 
 

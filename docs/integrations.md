@@ -40,7 +40,7 @@ Without the file, HP is estimated from the transcript: the tokens sent in the la
 
 | What | Source |
 |---|---|
-| Which pane runs Codex | the pane's command is `codex`, or `node` with a `codex` script among its child processes |
+| Which pane runs Codex | the pane's command is `codex`, or a child process (up to 3 levels down) is `codex` or an interpreter (`node`, `bun`, `deno`, `python*`) running a `codex` script |
 | Working / idle | the pane's screen changed in the last 4 seconds (only a CRC32 hash of the screen is stored, in `activity.json`) |
 | HP | last `token_count` event in the rollout file: `last_token_usage.total_tokens` of `model_context_window` |
 
@@ -56,7 +56,7 @@ SP is not shown: OpenAI does not publish a fixed cache lifetime we could count d
 
 ## agy, Grok
 
-Detected by the pane's command name. Working / idle comes from screen changes, as for Codex. HP and SP show `--`.
+Detected by the pane's command name, or among its child processes as for Codex. Working / idle comes from screen changes, as for Codex. HP and SP show `--`.
 
 ## workmux
 
