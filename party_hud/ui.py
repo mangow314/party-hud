@@ -153,6 +153,7 @@ def jump_next():
 
 
 HIDE_AFTER = 2.0
+ART_SETTLE = 1.0
 
 
 def run_ui(mode, fixture=None):
@@ -181,7 +182,7 @@ def run_ui(mode, fixture=None):
         else None
     )
     sent, was_visible = set(), False
-    hidden_since = None
+    hidden_since = shown_since = None
     resized = [False]
     signal.signal(signal.SIGWINCH, lambda *_: resized.__setitem__(0, True))
     try:
@@ -232,7 +233,10 @@ def run_ui(mode, fixture=None):
                     break
             else:
                 hidden_since = None
-            if art and visible:
+            # tmux drops passthrough without a trace while it redraws the client (split, switch, attach)
+            shown_since = (shown_since or time.time()) if visible else None
+            show_art = shown_since is not None and time.time() - shown_since >= ART_SETTLE
+            if art and show_art:
                 # just became visible (switched here, or attached from another terminal): resend all images
                 if not was_visible:
                     sent.clear()
@@ -242,7 +246,7 @@ def run_ui(mode, fixture=None):
                 if need - sent:
                     sys.stdout.flush()  # without this flush the last chunk stays buffered when the frame is unchanged
                 sent |= need
-            was_visible = visible
+            was_visible = show_art
             try:  # ask the terminal: shutil.get_terminal_size trusts COLUMNS, which goes stale after a resize
                 size = os.get_terminal_size(sys.stdout.fileno())
             except OSError:

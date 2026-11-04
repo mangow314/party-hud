@@ -82,7 +82,9 @@ All in `$XDG_RUNTIME_DIR/party-hud/` (or `~/.cache/party-hud/`). Deleting the fo
 Portraits and crests use the [Kitty graphics protocol](https://sw.kovidgoyal.net/kitty/graphics-protocol/)
 with Unicode placeholders:
 
-1. When a sidebar becomes visible, it sends the 16 PNGs once (wrapped in tmux passthrough), each with an id.
+1. When a sidebar has been visible for a second, it sends the 16 PNGs once (wrapped in tmux passthrough), each with
+   an id. The wait matters: while tmux redraws a client (after a split, a session switch or an attach) it drops
+   passthrough without counting it, and an image that loses one chunk stays black.
 2. Each image cell is drawn as the character U+10EEEE, colored with the image id, plus two combining
    diacritics for row and column. tmux treats these as normal text, so scrolling, redrawing and pane
    switching just work.
