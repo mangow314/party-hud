@@ -19,6 +19,11 @@ with a portrait, a status, **HP** (context left) and **SP** (prompt cache minute
   process (about 25 MB each); hidden ones stop and restart when you switch to their window.
   Python standard library only, no daemon, no network. See [performance](docs/performance.md).
 
+A Claude Code member stops to ask a question in another window: its squad turns orange, `n` selects it and `Enter`
+jumps there.
+
+<img src="docs/img/demo.gif" width="780" alt="Screen recording: while Codex is in view, the Claude member in another window turns orange with wait; n and Enter in the sidebar switch to that window, where Claude asks which color you prefer">
+
 ## Reading a card
 
 <img src="docs/img/card.png" width="590" alt="One member card with numbered marks: agent, portrait, class icon and name, status, HP, model, SP, subagents">

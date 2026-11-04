@@ -23,6 +23,10 @@
   - 只有看得到的側欄會留著行程（每個約 25 MB）；看不到的會停掉，切到那個 window 時再重新啟動。
   - 只用 Python 標準函式庫，沒有常駐服務，不連網。數據見 [效能](docs/performance.md)。
 
+另一個 window 的 Claude Code 停下來問你問題：它的小隊變成橘色，按 `n` 選到它，再按 `Enter` 跳過去。
+
+<img src="docs/img/demo.gif" width="780" alt="螢幕錄影：畫面停在 Codex 時，另一個 window 的 Claude 隊員變成橘色、顯示 wait；在側欄按 n 再按 Enter，切到那個 window，Claude 正在問你喜歡哪個顏色">
+
 ## 怎麼看隊員卡
 
 <img src="docs/img/card.png" width="590" alt="一張隊員卡，編號標出：agent 種類、頭像、職業圖示與名稱、狀態、HP、模型、SP、子代理">
