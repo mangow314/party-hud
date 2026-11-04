@@ -435,7 +435,11 @@ def collect(fixture=None, now=None):
         if not kind and not icon:
             continue
         kind = kind or "claude"
-        status = WORKMUX_ICONS.get(icon) or CLAUDE_STATUS.get(sess.get("status"), "idle")
+        native = CLAUDE_STATUS.get(sess.get("status"), "idle")
+        status = WORKMUX_ICONS.get(icon) or native
+        # workmux keeps 🤖 until Claude's notification hook fires, seconds after Claude itself reports waiting
+        if status == "working" and native == "waiting":
+            status = "waiting"
         info = get_party(p["pane_id"])
         sid = sess.get("sid") or info.get("session_id") or ""
         if info.get("session_id") and sid and info["session_id"] != sid:

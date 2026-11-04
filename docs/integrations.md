@@ -61,7 +61,8 @@ Detected by the pane's command name, or among its child processes as for Codex. 
 ## workmux
 
 If a pane has the tmux option `@workmux_pane_status` set by [workmux](https://github.com/raine/workmux)
-(`🤖` working, `💬` waiting, `✅` done), that status wins over the others.
+(`🤖` working, `💬` waiting, `✅` done), that status wins over the others, except that Claude Code's own
+`waiting` wins over `🤖` (workmux switches to `💬` only when Claude's notification hook runs, a few seconds later).
 
 ## Adding an agent
 
