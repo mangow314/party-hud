@@ -21,7 +21,7 @@ check() { # check <description> <command...>
 }
 sidebars() { t list-panes -a -F '#{@party_sidebar}' | grep -c '^1$'; }
 running() { t list-panes -a -F '#{@party_sidebar} #{pane_dead}' | grep -c '^1 0$'; } # sidebars with a live process
-windows() { t list-windows -a | wc -l; }
+windows() { t list-windows -a | grep -c ''; }
 eq() { [ "$1" = "$2" ] || { echo "     expected [$2], actual [$1]" >&2; return 1; }; }
 le() { [ "$1" -le "$2" ] || { echo "     expected <= $2, actual $1" >&2; return 1; }; }
 ge() { [ "$1" -ge "$2" ] || { echo "     expected >= $2, actual $1" >&2; return 1; }; }
@@ -134,6 +134,6 @@ sleep 3
 check "q in a sidebar: all sidebars closed" eq "$(sidebars)" "0"
 check "Toggle off: hooks removed" \
   eq "$(t show-hooks -g | grep -cE '(new-window|client-session-changed|session-window-changed|after-kill-pane|client-attached)\[90\]')" "0"
-check "Toggle off: all sessions still exist" eq "$(t list-sessions | wc -l)" "3"
+check "Toggle off: all sessions still exist" eq "$(t list-sessions | grep -c '')" "3"
 
 exit "$fail"
