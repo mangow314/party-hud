@@ -1,0 +1,42 @@
+name: ci
+on:
+  push:
+  pull_request:
+permissions:
+  contents: read
+jobs:
+  test:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, python: "3.10" }
+          - { os: ubuntu-latest, python: "3.12" }
+          - { os: ubuntu-latest, python: "3.14" }
+          - { os: macos-latest, python: "3.13" }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python }}
+      - name: Install tmux and jq (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y tmux jq
+      - name: Install tmux and jq (macOS)
+        if: runner.os == 'macOS'
+        run: brew install tmux jq
+      - name: Install ruff (pinned: new releases change the default rules)
+        run: pip install ruff==0.17.1
+      - name: Lint and format check
+        run: |
+          ruff check .
+          ruff format --check .
+      - name: Unit tests
+        run: bash tests/party-test.sh
+      - name: Integration tests (private tmux server)
+        run: bash tests/party-tmux-test.sh
+      - name: Benchmark
+        run: python3 bench/bench.py
