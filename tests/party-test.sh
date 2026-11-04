@@ -154,6 +154,14 @@ ok(render.sp_points({"sp": (10.0, 300)}) == 1 and render.sp_points({"sp": (3600.
 ok(new["%21"]["hp"] is None and not new["%21"]["fresh"] and re.search(r"agy.*\n.*· idle.*\n.*HP +-- +│\n.*SP +-- +│", nl),
    "Other agents with unreadable context: HP / SP stay --")
 ok(new["%22"]["status"] == "working" and new["%21"]["status"] == "idle", "Other agents: recent screen change = busy, no change = idle")
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+    json.dump({"panes": [pane("%30", "claude"), dict(pane("%31", "claude"), **{"@workmux_pane_status": "✅"})], "now": 10000,
+               "sessions": {"%30": {"sid": "s30", "name": "w", "status": "waiting"},
+                            "%31": {"sid": "s31", "name": "d", "status": "waiting"}}}, f)
+wt = {a["pane"]: a for t in collect.collect(f.name)["towns"] for a in t["agents"]}
+ok(wt["%30"]["status"] == "waiting" and "!1" in strip(render.squad_summary([wt["%30"]])[0]),
+   "Claude Code sessions status waiting (no workmux icon) = waiting member, squad summary shows !1")
+ok(wt["%31"]["status"] == "done", "workmux done icon wins over sessions status waiting")
 ok(new["%23"]["kind"] == "codex" and new["%23"]["name"] == "codex", "codex pane: kind and name are both codex")
 ok(new["%23"]["hp"] == 75 and new["%23"]["hp_left"] == 192000, "codex HP: 64k used of a 256k window -> 75% left (192k)")
 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
