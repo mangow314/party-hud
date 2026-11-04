@@ -19,8 +19,9 @@ plainly either way. This file is a record of how the images were made, not legal
 | 3. Crests | The model draws a black silhouette only; the shield, colors and shadow are drawn by code | `scripts/art/crest_compose.py` |
 
 Steps 2 and 3 reproduce `art/` byte-for-byte from the raw images. The raw images (16 PNGs, 6.5 MB) are kept
-out of the repository so plugin installs stay small; regenerate them with step 1. Regenerating on different
-hardware or ComfyUI versions may give slightly different pictures.
+out of the repository so plugin installs stay small. Each GitHub release attaches them as
+`party-hud-raw-art.tar.gz`; extract it into `scripts/art/` to rerun steps 2 and 3 without ComfyUI, or regenerate
+them with step 1. Regenerating on different hardware or ComfyUI versions may give slightly different pictures.
 Prompts describe generic fantasy roles ("swordsman", "cleric", "lion head silhouette") and do not name
 any existing game, character or artist.
 

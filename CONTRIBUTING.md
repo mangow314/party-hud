@@ -51,7 +51,9 @@ To test a new agent, add its panes and data to a fixture.
 
 ## Images
 
-See [ASSETS.md](ASSETS.md). To regenerate: run ComfyUI with the three models listed there, then
+See [ASSETS.md](ASSETS.md). To regenerate from scratch, run ComfyUI with the three models listed there and run
+all three scripts. To rebuild only `art/`, download `party-hud-raw-art.tar.gz` from a release, extract it with
+`tar -xzf party-hud-raw-art.tar.gz -C scripts/art` and skip `generate.py`.
 
 ```bash
 python3 scripts/art/generate.py        # raw images -> scripts/art/raw/
