@@ -110,6 +110,7 @@ Set these in `~/.tmux.conf` before the plugin loads.
 
 A pane counts when its command is one of these agents, or when an agent runs among its child processes (for example
 under `node` or a wrapper script).
+Claude Code members show waiting when Claude Code itself reports it is waiting for you (no extra setup).
 If you use [workmux](https://github.com/raine/workmux), its waiting / done pane status is used too.
 Everything is read locally; nothing is sent anywhere. More: [docs/architecture.md](docs/architecture.md).
 

@@ -10,7 +10,7 @@ or add support for another agent.
 
 | What | Source | Written by |
 |---|---|---|
-| Which pane runs Claude, session id, name, busy / idle | `~/.claude/sessions/<pid>.json` (`pid`, `sessionId`, `name`, `status`, `tmux`) | Claude Code |
+| Which pane runs Claude, session id, name, busy / idle / waiting | `~/.claude/sessions/<pid>.json` (`pid`, `sessionId`, `name`, `status`, `tmux`) | Claude Code |
 | Transcript path | `~/.claude/projects/*/<session id>.jsonl` (found by session id) | Claude Code |
 | SP: when the prompt cache expires | last `usage` entry in the transcript: its timestamp + TTL (1 h if it wrote `ephemeral_1h_input_tokens`, else 5 min) | Claude Code |
 | Subagents in flight (paw count) | `<transcript without .jsonl>/subagents/*.meta.json`, not `finished`, log touched in the last 15 min | Claude Code |

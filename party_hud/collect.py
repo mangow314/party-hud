@@ -22,6 +22,7 @@ from .common import (
     tmux,
 )
 
+CLAUDE_STATUS = {"busy": "working", "waiting": "waiting"}
 TMUX_FIELDS = [
     "session_name",
     "window_index",
@@ -434,7 +435,7 @@ def collect(fixture=None, now=None):
         if not kind and not icon:
             continue
         kind = kind or "claude"
-        status = WORKMUX_ICONS.get(icon) or ("working" if sess.get("status") == "busy" else "idle")
+        status = WORKMUX_ICONS.get(icon) or CLAUDE_STATUS.get(sess.get("status"), "idle")
         info = get_party(p["pane_id"])
         sid = sess.get("sid") or info.get("session_id") or ""
         if info.get("session_id") and sid and info["session_id"] != sid:

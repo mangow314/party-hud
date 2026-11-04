@@ -119,6 +119,7 @@ adjust-underline-thickness = 3
 | agy、Grok | 畫面有沒有變化 | `--` | `--` |
 
 pane 的指令是上面這些 agent，或它的子行程裡有這些 agent（例如跑在 `node` 或包裝腳本底下），就算隊員。
+Claude Code 自己回報在等你時，隊員會顯示等你，不用另外設定。
 有用 [workmux](https://github.com/raine/workmux) 的話，也會讀它的「等你／完成」狀態。
 所有資料都只在本機讀取，不會送出去。更多細節見 [docs/architecture.md](docs/architecture.md)。
 
