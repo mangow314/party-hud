@@ -255,15 +255,24 @@ def agent_kind(cmd, pane_pid, cmdlines=child_cmdlines):
     return None
 
 
+FIELD_SEP = "|@party@|"  # printable: tmux 3.5 escapes control characters in -F output (0x1f becomes "\037")
+
+
+def parse_panes(text):
+    """`list-panes -F` output -> one dict per pane; lines with the wrong number of fields are skipped."""
+    rows = (line.split(FIELD_SEP) for line in text.splitlines())
+    return [dict(zip(TMUX_FIELDS, map(printable, r))) for r in rows if len(r) == len(TMUX_FIELDS)]
+
+
 def read_tmux():
-    fmt = "\x1f".join(f"#{{{f}}}" for f in TMUX_FIELDS)
+    fmt = FIELD_SEP.join(f"#{{{f}}}" for f in TMUX_FIELDS)
     try:
         out = subprocess.run(
             ["tmux", "list-panes", "-a", "-F", fmt], capture_output=True, text=True, timeout=3, check=False
         ).stdout
     except (OSError, subprocess.TimeoutExpired):
         return []
-    return [dict(zip(TMUX_FIELDS, map(printable, line.split("\x1f")))) for line in out.splitlines() if line]
+    return parse_panes(out)
 
 
 def read_party(pane_id):

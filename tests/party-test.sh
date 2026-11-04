@@ -435,6 +435,11 @@ th.join(5)
 collect.collect = real_collect
 ok(waited and got and got[0].get("mark") == 1 and not collected,
    "No snapshot and the lock is taken: wait for the collector and use its snapshot, do not collect again")
+sep = collect.FIELD_SEP
+good = sep.join(["a", "1", "w\\037x"] + ["0"] * (len(collect.TMUX_FIELDS) - 3))
+rows = collect.parse_panes(good + "\n" + "a\\0371\\037bash\n")
+ok(len(rows) == 1 and rows[0]["session_name"] == "a" and rows[0]["window_name"] == "w\\037x",
+   "list-panes output: printable field separator; a line with the wrong field count is skipped, not a crash")
 print("\n".join(fails), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
