@@ -16,6 +16,9 @@ check() { # check <description> <command...>: passes when the command exits 0
   shift
   if "$@"; then echo "ok   $desc"; else echo "FAIL $desc"; fail=1; fi
 }
+across() { # file $2 matches regex $1, which may span lines (BSD grep -z does not let . match newlines)
+  python3 -c 'import re, sys; sys.exit(not re.search(sys.argv[1], open(sys.argv[2], encoding="utf-8").read(), re.S))' "$1" "$2"
+}
 
 cat >"$tmp/fixture.json" <<'EOF'
 {
@@ -59,27 +62,27 @@ EOF
 }
 check "Every box line is 33 columns wide" widths_ok "$tmp/out.txt"
 check "Layout: Squads 2, then cards of the viewed squad right below (Studio: 2 agents -> 2 cards, nvim excluded)" \
-  grep -qzE "╭─ Squads 2 .*[╭╔][─═] claude [─═].*[╭╔][─═] claude [─═]" "$tmp/out.txt"
+  across "╭─ Squads 2 .*[╭╔][─═] claude [─═].*[╭╔][─═] claude [─═]" "$tmp/out.txt"
 lacks() { ! grep -q -- "$1" "$2"; } # file $2 does not contain $1
 check "Cards don't list other squads' members" lacks "z zzz" "$tmp/out.txt"
 check "Viewed squad (Studio): gold ▌ bar in the left column" grep -qE "^│▌ .* Studio" "$tmp/out.txt"
 check "Studio summary: waiting !1, busy ⠋1 (idle not counted); own squad gets the location pin after its name" grep -qE "Studio 󰍎 +!1 ⠋1 +│" "$tmp/out.txt"
 check "Server: only an asleep member -> summary zzz 1 (expired cache still visible)" grep -qE "Server +zzz 1 │" "$tmp/out.txt"
 next_line_has() { grep -A1 -- "$1" "$tmp/out.txt" | sed -n 2p | grep -q -- "$2"; } # the line after $1 contains $2
-check "Waiting member sorts before busy (Frontend)" grep -qzE "審查員.*! wait.*Frontend.*⠋ busy" "$tmp/out.txt"
+check "Waiting member sorts before busy (Frontend)" across "審查員.*! wait.*Frontend.*⠋ busy" "$tmp/out.txt"
 check "Text card (no art): class icon, name, class, ... workmux 🤖 -> spinner + busy, on one line" \
   grep -qE "Frontend (Warrior|Merchant|Thief|Cleric|Scholar|Hunter|Apothecary|Dancer) +⠋ busy ║" "$tmp/out.txt"
-check "Selected card: gold double frame, ❯ at the far left of the first row" grep -qzE "38;2;226;178;74m╔═[^╝]*❯[^╝]*Frontend" "$tmp/out.ansi"
+check "Selected card: gold double frame, ❯ at the far left of the first row" across "38;2;226;178;74m╔═[^╝]*❯[^╝]*Frontend" "$tmp/out.ansi"
 check "Squad with someone waiting: name in orange (selected or not)" grep -qE "1;38;2;240;160;80mStudio" "$tmp/out.ansi"
 check "Unselected card: dim thin frame (a waiting card keeps its orange frame), dimmed name" \
-  grep -qzE "38;2;240;160;80m╭─[^╯]*38;2;138;143;168m審查員" "$tmp/out.ansi"
+  across "38;2;240;160;80m╭─[^╯]*38;2;138;143;168m審查員" "$tmp/out.ansi"
 check "HP: 14-column value area = heart icon + label + right-aligned value (176k left / 200k max)" grep -qE "║ .HP  176k/200k " "$tmp/out.txt"
 check "SP: minutes left / 60m, on the line right after HP" next_line_has "HP  *176k/200k" "SP  *42/60m "
 check "HP row right side: chip icon + space + model base name (no version or effort)" grep -qE "HP +176k/200k +. Opus ║" "$tmp/out.txt"
 check "SP row right side: number of summoned subagents (no longer listed one per line)" grep -qE "SP +42/60m +.1 ║" "$tmp/out.txt"
 check "No subagent detail lines in the card" lacks "executor" "$tmp/out.txt"
 check "Name from the Claude session name; stale pane cache with another session is dropped, HP estimated from transcript (140k)" \
-  grep -qzE "審查員.*! wait.*HP +140k/200k" "$tmp/out.txt"
+  across "審查員.*! wait.*HP +140k/200k" "$tmp/out.txt"
 check "HP threshold color: 88% teal (bar = colored underline)" grep -qE "4m.\[58;2;126;214;168m" "$tmp/out.ansi"
 
 # Selecting a member of another squad: the viewed squad and the cards follow
@@ -92,10 +95,10 @@ check "Select %4 -> Server has the gold bar, Studio doesn't" bar_only_server "$t
 check "Select %4 -> only Server's 1 card" test "$(grep -cE '^[╭╔][─═] claude [─═]' "$tmp/sel.txt")" = 1
 check "Select %4 -> Studio members not listed" lacks "審查員" "$tmp/sel.txt"
 check "Idle with expired cache -> z asleep; no statusline cache -> HP 50k estimated from transcript, SP 0" \
-  grep -qzE "一個很.*z zzz.*HP +50k/200k +║.*SP +0/60m +║" "$tmp/sel.txt"
-check "HP threshold color: 25% yellow, value turns yellow too" grep -qzE "58;2;226;178;74m.*1;38;2;226;178;74m5" "$tmp/sel.ansi"
+  across "一個很.*z zzz.*HP +50k/200k +║.*SP +0/60m +║" "$tmp/sel.txt"
+check "HP threshold color: 25% yellow, value turns yellow too" across "58;2;226;178;74m.*1;38;2;226;178;74m5" "$tmp/sel.ansi"
 check "Viewed squad with nothing to flag: gold name; unviewed squad with someone waiting: orange ! on the left" \
-  grep -qzE "38;2;240;160;80m!.*Studio.*38;2;226;178;74mServer" "$tmp/sel.ansi"
+  across "38;2;240;160;80m!.*Studio.*38;2;226;178;74mServer" "$tmp/sel.ansi"
 check "Select %4 -> every box line is 33 wide" widths_ok "$tmp/sel.txt"
 python3 -c 'import os,sys
 sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
