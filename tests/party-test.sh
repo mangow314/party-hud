@@ -476,6 +476,14 @@ last, ttl, used = collect.cache_info(sys.argv[2])
 print(int(last - datetime.fromisoformat("2026-11-03T04:06:00+00:00").timestamp()), ttl, used)' "$party" "$tmp/t.jsonl")
 check "transcript: last usage 04:06, TTL 3600, context 40100 tokens (subagent usage excluded)" test "$ci" = "0 3600 40100"
 
+# a resumed session: 300 KB of attachments after the last usage entry
+pad=$(printf 'x%.0s' $(seq 1000))
+for _ in $(seq 300); do echo "{\"type\":\"attachment\",\"content\":\"$pad\"}"; done >>"$tmp/t.jsonl"
+ci=$(python3 -c 'import os,sys
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
+print(collect.cache_info(sys.argv[2])[1:])' "$party" "$tmp/t.jsonl")
+check "transcript: last usage found behind 300 KB of attachments, not taken for a new session" test "$ci" = "(3600, 40100)"
+
 # statusline integration: Claude Code statusline JSON -> party-hud/<pane>.json; party.py reads HP max and model
 sl="$root/integrations/claude-statusline.sh"
 echo '{"session_id":"abc-1","context_window":{"used_percentage":12.4,"context_window_size":1000000},"transcript_path":"/p/abc-1.jsonl","model":{"display_name":"Opus 5.5 (1M context)"}}' |

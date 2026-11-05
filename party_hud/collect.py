@@ -350,11 +350,25 @@ def cache_info(path):
     last, ttl, used = None, None, None
     try:
         with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 256 * 1024))
-            lines = f.read().splitlines()
+            end, carry = f.seek(0, os.SEEK_END), b""
+            # attachments after a resume or compaction can push the last usage entry out of the tail: read further back
+            while end and last is None:
+                start = max(0, end - 256 * 1024)
+                f.seek(start)
+                lines = (f.read(end - start) + carry).split(b"\n")
+                carry = lines.pop(0) if start else b""
+                end = start
+                last, ttl, used = _scan_usage(lines)
     except OSError:
         return None
+    result = (last, ttl or 300, used) if last else None  # TTL unknown: assume the 5-minute default
+    _cache_memo[path] = (mtime, result)
+    return result
+
+
+def _scan_usage(lines):
+    """(time of the last main-thread usage entry, TTL seen from there back, its context tokens) in these lines."""
+    last, ttl, used = None, None, None
     for raw in reversed(lines):
         if b'"usage"' not in raw:
             continue
@@ -378,9 +392,7 @@ def cache_info(path):
             ttl = 300
         if last is not None and ttl:
             break
-    result = (last, ttl or 300, used) if last else None  # TTL unknown: assume the 5-minute default
-    _cache_memo[path] = (mtime, result)
-    return result
+    return last, ttl, used
 
 
 def collect(fixture=None, now=None):
