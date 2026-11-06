@@ -51,8 +51,9 @@ check "party.tmux: leaves allow-passthrough off globally (other panes cannot byp
 t run-shell "python3 $party --toggle"
 sleep 2
 check "Toggle on: every window has a sidebar (3)" eq "$(sidebars)" "$(windows)"
+# macOS sort orders ":off" before "1:on" in a UTF-8 locale; C keeps byte order on both.
 check "Toggle on: allow-passthrough on for sidebar panes only" \
-  eq "$(t list-panes -a -F '#{@party_sidebar}:#{allow-passthrough}' | sort | uniq -c | awk '{print $2}' | tr '\n' ' ')" "1:on :off "
+  eq "$(t list-panes -a -F '#{@party_sidebar}:#{allow-passthrough}' | LC_ALL=C sort | uniq -c | awk '{print $2}' | tr '\n' ' ')" "1:on :off "
 check "Toggle on: new-window hook installed" eq "$(t show-hooks -g | grep -c 'new-window\[90\]')" "1"
 check "Toggle on: session / window switch hooks installed (cursor follows you)" \
   eq "$(t show-hooks -g | grep -cE '(client-session|session-window)-changed\[90\]')" "2"
