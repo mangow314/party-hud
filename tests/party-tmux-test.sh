@@ -4,6 +4,9 @@
 # Needs a real tmux socket: won't run inside the Claude Code sandbox; run it in a normal terminal or via `!`.
 # Takes about 50 seconds.
 set -uo pipefail
+# sort order follows the locale and differs on macOS; LC_ALL would override LC_COLLATE, so keep it as LC_CTYPE (UTF-8).
+if [ -n "${LC_ALL:-}" ]; then export LC_CTYPE="$LC_ALL"; unset LC_ALL; fi
+export LC_COLLATE=C
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 party="$root/party.py"
@@ -51,9 +54,8 @@ check "party.tmux: leaves allow-passthrough off globally (other panes cannot byp
 t run-shell "python3 $party --toggle"
 sleep 2
 check "Toggle on: every window has a sidebar (3)" eq "$(sidebars)" "$(windows)"
-# macOS sort orders ":off" before "1:on" in a UTF-8 locale; C keeps byte order on both.
 check "Toggle on: allow-passthrough on for sidebar panes only" \
-  eq "$(t list-panes -a -F '#{@party_sidebar}:#{allow-passthrough}' | LC_ALL=C sort | uniq -c | awk '{print $2}' | tr '\n' ' ')" "1:on :off "
+  eq "$(t list-panes -a -F '#{@party_sidebar}:#{allow-passthrough}' | sort | uniq -c | awk '{print $2}' | tr '\n' ' ')" "1:on :off "
 check "Toggle on: new-window hook installed" eq "$(t show-hooks -g | grep -c 'new-window\[90\]')" "1"
 check "Toggle on: session / window switch hooks installed (cursor follows you)" \
   eq "$(t show-hooks -g | grep -cE '(client-session|session-window)-changed\[90\]')" "2"

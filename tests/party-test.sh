@@ -2,6 +2,9 @@
 # party.py unit tests (no tmux needed):
 # fixture rendering (card widths, status, HP bars, non-agent panes hidden) + key / mouse / cursor logic
 set -euo pipefail
+# sort order follows the locale and differs on macOS; LC_ALL would override LC_COLLATE, so keep it as LC_CTYPE (UTF-8).
+if [ -n "${LC_ALL:-}" ]; then export LC_CTYPE="$LC_ALL"; unset LC_ALL; fi
+export LC_COLLATE=C
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 party="$root/party.py"
