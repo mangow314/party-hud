@@ -111,8 +111,10 @@ adjust-underline-thickness = 3
 | `@party_key_toggle` | `C-t` | 開／關側欄的鍵 |
 | `@party_key_popup` | `P` | popup 的鍵 |
 | `@party_key_next` | `a` | 「跳到下一個等你的」的鍵 |
-| `@party_art` | `auto` | `on`／`off` 強制開／關圖片；`auto` 在 Ghostty、Kitty 自動開。設 `off` 時也不會動 `allow-passthrough` |
+| `@party_art` | `auto` | `on`／`off` 強制開／關圖片；`auto` 在 Ghostty、Kitty 自動開 |
 | `@party_sidebar_width` | `34` | 側欄寬度（欄） |
+
+圖片靠 tmux 的 `allow-passthrough` 送到終端機。party-hud 只對自己的側欄 pane 開這個選項，其他 pane 裡的程式仍然不能把控制序列直接送到你的終端機。popup 不是 pane，要在 `~/.tmux.conf` 自己全域設 `allow-passthrough on` 才會有圖片（這樣每個 pane 都能繞過 tmux）；沒設就用文字版。
 
 ## 怎麼認出隊員
 

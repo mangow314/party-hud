@@ -102,8 +102,13 @@ Set these in `~/.tmux.conf` before the plugin loads.
 | `@party_key_toggle` | `C-t` | Key for open / close |
 | `@party_key_popup` | `P` | Key for the popup |
 | `@party_key_next` | `a` | Key for "next waiting" |
-| `@party_art` | `auto` | `on` / `off` forces images; `auto` uses them on Ghostty and Kitty. `off` also leaves `allow-passthrough` alone |
+| `@party_art` | `auto` | `on` / `off` forces images; `auto` uses them on Ghostty and Kitty |
 | `@party_sidebar_width` | `34` | Sidebar width in columns |
+
+Images leave tmux through `allow-passthrough`, which party-hud turns on for its own sidebar panes only: a program in any
+other pane still cannot send escape sequences straight to your terminal. The popup is not a pane, so it shows images only if
+you set `allow-passthrough on` globally in `~/.tmux.conf` yourself (then every pane can bypass tmux); otherwise it uses
+the text version.
 
 ## How members are detected
 

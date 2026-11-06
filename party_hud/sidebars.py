@@ -18,7 +18,8 @@ EXE = shlex.join(
 
 
 def mark_sidebar(pane):
-    """Mark a pane as a sidebar. remain-on-exit keeps a stopped (hidden) sidebar's pane so wake can respawn it; the empty format hides "Pane is dead"."""
+    """Mark a pane as a sidebar. remain-on-exit keeps a stopped (hidden) sidebar's pane so wake can respawn it; the empty format hides "Pane is dead".
+    allow-passthrough lets the images reach the outer terminal; set on this pane only, a global setting would let any program bypass tmux."""
     tmux(
         "set-option",
         "-p",
@@ -26,6 +27,13 @@ def mark_sidebar(pane):
         pane,
         "@party_sidebar",
         "1",
+        ";",
+        "set-option",
+        "-p",
+        "-t",
+        pane,
+        "allow-passthrough",
+        "on",
         ";",
         "set-option",
         "-p",

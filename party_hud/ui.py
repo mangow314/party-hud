@@ -171,7 +171,7 @@ def run_ui(mode, fixture=None):
     last_frame, row_map, frame_lines = None, [], []
     pending, due = None, False
     last_here = None
-    # tmux 3.8 forwards passthrough from popups too
+    # a popup is not a pane: tmux 3.8 forwards its passthrough only when allow-passthrough is on globally (the user's tmux.conf)
     art = (
         load_art()
         if not fixture
@@ -179,6 +179,7 @@ def run_ui(mode, fixture=None):
             tmux("show-option", "-gqv", "@party_art").strip(),
             tmux("display-message", "-p", "#{client_termname}").strip(),
         )
+        and (mode == "sidebar" or tmux("show-option", "-gqv", "allow-passthrough").strip() in ("on", "all"))
         else None
     )
     sent, was_visible = set(), False

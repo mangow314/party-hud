@@ -11,11 +11,8 @@ opt() { # opt <name> <default>
   echo "${v:-$2}"
 }
 
-# Images are sent to the outer terminal through tmux passthrough (Kitty graphics protocol).
-# "on" only lets the visible pane pass sequences through. Set @party_art to "off" to skip this.
-if [ "$(opt @party_art auto)" != "off" ]; then
-  tmux set -g allow-passthrough on
-fi
+# Images need allow-passthrough; it is set per sidebar pane (sidebars.py), never globally, so programs in
+# other panes cannot reach the outer terminal.
 # Colored underlines are the HP / SP bars. tmux only forwards underline color when the terminal declares usstyle.
 tmux set -as terminal-features ',xterm-ghostty:usstyle,xterm-kitty:usstyle'
 

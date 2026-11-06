@@ -46,11 +46,13 @@ check "A client is attached to session a" eq "$(t list-clients -F '#{session_nam
 
 t run-shell "$root/party.tmux"
 check "party.tmux: binds 4 keys (popup, toggle, next, border drag)" eq "$(t list-keys | grep -c 'party.py')" "4"
-check "party.tmux: enables allow-passthrough (images pass through tmux)" eq "$(t show -gv allow-passthrough)" "on"
+check "party.tmux: leaves allow-passthrough off globally (other panes cannot bypass tmux)" eq "$(t show -gv allow-passthrough)" "off"
 
 t run-shell "python3 $party --toggle"
 sleep 2
 check "Toggle on: every window has a sidebar (3)" eq "$(sidebars)" "$(windows)"
+check "Toggle on: allow-passthrough on for sidebar panes only" \
+  eq "$(t list-panes -a -F '#{@party_sidebar}:#{allow-passthrough}' | sort | uniq -c | awk '{print $2}' | tr '\n' ' ')" "1:on :off "
 check "Toggle on: new-window hook installed" eq "$(t show-hooks -g | grep -c 'new-window\[90\]')" "1"
 check "Toggle on: session / window switch hooks installed (cursor follows you)" \
   eq "$(t show-hooks -g | grep -cE '(client-session|session-window)-changed\[90\]')" "2"

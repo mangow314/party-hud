@@ -83,7 +83,9 @@ Portraits and crests use the [Kitty graphics protocol](https://sw.kovidgoyal.net
 with Unicode placeholders:
 
 1. When a sidebar has been visible for a second, it sends the 16 PNGs once (wrapped in tmux passthrough), each with
-   an id. The wait matters: while tmux redraws a client (after a split, a session switch or an attach) it drops
+   an id. `allow-passthrough` is a pane option; `mark_sidebar` sets it on the sidebar pane only, so other panes keep
+   tmux's default and cannot reach the outer terminal. The popup has no pane and gets images only when the user set it
+   globally. The wait matters: while tmux redraws a client (after a split, a session switch or an attach) it drops
    passthrough without counting it, and an image that loses one chunk stays black.
 2. Each image cell is drawn as the character U+10EEEE, colored with the image id, plus two combining
    diacritics for row and column. tmux treats these as normal text, so scrolling, redrawing and pane
