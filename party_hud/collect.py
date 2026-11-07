@@ -376,7 +376,7 @@ _cache_memo = {}
 
 
 def read_claude_sessions():
-    """~/.claude/sessions/<pid>.json -> {pane_id: {sid, name, status}}, live processes only."""
+    """~/.claude/sessions/<pid>.json -> {pane_id: {pid, sid, name, status}}, live processes only."""
     out = {}
     for path in glob.glob(os.path.join(CLAUDE_SESSIONS, "*.json")):
         try:
@@ -388,6 +388,7 @@ def read_claude_sessions():
         if not pid or "%" not in where or not proc_alive(pid):
             continue
         out["%" + where.rsplit("%", 1)[1]] = {
+            "pid": str(pid),
             "sid": d.get("sessionId", ""),
             "name": printable(d.get("name") or ""),
             "status": d.get("status", ""),
@@ -778,7 +779,8 @@ def collect(fixture=None, now=None):
             return codex_usage(path) if path else None
 
         panes = read_tmux()
-        sessions = read_claude_sessions()
+        pane_pids = {p["pane_id"]: p["pane_pid"] for p in panes}
+        sessions = {k: v for k, v in read_claude_sessions().items() if v["pid"] in proc_tree(pane_pids.get(k))}
         get_party, get_cache, get_transcript, get_summons = read_party, cache_info, transcript_for, summons_for
 
     towns, meta, here, owners = {}, {}, None, {}

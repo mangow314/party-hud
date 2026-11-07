@@ -645,6 +645,18 @@ for i in (1, 2):
 collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed = real2
 collect.proc_args, collect.proc_children, collect.proc_start, collect.rollouts_since, collect.glob.glob = real
 ok(from_collect == [ra, rb] and seen == [ra, rb], "codex rollout: the collect path and the report path pair the same rollouts")
+kids = {"50": ["51"], "51": ["52"]}
+cpanes = [dict(fields, pane_id="%7", pane_pid="50", pane_current_command="sleep", session_name="s",
+               session_attached="1", window_active="1", window_id="@1", window_panes="1")]
+real3 = (collect.read_tmux, collect.read_claude_sessions, collect.proc_children, collect.screen_changed)
+collect.read_tmux, collect.proc_children = (lambda: cpanes), (lambda pid: kids.get(str(pid), []))
+collect.screen_changed = lambda ps, now: {}
+kinds = []
+for spid in ("52", "99"):
+    collect.read_claude_sessions = lambda spid=spid: {"%7": {"pid": spid, "sid": "", "name": "", "status": "idle"}}
+    kinds.append([a["kind"] for t in collect.collect()["towns"] for a in t["agents"]])
+collect.read_tmux, collect.read_claude_sessions, collect.proc_children, collect.screen_changed = real3
+ok(kinds == [["claude"], []], "claude session: only a pane whose process tree holds its pid")
 nw = [{"pane": p, "status": s} for p, s in (("%1", "idle"), ("%2", "done"), ("%3", "waiting"), ("%4", "done"))]
 ok(ui.next_waiting(nw, "%1") == "%3" and ui.next_waiting(nw, "%3") == "%3"
    and ui.next_waiting([dict(a, status="idle") if a["status"] == "waiting" else a for a in nw], "%2") == "%4",
