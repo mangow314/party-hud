@@ -400,6 +400,19 @@ ok(collect.report_for({"kind": "claude", "transcript": sess})["subagents"] == fi
    and collect.report_for({"kind": "claude", "transcript": sess})["text"].startswith("## 結果")
    and collect.report_for({"kind": "claude", "transcript": transcript(*turn)})["subagents"] == [],
    "report_for: main report carries the finished subagents; no subagents/ directory -> empty list, same report")
+common_tmux = collect.tmux
+agy_screen = "old\n\nI changed 2 files.\nAll tests pass.\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 > ask   \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n  ? for shortcuts\n"
+grok_screen = "first\n\nDone: \u4fee\u597d\u4e86\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n> \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n grok-4  ctx 3%\n"
+for screen in (agy_screen, grok_screen):
+    collect.tmux = lambda *args, s=screen: s
+    got = collect.report_for({"kind": "agy" if screen is agy_screen else "grok", "pane": "%3"})
+    want = "I changed 2 files.\nAll tests pass." if screen is agy_screen else "Done: \u4fee\u597d\u4e86"
+    ok(got and got["text"] == want, f"report_for agy/grok: last paragraph above the input box and status bar ({want[:8]!r})")
+collect.tmux = lambda *args: "no border\n\nlast words\n"
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "last words", "screen report: no box on screen -> last paragraph as is")
+collect.tmux = lambda *args: "\n\n"
+ok(collect.report_for({"kind": "grok", "pane": "%3"}) is None, "screen report: blank screen -> None")
+collect.tmux = common_tmux
 collect.PARTY_DIR = tempfile.mkdtemp()
 screens = iter(["a", "a", "b", "b"])
 collect.tmux = lambda *args: next(screens)

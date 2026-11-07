@@ -544,8 +544,34 @@ def finished_subagents(transcript):
     return out
 
 
+BORDER_START = "\u256d\u2570\u250c\u2514\u2500"
+BOX_CHARS = BORDER_START + "\u2502\u256e\u256f\u2510\u2518\u2503"
+
+
+def screen_report(pane):
+    """Last paragraph of the screen, without the input box and status bar below it (agy, grok write no log).
+    The bottom block is cut from the lowest border line (a line starting with a box-drawing corner or rule) up through the lines directly above it that also start with a box-drawing character, or up to the previous plain rule."""
+    lines = [ln.rstrip() for ln in tmux("capture-pane", "-p", "-J", "-t", pane).split("\n")]
+    border = [i for i, ln in enumerate(lines) if ln.strip() and ln.lstrip()[0] in BORDER_START]
+    if border:
+        top = border[-1]
+        if lines[top].lstrip()[:1] == "\u2500" and len(border) > 1 and "" not in lines[border[-2] : top]:
+            top = border[-2]
+        while top > 0 and lines[top - 1].strip() and lines[top - 1].lstrip()[0] in BOX_CHARS:
+            top -= 1
+        lines = lines[:top]
+    paras, cur = [], []
+    for ln in lines + [""]:
+        if ln:
+            cur.append(ln)
+        elif cur:
+            paras.append("\n".join(cur))
+            cur = []
+    return {"text": paras[-1], "start": None, "end": None} if paras else None
+
+
 def report_for(a):
-    """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Only Claude Code and Codex write one."""
+    """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Claude Code and Codex write one; agy and grok are read off the screen."""
     if a["kind"] == "claude":
         rep = claude_report(a["transcript"]) if a.get("transcript") else None
         return dict(rep, subagents=finished_subagents(a["transcript"])) if rep else None
@@ -554,6 +580,8 @@ def report_for(a):
         p = next((p for p in panes if p["pane_id"] == a["pane"]), None)
         path = codex_rollout(p.get("pane_pid", ""), p.get("pane_current_path", ""), panes) if p else None
         return codex_report(path) if path else None
+    if a["kind"] in ("agy", "grok"):
+        return screen_report(a["pane"])
     return None
 
 
