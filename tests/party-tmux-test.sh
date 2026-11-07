@@ -156,8 +156,9 @@ PY
 # The python child is what agent_kind recognises ("python3 .../agy"); the wrapper must not exec it.
 printf '#!/usr/bin/env bash\npython3 "%s/real/agy"\necho done\n' "$fake" >"$fake/agy"
 chmod +x "$fake/agy" "$fake/real/agy"
+# tmux 3.8 gives a split-window pane the PATH of the client that sent the command, not the global one; set both
 t set-environment -g PATH "$fake:$PATH"
-as_host() { env TMUX="$(t display -p '#{socket_path},#{pid},0')" TMUX_PANE="$host" python3 "$party" "$@"; }
+as_host() { env PATH="$fake:$PATH" TMUX="$(t display -p '#{socket_path},#{pid},0')" TMUX_PANE="$host" python3 "$party" "$@"; }
 member=$(as_host --summon agy --timeout 30)
 check "Summon: --summon agy prints the new pane id" test -n "$member"
 sent=$(as_host --ask "$member" "hello")
