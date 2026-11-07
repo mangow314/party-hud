@@ -38,7 +38,7 @@ from party_hud.ui import jump_next, run_report, run_ui
 
 def ask(pane, text):
     """(rc, stdout, stderr) for party.py --ask. rc: 0 sent (stdout: the time just before sending), 2 bad or missing pane or tmux failure, 4 not an agent.
-    One line is typed with send-keys -l; several lines go through a tmux paste buffer so the agent sees one paste."""
+    The text goes in as one bracketed paste, then Enter: codex takes an Enter right after typed keys as a newline."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
     rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
@@ -47,15 +47,12 @@ def ask(pane, text):
     if not any(a["pane"] == pane for t in get_snapshot()["towns"] for a in t["agents"]):
         return 4, "", f"not a known agent: {pane}\n"
     sent = time.time()
-    if "\n" in text:
-        r = subprocess.run(
-            ["tmux", "load-buffer", "-b", "party-ask", "-"], input=text, capture_output=True, text=True, check=False
-        )
-        rc, err = r.returncode, r.stderr
-        if rc == 0:
-            rc, _, err = tmux_run(["paste-buffer", "-p", "-d", "-b", "party-ask", "-t", pane])
-    else:
-        rc, _, err = tmux_run(["send-keys", "-t", pane, "-l", "--", text])
+    r = subprocess.run(
+        ["tmux", "load-buffer", "-b", "party-ask", "-"], input=text, capture_output=True, text=True, check=False
+    )
+    rc, err = r.returncode, r.stderr
+    if rc == 0:
+        rc, _, err = tmux_run(["paste-buffer", "-p", "-d", "-b", "party-ask", "-t", pane])
     if rc == 0:
         rc, _, err = tmux_run(["send-keys", "-t", pane, "Enter"])
     if rc != 0:

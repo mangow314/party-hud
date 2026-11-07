@@ -23,7 +23,7 @@ The HUD itself only reads. These subcommands open a pane or send keys only when 
 - Exit: 0 ready, 2 bad arguments, unknown agent, not in tmux, or tmux failure, 3 timeout.
 
 `party.py --ask PANE TEXT`
-- Types TEXT into the agent's pane and presses Enter. Several lines are sent as one paste.
+- Pastes TEXT into the agent's pane as one paste (several lines included) and presses Enter.
 - stdout: the time sent (epoch seconds). Keep it for `--after`.
 - Exit: 0 sent, 2 bad or missing pane or tmux failure, 4 pane is not a known agent.
 

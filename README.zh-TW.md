@@ -143,7 +143,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE [--wait] [--timeou
 ### Claude Code 的協作 skill
 
 `--summon AGENT` 開一個跑 `claude`、`codex`、`agy` 或 `grok` 的 pane，等它可以輸入後印出 pane id。`--ask PANE TEXT`
-把文字打進 agent 的 pane，並印出送出的時間。搭配上面的 `--report-text PANE --wait --after EPOCH`，一個 agent 就能把工作交給另一個並等回覆：
+把文字貼進 agent 的 pane、按 Enter，並印出送出的時間。搭配上面的 `--report-text PANE --wait --after EPOCH`，一個 agent 就能把工作交給另一個並等回覆：
 
 ```sh
 m=$(python3 ~/.tmux/plugins/party-hud/party.py --summon agy)

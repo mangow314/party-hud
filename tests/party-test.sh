@@ -905,11 +905,13 @@ party.subprocess.run = lambda cmd, **kw: ask_calls.append((tuple(cmd), kw.get("i
 t0 = time.time()
 rc, out, err = party.ask("%5", "hello")
 ok(rc == 0 and t0 <= float(out) <= time.time() and err == ""
-   and [c[1] for c in ask_calls[1:]] == [("send-keys", "-t", "%5", "-l", "--", "hello"), ("send-keys", "-t", "%5", "Enter")],
-   "ask: one line -> send-keys -l -- then Enter, stdout is the send time")
+   and ask_calls[1:] == [(("tmux", "load-buffer", "-b", "party-ask", "-"), "hello"),
+                         ("tmux", ("paste-buffer", "-p", "-d", "-b", "party-ask", "-t", "%5")),
+                         ("tmux", ("send-keys", "-t", "%5", "Enter"))],
+   "ask: one line -> load-buffer from stdin, paste-buffer -p -d, then Enter; stdout is the send time")
 ask_calls.clear()
 party.ask("%5", "-Rxyz")
-ok(ask_calls[1][1] == ("send-keys", "-t", "%5", "-l", "--", "-Rxyz"), "ask: single-line text starting with - goes after --")
+ok(ask_calls[1] == (("tmux", "load-buffer", "-b", "party-ask", "-"), "-Rxyz"), "ask: text starting with - goes in on stdin")
 ask_calls.clear()
 rc, out, err = party.ask("%5", "a\nb")
 ok(rc == 0 and ask_calls[1:] == [(("tmux", "load-buffer", "-b", "party-ask", "-"), "a\nb"),

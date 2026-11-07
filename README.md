@@ -141,7 +141,7 @@ yet, it waits until that stops and then prints. `--timeout` is the most seconds 
 ### Crew skill for Claude Code
 
 `--summon AGENT` opens a pane running `claude`, `codex`, `agy` or `grok` and prints its pane id once it takes input.
-`--ask PANE TEXT` types text into an agent's pane and prints the time it was sent. Together with `--report-text PANE
+`--ask PANE TEXT` pastes text into an agent's pane, presses Enter, and prints the time it was sent. Together with `--report-text PANE
 --wait --after EPOCH` (above), one agent can hand work to another and wait for the answer:
 
 ```sh
