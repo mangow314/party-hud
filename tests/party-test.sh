@@ -420,10 +420,69 @@ grok_screen = "first\n\nDone: \u4fee\u597d\u4e86\n\n\u2500\u2500\u2500\u2500\u25
 for screen in (agy_screen, grok_screen):
     collect.tmux = lambda *args, s=screen: s
     got = collect.report_for({"kind": "agy" if screen is agy_screen else "grok", "pane": "%3"})
-    want = "I changed 2 files.\nAll tests pass." if screen is agy_screen else "Done: \u4fee\u597d\u4e86"
+    want = "I changed 2 files. All tests pass." if screen is agy_screen else "Done: \u4fee\u597d\u4e86"
     ok(got and got["text"] == want, f"report_for agy/grok: last paragraph above the input box and status bar ({want[:8]!r})")
+agy_real = "\n".join([
+    "\u2500" * 49, "> 分三段回答，不要用工具：第一段說明 tmux session", "  persistence 是什麼；第二段列出三個常用指令（用 -", "  開頭的清單）；第三段一句話總結。", "",
+    "\u26a0 Sign-in update needed", "  \u23bf  Your sign-in is missing permissions that are", "     now required, so some requests may fail. Run", "     /logout to sign in again.", "",
+    "\u25b8 Thought for 10s, 829 tokens", "",
+    "  tmux session", "  persistence（工作階段持久化）是指當終端機關閉、", "  SSH 連線中斷或網路異常時，tmux", "  仍能在伺服器背景持續運行所有程式與終端狀態，讓",
+    "  使用者隨時能重新連回原先的作業環境；廣義上亦包", "  含透過外掛（如 tmux-", "  resurrect）在伺服器重新開機後復原 session", "  與視窗佈局的機制。", "",
+    "  \u2022 tmux new -s <名稱>：建立並進入一個具名的全新", "  session。", "  \u2022 tmux detach：將目前的 session", "  脫離至背景繼續執行（或使用快捷鍵 Ctrl+b 接", "  d）。",
+    "  \u2022 tmux attach -t", "  <名稱>：重新附加並回到指定的背景 session", "  繼續作業。", "",
+    "  tmux session persistence", "  能徹底避免因斷線導致工作中斷或進度遺失，實現隨", "  時暫停且無縫接續的終端工作流。", "",
+    "\u2500" * 52, ">", "\u2500" * 52, "? for shortcuts              Gemini 3.8 Flash · high", ""])
+grok_real = "\n".join([
+    "  sdlc/quest-report-v2 ~/projects/party-hud [Click here to Upgrade]                 32K / 256K \u2502 [Dashboard]", "", "",
+    "     \u276f 分三段回答，不要用工具：第一段說明 tmux session persistence 是什麼；第二段列出三個常用指令（用 - 開頭的清單）；第三段   12:47 AM   \u2588",
+    "       一句話總結。          \u2588", "          \u2588",
+    "     \u25c6 Thought for 0.8s       \u2588", "          \u2588",
+    "     tmux session persistence 是指終端機視窗關掉、SSH 斷線，或你登出之後，tmux 裡的工作階段仍留在背景繼續跑。程序、視窗配置和  12:47 AM   \u2588",
+    "     工作目錄都還在，之後重新連上同一台機器就能接回去。        \u2588", "          \u2588",
+    "     \u2022 tmux new -s work：建立名為 work 的工作階段       \u2588", "     \u2022 tmux ls：列出目前還在的工作階段       \u2588",
+    "     \u2022 tmux attach -t work：接回名為 work 的工作階段       \u2588", "          \u2588",
+    "     一句話：tmux 把終端工作留在伺服器上，斷線後還能原樣接回來。       \u2588", "          \u2588",
+    "     Worked for 4.9s        \u2588", "          \u2588", "",
+    "  Help improve Grok                                    [Opt out] [Opt in]",
+    "  Off by default. Opt-in to allow SpaceXAI to retain coding data, e.g., prompts, traces, & metrics, for training and",
+    "  debugging purposes. Change anytime via settings.", "  Read Terms and Privacy Policy.", "",
+    "  \u256d" + "\u2500" * 40 + "\u256e", "  \u2502 \u276f" + " " * 38 + "\u2502", "  \u2570" + "\u2500" * 20 + " Grok 4.7 (high) \u2500\u256f", "",
+    "  Shift+Tab:mode  \u2502  Ctrl+x:shortcuts"])
+for kind, screen, want in (
+    ("agy", agy_real, "tmux session persistence（工作階段持久化）是指當終端機關閉、SSH 連線中斷或網路異常時，tmux 仍能在伺服器背景持續運行所有程式與終端狀態，讓"
+     "使用者隨時能重新連回原先的作業環境；廣義上亦包含透過外掛（如 tmux-resurrect）在伺服器重新開機後復原 session 與視窗佈局的機制。\n\n"
+     "\u2022 tmux new -s <名稱>：建立並進入一個具名的全新 session。\n\u2022 tmux detach：將目前的 session 脫離至背景繼續執行（或使用快捷鍵 Ctrl+b 接 d）。\n"
+     "\u2022 tmux attach -t <名稱>：重新附加並回到指定的背景 session 繼續作業。\n\n"
+     "tmux session persistence 能徹底避免因斷線導致工作中斷或進度遺失，實現隨時暫停且無縫接續的終端工作流。"),
+    ("grok", grok_real, "tmux session persistence 是指終端機視窗關掉、SSH 斷線，或你登出之後，tmux 裡的工作階段仍留在背景繼續跑。程序、視窗配置和工作目錄都還在，之後重新連上同一台機器就能接回去。\n\n"
+     "\u2022 tmux new -s work：建立名為 work 的工作階段\n\u2022 tmux ls：列出目前還在的工作階段\n\u2022 tmux attach -t work：接回名為 work 的工作階段\n\n"
+     "一句話：tmux 把終端工作留在伺服器上，斷線後還能原樣接回來。")):
+    collect.tmux = lambda *args, s=screen: s
+    got = collect.report_for({"kind": kind, "pane": "%3"})
+    ok(got and got["text"] == want, f"screen report: whole last reply, unwrapped ({kind})")
+collect.tmux = lambda *args: "> ask\n\nonly line\n"
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "only line", "screen report: prompt then one output line -> that line")
 collect.tmux = lambda *args: "no border\n\nlast words\n"
 ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "last words", "screen report: no box on screen -> last paragraph as is")
+grok_scrolled = "\n".join([
+    "  [Click here to Upgra… 32K / 256K \u2502 [Dashboard]", "", "    tmux 把終端工作留在可隨時接回的", "    背景 session 裡，關掉視窗不會中", "    斷裡面的程式。", "",
+    "    Worked for 13s                              \u2588", "                                                \u2588", "",
+    " Help improve Grok            [Opt out] [Opt in]", " Off by default. Opt-in to allow SpaceXAI to", " retain coding data, e.g., prompts, traces, &",
+    " metrics, for training and debugging purposes.", " Change anytime via settings.", " Read Terms and Privacy Policy.",
+    " \u256d" + "\u2500" * 45 + "\u256e", " \u2502 \u276f" + " " * 42 + "\u2502", " \u2570" + "\u2500" * 27 + " Grok 4.7 (high) \u2500\u256f", " Ctrl+x:shortcuts"])
+collect.tmux = lambda *args: grok_scrolled
+ok(collect.report_for({"kind": "grok", "pane": "%3"})["text"] == "tmux 把終端工作留在可隨時接回的背景 session 裡，關掉視窗不會中斷裡面的程式。",
+   "screen report: grok scrolled past the prompt -> paragraph above Worked for")
+cap_args = []
+collect.tmux = lambda *args: cap_args.append(args) or "x\n"
+collect.report_for({"kind": "agy", "pane": "%3"})
+ok(cap_args and "-S" in cap_args[0] and "-J" in cap_args[0], "screen report: reads scrollback")
+agy_thought = "\n".join(["> 問題", "", "▸ Thought for 6s", "  第一段的", "  文字。", "", "  第二段。", "", "─" * 20, ">", "─" * 20])
+collect.tmux = lambda *args: agy_thought
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "第一段的文字。\n\n第二段。",
+   "screen report: thought line glued to the first paragraph keeps that paragraph")
+collect.tmux = lambda *args: "ready\nhello\n\nparty-test-reply-42\n"
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "party-test-reply-42", "screen report: fake agy screen (no prompt line, echo, blank, reply) -> the reply")
 collect.tmux = lambda *args: "\n\n"
 ok(collect.report_for({"kind": "grok", "pane": "%3"}) is None, "screen report: blank screen -> None")
 collect.tmux = common_tmux

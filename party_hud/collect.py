@@ -5,8 +5,10 @@ import glob
 import json
 import math
 import os
+import re
 import subprocess
 import time
+import unicodedata
 import zlib
 from datetime import datetime, timedelta
 
@@ -560,10 +562,49 @@ BORDER_START = "\u256d\u2570\u250c\u2514\u2500"
 BOX_CHARS = BORDER_START + "\u2502\u256e\u256f\u2510\u2518\u2503"
 
 
+PROMPT_MARKS = ("> ", "\u276f ")
+NOISE_MARKS = "\u26a0\u23bf"
+THOUGHT_MARKS = ("\u25b8 ", "\u25c6 ")
+BULLET = re.compile(r"(?:[\u2022*-]|\d+\.)\s")
+GROK_TIME = re.compile(r"\s{2,}\d{1,2}:\d{2} [AP]M$")
+
+
+def join_wrapped(prev, nxt):
+    if prev.endswith("-"):
+        return prev + nxt
+    a, b = prev[-1], nxt[0]
+
+    def alnum(c):
+        return c.isascii() and c.isalnum()
+
+    def fullwidth_punct(c):
+        return unicodedata.category(c).startswith("P") and unicodedata.east_asian_width(c) in "FW"
+
+    if (alnum(a) and not fullwidth_punct(b)) or (alnum(b) and not fullwidth_punct(a)):
+        return prev + " " + nxt
+    return prev + nxt
+
+
+def unwrap(para):
+    """agy and grok wrap their own lines (indented); bullets start a new line, anything else continues the previous one."""
+    indent = min(len(ln) - len(ln.lstrip()) for ln in para)
+    out = []
+    for ln in (ln[indent:] for ln in para):
+        if out and not BULLET.match(ln):
+            out[-1] = join_wrapped(out[-1], ln)
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
 def screen_report(pane):
-    """Last paragraph of the screen, without the input box and status bar below it (agy, grok write no log).
-    The bottom block is cut from the lowest border line (a line starting with a box-drawing corner or rule) up through the lines directly above it that also start with a box-drawing character, or up to the previous plain rule."""
-    lines = [ln.rstrip() for ln in tmux("capture-pane", "-p", "-J", "-t", pane).split("\n")]
+    """Whole last reply of the screen, without the input box and status bar below it (agy, grok write no log).
+    The bottom block is cut from the lowest border line (a line starting with a box-drawing corner or rule) up through the lines directly above it that also start with a box-drawing character, or up to the previous plain rule.
+    The reply starts after the last prompt line (agy "> ", grok "\u276f "); grok replies are indented as far as the prompt and its notices less."""
+    lines = [
+        GROK_TIME.sub("", ln.replace("\u2588", "").rstrip())
+        for ln in tmux("capture-pane", "-p", "-J", "-S", "-200", "-t", pane).split("\n")
+    ]
     border = [i for i, ln in enumerate(lines) if ln.strip() and ln.lstrip()[0] in BORDER_START]
     if border:
         top = border[-1]
@@ -572,14 +613,28 @@ def screen_report(pane):
         while top > 0 and lines[top - 1].strip() and lines[top - 1].lstrip()[0] in BOX_CHARS:
             top -= 1
         lines = lines[:top]
+    prompts = [i for i, ln in enumerate(lines) if ln.lstrip().startswith(PROMPT_MARKS)]
+    if prompts:
+        start = prompts[-1]
+        indent = len(lines[start]) - len(lines[start].lstrip())
+        while start < len(lines) and lines[start]:
+            start += 1
+        lines = [ln for ln in lines[start:] if not ln or len(ln) - len(ln.lstrip()) >= indent]
+    worked = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("Worked for ")]
+    if worked:
+        lines = lines[: worked[-1]]
+    lines = [ln for ln in lines if not ln.lstrip().startswith(THOUGHT_MARKS)]
     paras, cur = [], []
     for ln in lines + [""]:
         if ln:
             cur.append(ln)
         elif cur:
-            paras.append("\n".join(cur))
+            if cur[0].lstrip()[0] not in NOISE_MARKS:
+                paras.append(unwrap(cur))
             cur = []
-    return {"text": paras[-1], "start": None, "end": None} if paras else None
+    if not prompts:
+        paras = paras[-1:]
+    return {"text": "\n\n".join(paras), "start": None, "end": None} if paras else None
 
 
 def report_for(a):
