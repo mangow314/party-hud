@@ -51,7 +51,9 @@ The rollout file is found in two ways:
 1. A file under `~/.codex/sessions/` held open by a process in the pane (Linux only: read from `/proc/<pid>/fd`).
 2. Newer Codex builds write rollouts from a background app-server instead. Then the newest rollout whose
    `session_meta.cwd` equals the pane's directory and that was modified after the Codex process started is used.
-   Two Codex sessions in the same directory will show the same HP.
+   If several Codex sessions run in the same directory, they are ordered by start time, and each takes the earliest
+   rollout whose `session_meta.timestamp` is not earlier than its own start time (1 second of slack) and that no
+   other session has taken.
 
 SP is not shown: OpenAI does not publish a fixed cache lifetime we could count down
 ([prompt caching guide](https://developers.openai.com/api/docs/guides/prompt-caching)).
@@ -59,7 +61,7 @@ SP is not shown: OpenAI does not publish a fixed cache lifetime we could count d
 ## agy, Grok
 
 Detected by the pane's command name, or among its child processes as for Codex. Working / idle comes from screen changes, as for Codex. HP and SP show `--`. They write no report: the
-report popup shows the pane's last lines instead.
+report pane shows the pane's last lines instead.
 
 ## workmux
 

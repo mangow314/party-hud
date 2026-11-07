@@ -2,8 +2,11 @@
 
 Run it inside the tmux pane you want to test; it only measures, it does not pick a winner.
 
-  python3 bench/anim.py --mode redraw --fps 8 --term-pid $(pgrep -o ghostty)
-  python3 bench/anim.py --mode kitty  --fps 8 --term-pid $(pgrep -o ghostty)
+  python3 bench/anim.py --mode redraw --fps 8 --term-pid <pid>
+  python3 bench/anim.py --mode kitty  --fps 8 --term-pid <pid>
+
+Find <pid> with: ps -o pid,pcpu,comm -p "$(pgrep -d, ghostty)"
+Take the Ghostty with the highest %CPU, the one drawing this window.
 """
 
 import argparse
