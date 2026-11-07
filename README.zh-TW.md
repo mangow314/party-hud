@@ -114,12 +114,31 @@ adjust-underline-thickness = 3
 - 在浮動的報告 pane 上再切分出 pane，關掉那個 pane 後報告 pane 不會長回原大小；按 `q` 再按 `prefix R` 重開即可。
 - `n` 看下一份，`Enter` 切到那位隊員的 pane，`q`／`Esc` 關閉這個 pane。
 - 看完報告不會清掉「做完」的標記，切到那個 pane 才會。
+- Claude Code 隊員還有 subagent 在跑時，同樣有報告頁。標題從 `Quest complete` 改成 `還有 N 個分支任務進行中`（N 是進行中的
+  subagent 數），報告下方逐一列出進行中的 subagent，附名稱與 `進行中`。
+- 已完成的 subagent 也列在報告下方，附上它最後交回的報告（Markdown 會上色）。
 
 想在狀態列看到有幾份報告，collector 會把「等你或做完的隊員數」寫進 tmux 變數 `@party_reports`：
 
 ```tmux
 set -ag status-right '#{?#{@party_reports}, 報告 #{@party_reports},}'
 ```
+
+### 從指令讀報告
+
+```sh
+python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE [--wait] [--timeout SEC]
+```
+
+`PANE` 是 tmux pane id，例如 `%12`。不加 `--wait`，立刻印出該隊員目前的報告。加 `--wait`，隊員還在工作、還有 subagent
+在跑、或有已完成的 subagent 主對話尚未回應時，會等這些狀況結束再印。`--timeout` 是最多等幾秒（預設 600）。
+
+| 退出碼 | 意思 |
+|---|---|
+| 0 | 已印出報告。已知 agent 但沒有報告時也是 0：stdout 為空，stderr 寫 `no report for PANE` |
+| 2 | 參數錯誤（不是 pane id、逾時值不合法）或 pane 不存在 |
+| 3 | 等待時 `--timeout` 用完 |
+| 4 | pane 存在，但不是已知 agent |
 
 ## 選項
 

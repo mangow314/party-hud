@@ -109,6 +109,10 @@ current window in half.
 - If you split the floating report pane, it stays smaller after the new pane closes; press `q` and `prefix R` to reopen it.
 - `n` next report, `Enter` goes to the member's pane, `q` / `Esc` closes the pane.
 - Reading a report does not clear the "done" mark; going to the pane does.
+- A Claude Code member that is still running subagents also gets a report page. The title changes from
+  `Quest complete` to `還有 N 個分支任務進行中` (N = running subagents), and each running subagent is listed under the
+  report with its name and `進行中`.
+- Finished subagents are listed under the report too, each with the last report it handed back (Markdown styled).
 
 To see the count in your status line, the collector writes the number of members waiting or done to the tmux
 variable `@party_reports`:
@@ -116,6 +120,23 @@ variable `@party_reports`:
 ```tmux
 set -ag status-right '#{?#{@party_reports}, reports #{@party_reports},}'
 ```
+
+### Reading a report from a script
+
+```sh
+python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE [--wait] [--timeout SEC]
+```
+
+`PANE` is a tmux pane id such as `%12`. Without `--wait` it prints the member's current report at once. With `--wait`,
+if the member is working, still has subagents running, or has a finished subagent the main conversation has not answered
+yet, it waits until that stops and then prints. `--timeout` is the most seconds to wait (default 600).
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Report printed. A known agent with no report also exits 0: stdout is empty and stderr says `no report for PANE` |
+| 2 | Bad arguments (not a pane id, bad timeout) or the pane does not exist |
+| 3 | `--timeout` ran out while waiting |
+| 4 | The pane exists but is not a known agent |
 
 ## Options
 
