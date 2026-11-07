@@ -131,28 +131,46 @@ def child_cmdlines(pid, depth=3):
 CODEX_SESSIONS = os.path.expanduser("~/.codex/sessions")
 
 
-def codex_rollout(pane_pid, cwd=""):
-    """The pane's codex rollout file, or None: the one a process in the pane holds open, else newest_rollout."""
-    todo, codex_pid = [str(pane_pid)] if pane_pid else [], None
+def proc_tree(pane_pid):
+    """The pane process and its descendants (4 levels), breadth first."""
+    todo = [str(pane_pid)] if pane_pid else []
     for _ in range(4):
-        kids = []
-        for pid in todo:
-            if codex_pid is None and any("codex" in a for a in proc_args(pid) or []):
-                codex_pid = pid
-            for fd in glob.glob(
-                f"/proc/{pid}/fd/*"
-            ):  # open files are visible on Linux only; elsewhere the fallback below is used
-                try:
-                    target = os.readlink(fd)
-                except OSError:
-                    continue
-                if target.startswith(CODEX_SESSIONS) and target.endswith(".jsonl"):
-                    return target
-            kids += proc_children(pid)
-        todo = kids
-    # Newer codex builds write the rollout from a background app-server, not from a process in the pane: use the newest rollout written after this codex started whose cwd is the pane's
+        yield from todo
+        todo = [k for pid in todo for k in proc_children(pid)]
+
+
+def find_codex(pane_pid):
+    return next((pid for pid in proc_tree(pane_pid) if any("codex" in a for a in proc_args(pid) or [])), None)
+
+
+def codex_rollout(pane_pid, cwd="", panes=()):
+    """The pane's codex rollout file, or None: the one a process in the pane holds open, else the rollout paired with it.
+    `panes` (tmux panes) lets codex processes in the same cwd each take a different rollout."""
+    codex_pid = None
+    for pid in proc_tree(pane_pid):
+        if codex_pid is None and any("codex" in a for a in proc_args(pid) or []):
+            codex_pid = pid
+        for fd in glob.glob(
+            f"/proc/{pid}/fd/*"
+        ):  # open files are visible on Linux only; elsewhere the fallback below is used
+            try:
+                target = os.readlink(fd)
+            except OSError:
+                continue
+            if target.startswith(CODEX_SESSIONS) and target.endswith(".jsonl"):
+                return target
+    # Newer codex builds write the rollout from a background app-server, not from a process in the pane: use the rollout written after this codex started whose cwd is the pane's
     start = proc_start(codex_pid) if codex_pid else None
-    return newest_rollout(cwd, start) if start and cwd else None
+    if not (start and cwd):
+        return None
+    peers = [
+        proc_start(peer)
+        for p in panes
+        if p.get("pane_current_path") == cwd and str(p.get("pane_pid")) != str(pane_pid)
+        if (peer := find_codex(p.get("pane_pid", "")))
+    ]
+    peers = [t for t in peers if t is not None]
+    return paired_rollout(cwd, start, peers) if peers else newest_rollout(cwd, start)
 
 
 def proc_start(pid):
@@ -170,28 +188,54 @@ def proc_start(pid):
     return btime + ticks / os.sysconf("SC_CLK_TCK")
 
 
-_rollout_cwd = {}  # session_meta.cwd is the first line and never changes
+_rollout_meta = {}  # session_meta is the first line and never changes
 
 
-def newest_rollout(cwd, since, root=CODEX_SESSIONS):
-    """Newest rollout modified after `since` whose session_meta.cwd is cwd, or None.
+def rollouts_since(cwd, since, root=CODEX_SESSIONS):
+    """[(session start or None, mtime, path)] of rollouts modified after `since` whose session_meta.cwd is cwd.
     Only the date folders (YYYY/MM/DD) from `since` to today are searched."""
-    best, day = None, datetime.fromtimestamp(since).date()
+    out, day = [], datetime.fromtimestamp(since).date()
     while day <= datetime.now().date():
         for path in glob.glob(os.path.join(root, f"{day:%Y}", f"{day:%m}", f"{day:%d}", "rollout-*.jsonl")):
             try:
                 mtime = os.path.getmtime(path)
                 if mtime < since:
                     continue
-                if path not in _rollout_cwd:
+                if path not in _rollout_meta:
                     with open(path) as f:
-                        _rollout_cwd[path] = json.loads(f.readline()).get("payload", {}).get("cwd")
+                        payload = json.loads(f.readline()).get("payload", {})
+                    try:
+                        began = _epoch(payload.get("timestamp"))
+                    except (ValueError, AttributeError, TypeError):
+                        began = None
+                    _rollout_meta[path] = (payload.get("cwd"), began)
             except (OSError, ValueError, AttributeError):
                 continue
-            if _rollout_cwd[path] == cwd and (best is None or mtime > best[0]):
-                best = (mtime, path)
+            if _rollout_meta[path][0] == cwd:
+                out.append((_rollout_meta[path][1], mtime, path))
         day += timedelta(days=1)
-    return best[1] if best else None
+    return out
+
+
+def newest_rollout(cwd, since, root=CODEX_SESSIONS):
+    """Newest rollout modified after `since` whose session_meta.cwd is cwd, or None."""
+    return max(((m, p) for _, m, p in rollouts_since(cwd, since, root)), default=(0, None))[1]
+
+
+def paired_rollout(cwd, start, peer_starts, root=CODEX_SESSIONS):
+    """Codex processes in one cwd, ordered by start time, take rollouts ordered by session_meta.timestamp one to one;
+    a rollout taken by an earlier process is not reused. The rollout for the process started at `start`, or None."""
+    starts = sorted([start, *peer_starts])
+    rolls = sorted((t, p) for t, _, p in rollouts_since(cwd, starts[0] - 1, root) if t is not None)
+    taken = set()
+    for s in starts:
+        hit = next(((t, p) for t, p in rolls if p not in taken and t >= s - 1), None)
+        if hit is None:
+            return None
+        taken.add(hit[1])
+        if s == start:
+            return hit[1]
+    return None
 
 
 def codex_usage(path):
@@ -477,8 +521,9 @@ def report_for(a):
     if a["kind"] == "claude":
         return claude_report(a["transcript"]) if a.get("transcript") else None
     if a["kind"] == "codex":
-        p = next((p for p in read_tmux() if p["pane_id"] == a["pane"]), None)
-        path = codex_rollout(p.get("pane_pid", ""), p.get("pane_current_path", "")) if p else None
+        panes = read_tmux()
+        p = next((p for p in panes if p["pane_id"] == a["pane"]), None)
+        path = codex_rollout(p.get("pane_pid", ""), p.get("pane_current_path", ""), panes) if p else None
         return codex_report(path) if path else None
     return None
 
@@ -505,7 +550,7 @@ def collect(fixture=None, now=None):
         get_cmdlines, get_changed = child_cmdlines, screen_changed
 
         def get_codex(pane, pid, cwd):
-            path = codex_rollout(pid, cwd)
+            path = codex_rollout(pid, cwd, panes)
             return codex_usage(path) if path else None
 
         panes = read_tmux()

@@ -361,17 +361,54 @@ ok(strip(mr) == "HP" + " " * 11 + "124k/200k" and mr.count(render.ul("hp")) == 1
    "Value row: label left, value right; full-row underline, first 50% in bar color, rest dim")
 ok(render.meter_row("SP", "sp", "--", "fg", "", None, "dim", 22).count(render.ul("line")) == 22, "Unknown value: whole underline is dim")
 import tempfile as _tf, time as _t
-from datetime import datetime as _dt
+from datetime import datetime as _dt, timezone as _tz
 root = _tf.mkdtemp(); now_ = _t.time(); day = os.path.join(root, f"{_dt.now():%Y/%m/%d}"); os.makedirs(day)
-def roll(name, cwd, age):
+def roll(name, cwd, age, ts=None):
     p = os.path.join(day, f"rollout-{name}.jsonl")
-    open(p, "w").write(json.dumps({"type": "session_meta", "payload": {"cwd": cwd}}) + "\n")
+    meta = {"cwd": cwd, **({"timestamp": _dt.fromtimestamp(ts, _tz.utc).isoformat().replace("+00:00", "Z") if isinstance(ts, float) else ts} if ts is not None else {})}
+    open(p, "w").write(json.dumps({"type": "session_meta", "payload": meta}) + "\n")
     os.utime(p, (now_ - age, now_ - age))
     return p
 roll("old", "/w/a", 600); new_a = roll("new", "/w/a", 5); roll("other", "/w/b", 1)
 ok(collect.newest_rollout("/w/a", now_ - 60, root) == new_a and collect.newest_rollout("/w/a", now_ - 3, root) is None
    and collect.newest_rollout("/w/c", now_ - 60, root) is None,
    "codex rollout: newest file written after codex started, same cwd; older files and other dirs don't count")
+roll("bad-ts", "/w/e", 5, "not a time"); num_ts = roll("num-ts", "/w/e", 4, 12345); no_ts = roll("no-ts", "/w/e", 3)
+first = collect.newest_rollout("/w/e", now_ - 60, root)
+os.utime(no_ts, (now_ - 30, now_ - 30))
+ok(first == no_ts and collect.newest_rollout("/w/e", now_ - 60, root) == num_ts
+   and collect.paired_rollout("/w/e", now_ - 60, [now_ - 50], root) is None,
+   "codex rollout: a broken or missing session_meta.timestamp still counts for the newest rollout, only pairing skips it")
+ra = roll("pair-a", "/w/p", 20, now_ - 50.0); rb = roll("pair-b", "/w/p", 5, now_ - 40.0)
+ok(collect.paired_rollout("/w/p", now_ - 110, [now_ - 60], root) == ra and collect.paired_rollout("/w/p", now_ - 60, [now_ - 110], root) == rb
+   and collect.paired_rollout("/w/p", now_ - 110, [now_ - 60, now_ - 10], root) == ra
+   and collect.paired_rollout("/w/p", now_ - 10, [now_ - 110, now_ - 60], root) is None,
+   "codex rollout: same-cwd codex processes take rollouts one to one by start time; none is reused")
+procs = {"10": ["codex"], "20": ["codex"]}; starts = {"10": now_ - 110, "20": now_ - 60}
+real = (collect.proc_args, collect.proc_children, collect.proc_start, collect.rollouts_since, collect.glob.glob)
+collect.proc_args, collect.proc_children = (lambda pid: procs.get(str(pid))), (lambda pid: [])
+collect.proc_start, collect.rollouts_since = (lambda pid: starts.get(str(pid))), (lambda c, s, r=None: real[3](c, s, root))
+collect.glob.glob = lambda pat, _g=real[4]: [] if pat.startswith("/proc/") else _g(pat)
+both = [{"pane_pid": "10", "pane_current_path": "/w/p"}, {"pane_pid": "20", "pane_current_path": "/w/p"}]
+got = [collect.codex_rollout(pp, "/w/p", both) for pp in ("10", "20")]
+solo = collect.codex_rollout("10", "/w/p", both[:1])
+ok(got == [ra, rb] and solo == rb, "codex_rollout: two same-cwd panes get their own rollouts; a lone codex still gets the newest")
+fields = {f: "" for f in collect.TMUX_FIELDS}
+tpanes = [dict(fields, pane_id=f"%{i}", pane_pid=pp, pane_current_path="/w/p", pane_current_command="codex",
+               session_name="s", session_attached="1", window_active="1", window_id="@1", window_panes="2")
+          for i, pp in ((1, "10"), (2, "20"))]
+real2 = (collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed)
+seen = []
+collect.read_tmux, collect.read_claude_sessions = (lambda: tpanes), (lambda: {})
+collect.screen_changed = lambda ps, now: {}
+collect.codex_rollout = lambda *a: seen.append(real2[2](*a)) or seen[-1]
+collect.collect()
+from_collect, seen[:] = list(seen), []
+for i in (1, 2):
+    collect.report_for({"kind": "codex", "pane": f"%{i}"})
+collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed = real2
+collect.proc_args, collect.proc_children, collect.proc_start, collect.rollouts_since, collect.glob.glob = real
+ok(from_collect == [ra, rb] and seen == [ra, rb], "codex rollout: the collect path and the report path pair the same rollouts")
 nw = [{"pane": p, "status": s} for p, s in (("%1", "idle"), ("%2", "done"), ("%3", "waiting"), ("%4", "done"))]
 ok(ui.next_waiting(nw, "%1") == "%3" and ui.next_waiting(nw, "%3") == "%3"
    and ui.next_waiting([dict(a, status="idle") if a["status"] == "waiting" else a for a in nw], "%2") == "%4",
