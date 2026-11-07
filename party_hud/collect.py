@@ -468,9 +468,10 @@ def _epoch(ts):
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
 
 
-def claude_report(path):
+def claude_report(path, sidechain=False):
     """Final answer of the last answered turn -> {"text", "start", "end"} (epoch seconds, start may be None), or None.
-    The answer is the text after the turn's last tool call. A prompt nobody answered (a `!` command, /cost) is skipped."""
+    The answer is the text after the turn's last tool call. A prompt nobody answered (a `!` command, /cost) is skipped.
+    A subagent's own log is all sidechain records: pass sidechain=True to read it."""
     texts, end, collecting, replied = [], None, True, False
     try:
         with open(path, "rb") as f:
@@ -487,7 +488,7 @@ def claude_report(path):
                         content = rec["message"]["content"]
                     except (ValueError, KeyError, TypeError):
                         continue
-                    if rec.get("isSidechain") or rec.get("isMeta"):
+                    if (rec.get("isSidechain") and not sidechain) or rec.get("isMeta"):
                         continue
                     blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
                     blocks = [b for b in blocks if isinstance(b, dict)]
@@ -517,10 +518,33 @@ def claude_report(path):
     return {"text": "\n\n".join(texts), "start": None, "end": end} if texts else None
 
 
+def finished_subagents(transcript):
+    """Subagents with `finished: true` in their meta -> [{"type", "desc", "text"}] (text is "" when the log has no final answer)."""
+    out = []
+    for meta in sorted(glob.glob(os.path.join(transcript[: -len(".jsonl")], "subagents", "*.meta.json"))):
+        try:
+            with open(meta) as f:
+                d = json.load(f)
+            if not d.get("finished"):
+                continue
+            rep = claude_report(meta[: -len(".meta.json")] + ".jsonl", sidechain=True)
+            out.append(
+                {
+                    "type": d.get("agentType", "agent"),
+                    "desc": d.get("description", ""),
+                    "text": rep["text"] if rep else "",
+                }
+            )
+        except (OSError, ValueError, AttributeError):
+            continue
+    return out
+
+
 def report_for(a):
-    """The member's last report (shape of claude_report), or None. Only Claude Code and Codex write one."""
+    """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Only Claude Code and Codex write one."""
     if a["kind"] == "claude":
-        return claude_report(a["transcript"]) if a.get("transcript") else None
+        rep = claude_report(a["transcript"]) if a.get("transcript") else None
+        return dict(rep, subagents=finished_subagents(a["transcript"])) if rep else None
     if a["kind"] == "codex":
         panes = read_tmux()
         p = next((p for p in panes if p["pane_id"] == a["pane"]), None)

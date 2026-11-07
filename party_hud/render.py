@@ -326,7 +326,10 @@ def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
         facts.append(f"HP {a['hp']}%")
     if total > 1:
         facts.append(f"report {pos}/{total}")
+    summons = a.get("summons", [])
     title = REPORT_TITLE.get(a["status"], "Report") if report else "Last output"
+    if report and summons:
+        title = f"還有 {len(summons)} 個分支任務進行中"
     pid = portrait_id(a)
     text_w = width - PORTRAIT_CELLS[0] - 1 if art else width
     head = [
@@ -346,6 +349,20 @@ def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
         while lines and not lines[-1]:
             lines.pop()
         rows += [fg("dim") + r + RESET for l in lines for r in wrap(l, width)] or [fg("dim") + "no report yet" + RESET]
+    for s in summons:
+        rows += [
+            "",
+            fg("gold", True)
+            + clip(f"{SUMMON_ICON} {s['desc'] or s['type']}", width - 7)
+            + RESET
+            + " "
+            + fg("dim")
+            + "進行中"
+            + RESET,
+        ]
+    for s in (report or {}).get("subagents", []):
+        rows += ["", fg("gold", True) + clip(f"{SUMMON_ICON} {s['desc'] or s['type']}", width) + RESET]
+        rows += render_markdown(s["text"], width) if s["text"] else []
     return "\n".join(rows + ["", hint_line("report", width)])
 
 

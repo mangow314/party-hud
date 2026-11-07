@@ -159,6 +159,16 @@ ok(all(ar[r].startswith(art.image_row(pid, r, art.PORTRAIT_CELLS[0])) for r in r
 last = strip(render.render_report(dict(done, status="waiting"), "Studio", None, ["$ make", "ok", "", ""], 60))
 ok("Last output" in last and "$ make" in last and "took" not in last, "report: no report -> the pane's last lines")
 ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60)), "report: nothing at all -> says so")
+sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## 子結果\nsubagent said hi"}
+busy = dict(done, summons=[{"type": "executor", "desc": "Branch 還在跑" * 8}])
+bf = strip(render.render_report(busy, "Studio", dict(rep, subagents=[sub]), [], 60))
+ok("Quest complete" not in bf and "還有 1 個分支任務進行中" in bf.splitlines()[0] and "進行中" in bf.split("\n\n", 1)[1]
+   and all(common.cw(l) <= 60 for l in bf.splitlines()),
+   "report: a branch task still running -> title says so instead of Quest complete, task listed as 進行中, rows fit")
+sf = strip(render.render_report(done, "Studio", dict(rep, subagents=[sub]), [], 60))
+ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > sf.index("完成了報告畫面") and "subagent said hi" in sf
+   and "## " not in sf and "進行中" not in sf,
+   "report: finished subagent listed below the main report with its own report (Markdown), no 進行中")
 nr = strip(render.render_no_report(40, 10)).splitlines()
 ok(len(nr) == 10 and "Nobody is waiting or done." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
    "report popup with nobody waiting or done: says so and waits (a popup that exits at once only flashes)")
@@ -365,6 +375,31 @@ ok(collect.claude_report(transcript(*turn[:6])) is None and collect.claude_repor
 ok(collect.claude_report(transcript(*turn[:4])) is None, "claude report: turn with only thinking so far -> None")
 ok(collect.claude_report(transcript(*turn[:2])) == {"text": "old answer", "start": t0, "end": t0 + 60},
    "claude report: answer without tool calls")
+sess = transcript(*turn)
+sdir = os.path.join(sess[:-6], "subagents")
+os.makedirs(sdir)
+def agent(name, meta, *recs):
+    if meta is not None:
+        open(os.path.join(sdir, f"agent-{name}.meta.json"), "w").write(meta if isinstance(meta, str) else json.dumps(meta))
+    with open(os.path.join(sdir, f"agent-{name}.jsonl"), "w") as g:
+        for r in recs:
+            g.write(json.dumps(r) + "\n")
+agent("a", {"agentType": "executor", "description": "Fin one", "finished": True},
+      rec("user", 0, "go", isSidechain=True), rec("assistant", 1, [text("sub final")], isSidechain=True))
+agent("b", {"agentType": "executor", "description": "Still running"}, rec("user", 0, "go", isSidechain=True))
+agent("c", "not json {", rec("user", 0, "go", isSidechain=True))
+agent("e", "[1]", rec("user", 0, "go", isSidechain=True))
+agent("d", {"agentType": "executor", "description": "No log text", "finished": True}, rec("user", 0, "go", isSidechain=True))
+ok(collect.claude_report(os.path.join(sdir, "agent-a.jsonl")) is None
+   and collect.claude_report(os.path.join(sdir, "agent-a.jsonl"), sidechain=True)["text"] == "sub final",
+   "subagent report: its log is all sidechain records, read only on request")
+fin = collect.finished_subagents(sess)
+ok(fin == [{"type": "executor", "desc": "Fin one", "text": "sub final"}, {"type": "executor", "desc": "No log text", "text": ""}],
+   "subagents: only finished: true metas, with their final text (unfinished, broken or non-object metas skipped)")
+ok(collect.report_for({"kind": "claude", "transcript": sess})["subagents"] == fin
+   and collect.report_for({"kind": "claude", "transcript": sess})["text"].startswith("## 結果")
+   and collect.report_for({"kind": "claude", "transcript": transcript(*turn)})["subagents"] == [],
+   "report_for: main report carries the finished subagents; no subagents/ directory -> empty list, same report")
 collect.PARTY_DIR = tempfile.mkdtemp()
 screens = iter(["a", "a", "b", "b"])
 collect.tmux = lambda *args: next(screens)
