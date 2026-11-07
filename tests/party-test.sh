@@ -400,6 +400,16 @@ ok(collect.report_for({"kind": "claude", "transcript": sess})["subagents"] == fi
    and collect.report_for({"kind": "claude", "transcript": sess})["text"].startswith("## 結果")
    and collect.report_for({"kind": "claude", "transcript": transcript(*turn)})["subagents"] == [],
    "report_for: main report carries the finished subagents; no subagents/ directory -> empty list, same report")
+handback = [rec("user", 0, "go", isSidechain=True), rec("assistant", 1, [text("working")], isSidechain=True),
+            rec("assistant", 2, [{"type": "tool_use", "id": "h", "name": "SubagentHandback", "input": {"message": "  ## 報告\nall good \n"}}], isSidechain=True),
+            rec("user", 3, [{"type": "tool_result", "tool_use_id": "h", "content": [text('{"success":true}')]}], isSidechain=True)]
+agent("h", {"agentType": "general-purpose", "description": "Handback", "finished": True}, *handback)
+hb_log = os.path.join(sdir, "agent-h.jsonl")
+ok(collect.claude_report(hb_log, sidechain=True) == {"text": "## 報告\nall good", "start": t0, "end": t0 + 120}
+   and [s for s in collect.finished_subagents(sess) if s["desc"] == "Handback"][0]["text"] == "## 報告\nall good"
+   and collect.claude_report(hb_log) is None
+   and collect.claude_report(transcript(*[{**r_, "isSidechain": False} for r_ in handback])) is None,
+   "subagent report: SubagentHandback message (stripped), main conversation unaffected")
 common_tmux = collect.tmux
 agy_screen = "old\n\nI changed 2 files.\nAll tests pass.\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 > ask   \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n  ? for shortcuts\n"
 grok_screen = "first\n\nDone: \u4fee\u597d\u4e86\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n> \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n grok-4  ctx 3%\n"

@@ -501,7 +501,19 @@ def claude_report(path, sidechain=False):
                         replied = True
                         if "tool_use" in kinds:
                             if not texts:
-                                return None
+                                # Claude Code 2.1.x subagents deliver their report via a SubagentHandback tool call
+                                handed = sidechain and next(
+                                    (
+                                        (b.get("input") or {}).get("message")
+                                        for b in blocks
+                                        if b.get("type") == "tool_use" and b.get("name") == "SubagentHandback"
+                                    ),
+                                    None,
+                                )
+                                if not isinstance(handed, str) or not handed.strip():
+                                    return None
+                                texts.append(handed.strip())
+                                end = _epoch(rec.get("timestamp"))
                             collecting = False
                         elif collecting:
                             said = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
@@ -510,7 +522,7 @@ def claude_report(path, sidechain=False):
                                 end = end or _epoch(rec.get("timestamp"))
                     elif rec.get("type") == "user":
                         if "tool_result" in kinds:
-                            if not texts:
+                            if not texts and not sidechain:
                                 return None
                             collecting = False
                         elif replied:
