@@ -10,6 +10,7 @@ Modes (started by tmux; see party.tmux):
   party.py --open-report [PANE]  open the report pane, floating on tmux 3.8+ else a split (prefix R, sidebar r)
   party.py --report [PANE]    what runs in the report pane: the last report of waiting / done members
   party.py --report-text PANE [--wait] [--timeout SEC]  print a member's last report; --wait until it stops working
+  party.py --summon AGENT [--cwd DIR] [--window] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id
   party.py --ensure WID       add a sidebar to a window (hook)
   party.py --reflow WID       put the sidebar width back (hook)
   party.py --nudge [WID]      restart a stopped sidebar and redraw now (hook)
@@ -26,7 +27,7 @@ import sys
 
 from party_hud.collect import get_snapshot, report_text
 from party_hud.render import render
-from party_hud.sidebars import ensure, nudge, open_report_pane, reflow, remember_width, tidy, toggle
+from party_hud.sidebars import ensure, nudge, open_report_pane, reflow, remember_width, summon, tidy, toggle
 from party_hud.ui import jump_next, run_report, run_ui
 
 
@@ -44,8 +45,11 @@ def main():
     ap.add_argument("--open-report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report-text", metavar="PANE")
+    ap.add_argument("--summon", metavar="AGENT")
+    ap.add_argument("--cwd", metavar="DIR")
+    ap.add_argument("--window", action="store_true")
     ap.add_argument("--wait", action="store_true")
-    ap.add_argument("--timeout", type=float, default=600)
+    ap.add_argument("--timeout", type=float)
     ap.add_argument("--width", type=int)
     ap.add_argument("--fixture")
     args = ap.parse_args()
@@ -68,7 +72,12 @@ def main():
     elif args.report is not None:
         run_report(args.report or None, args.fixture)
     elif args.report_text is not None:
-        rc, out, err = report_text(args.report_text, args.wait, args.timeout)
+        rc, out, err = report_text(args.report_text, args.wait, 600 if args.timeout is None else args.timeout)
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+        sys.exit(rc)
+    elif args.summon is not None:
+        rc, out, err = summon(args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout)
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)

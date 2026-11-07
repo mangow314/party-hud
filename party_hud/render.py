@@ -442,14 +442,20 @@ def art_rows(a, width, sel):
 
 def card(a, width, sel, art=False):
     """One member card. Selected: gold double frame and ❯ (☞ has ambiguous width and breaks some terminals)."""
+    pad = "  " if a.get("lead") else ""
+    width -= len(pad)
     if art:
         rows = art_rows(a, width - 2, sel)
     else:
         rows = status_rows(a, width - 2, sel)
     if sel:
         rows[0] = fg("gold", True) + "❯" + RESET + rows[0][1:]
-        return box(a.get("kind", "claude"), rows, width, "gold", double=True)
-    return box(a.get("kind", "claude"), rows, width, "warn" if a["status"] == "waiting" else "line", title_color="dim")
+        lines = box(a.get("kind", "claude"), rows, width, "gold", double=True)
+    else:
+        lines = box(
+            a.get("kind", "claude"), rows, width, "warn" if a["status"] == "waiting" else "line", title_color="dim"
+        )
+    return [pad + l for l in lines]
 
 
 def render(

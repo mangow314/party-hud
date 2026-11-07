@@ -807,6 +807,69 @@ EOF
 }
 check "report-text --wait: exit codes, wait-for wake-up, 2 s re-read, timeout" report_text_ok
 
+# --summon: tmux arguments, exit codes, readiness; @party_lead / @xv grouping and card widths
+summon_ok() {
+  python3 - "$party" "$tmp" <<'EOF2'
+import os, re, sys, time
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, render, sidebars
+fails = []
+def ok(cond, msg):
+    if not cond: fails.append(msg)
+calls = []
+shows = []
+def fake_run(args, timeout=None):
+    calls.append(tuple(args))
+    if args[0] in ("split-window", "new-window"): return 0, "%9\n", ""
+    if args[0] == "display-message": return 0, shows.pop(0) if len(shows) > 1 else shows[0], ""
+    return 0, "", ""
+sidebars.tmux_run = fake_run
+sidebars.tmux = lambda *a: calls.append(a) or ("screen" if a[0] == "capture-pane" else "")
+sidebars.time.sleep = lambda s: None
+sep = collect.FIELD_SEP
+ready = [f"claude{sep}123\n"]
+os.environ["TMUX_PANE"] = "%1"
+shows[:] = ready
+tmp = sys.argv[2]
+rc, out, err = sidebars.summon("claude", tmp, False, 5)
+ok(rc == 0 and out == "%9\n" and err == "", "summon: ready -> pane id on stdout, rc 0")
+ok(calls[0] == ("split-window", "-t", "%1", "-P", "-F", "#{pane_id}", "-c", tmp, "claude"), "summon: default splits the caller's window")
+ok(("set-option", "-p", "-t", "%9", "@party_lead", "%1") in calls, "summon: the new pane gets @party_lead = caller pane")
+calls.clear(); shows[:] = ready
+sidebars.summon("codex", tmp, True, 5)
+ok(calls[0] == ("new-window", "-P", "-F", "#{pane_id}", "-c", tmp, "codex"), "summon --window: new-window, --cwd passed to -c")
+calls.clear()
+ok(sidebars.summon("vim", tmp, False, 5)[0] == 2 and not calls, "summon: an agent outside AGENT_CMDS -> 2, tmux not called")
+del os.environ["TMUX_PANE"]
+ok(sidebars.summon("claude", tmp, False, 5)[0] == 2 and not calls, "summon: outside tmux -> 2")
+os.environ["TMUX_PANE"] = "%1"
+shows[:] = [f"bash{sep}1\n"]
+t = [0.0]
+time.monotonic = lambda: t[0]
+sidebars.time.sleep = lambda s: t.__setitem__(0, t[0] + s)
+rc, out, err = sidebars.summon("claude", tmp, False, 3)
+ok(rc == 3 and out == "" and "%9" in err, "summon: timeout -> 3, pane id on stderr")
+agent = lambda pane, kind="claude", window="@1": {"pane": pane, "kind": kind, "window": window, "status": "idle"}
+a, b, c = agent("%1"), agent("%2", "codex"), agent("%3", "claude", "@2")
+got = collect.group_under_leads([a, c, b], {"%1": ("", False, "@1"), "%2": ("%1", False, "@1"), "%3": ("", False, "@2")})
+ok([x["pane"] for x in got] == ["%1", "%2", "%3"] and b.get("lead") == "%1" and "lead" not in c,
+   "@party_lead: the member is listed under its lead")
+a, x = agent("%1"), agent("%4", "codex")
+got = collect.group_under_leads([x, a], {"%1": ("", False, "@1"), "%4": ("", True, "@1")})
+ok([m["pane"] for m in got] == ["%1", "%4"] and x.get("lead") == "%1", "@xv: the only Claude of the window becomes the lead")
+a, a2, x = agent("%1"), agent("%2"), agent("%4", "codex")
+got = collect.group_under_leads([a, a2, x], {"%1": ("", False, "@1"), "%2": ("", False, "@1"), "%4": ("", True, "@1")})
+ok([m["pane"] for m in got] == ["%1", "%2", "%4"] and "lead" not in x, "@xv: two Claudes in the window -> an ordinary member")
+a = {**agent("%1"), "name": "boss", "hp": 50, "hp_max": 100, "hp_left": 50, "sp": None, "fresh": False, "model": "", "summons": [], "cls": 0, "focus": False, "id": "i1"}
+for art in (False, True):
+    for lead in ("", "%1"):
+        rows = render.card({**a, "lead": lead}, 40, False, art)
+        ok({render.cw(re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", r)) for r in rows} == {40}, f"card: every line exactly 40 columns (art={art}, lead={lead!r})")
+print("\n".join(fails), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF2
+}
+check "summon: tmux arguments, exit codes, timeout; @party_lead / @xv grouping" summon_ok
+
 # transcript: time of the last usage entry; TTL from the latest usage that wrote cache (1h -> 3600)
 cat >"$tmp/t.jsonl" <<'EOF'
 {"type":"assistant","timestamp":"2026-11-03T04:00:00.000Z","message":{"usage":{"cache_creation":{"ephemeral_1h_input_tokens":500,"ephemeral_5m_input_tokens":0}}}}

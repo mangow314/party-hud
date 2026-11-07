@@ -1,13 +1,16 @@
 """Sidebar panes: open, close, restart, hooks, widths."""
 
+import math
 import os
 import re
 import shlex
 import sys
+import time
+import zlib
 
 from .art import ART_MIN_WIDTH
-from .collect import lonely_sidebars
-from .common import CURSOR, PARTY_DIR, ROOT, tmux
+from .collect import AGENT_CMDS, FIELD_SEP, agent_kind, lonely_sidebars
+from .common import CURSOR, PARTY_DIR, ROOT, tmux, tmux_run
 
 SIDEBAR_WIDTH = 34
 SIDEBAR_MIN = ART_MIN_WIDTH
@@ -109,6 +112,48 @@ def open_report_pane(target, pane):
     pid = tmux(*args, "-P", "-F", "#{pane_id}", cmd).strip()
     if pid:
         mark_report(pid)
+
+
+SUMMON_POLL = 1.0
+
+
+def summon(agent, cwd, window, timeout):
+    """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments or tmux failure, 3 timeout.
+    Ready = the pane's agent is recognised and two collections in a row see the same screen (CRC32)."""
+    if agent not in AGENT_CMDS:
+        return 2, "", f"unknown agent: {agent} (one of {', '.join(AGENT_CMDS)})\n"
+    caller = os.environ.get("TMUX_PANE", "")
+    if not caller:
+        return 2, "", "not inside tmux ($TMUX_PANE is not set)\n"
+    if not math.isfinite(timeout):
+        return 2, "", f"bad timeout: {timeout}\n"
+    cwd = os.path.abspath(cwd or os.getcwd())
+    if not os.path.isdir(cwd):
+        return 2, "", f"not a directory: {cwd}\n"
+    where = ["new-window"] if window else ["split-window", "-t", caller]
+    rc, out, err = tmux_run([*where, "-P", "-F", "#{pane_id}", "-c", cwd, AGENT_CMDS[agent]])
+    pane = out.strip()
+    if rc != 0 or not pane:
+        return 2, "", err or "tmux could not open the pane\n"
+    tmux("set-option", "-p", "-t", pane, "@party_lead", caller)
+    deadline, last = time.monotonic() + timeout, None
+    while True:
+        rc, out, err = tmux_run(
+            ["display-message", "-p", "-t", pane, FIELD_SEP.join(["#{pane_current_command}", "#{pane_pid}"])]
+        )
+        if rc != 0:
+            return 2, "", err or f"no such pane: {pane}\n"
+        cmd, _, pid = out.strip().partition(FIELD_SEP)
+        digest = None
+        if agent_kind(cmd, pid):
+            digest = zlib.crc32(tmux("capture-pane", "-p", "-t", pane).encode())
+        if digest is not None and digest == last:
+            return 0, pane + "\n", ""
+        last = digest
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return 3, "", f"timed out waiting for {pane}\n"
+        time.sleep(min(SUMMON_POLL, left))
 
 
 def install_hooks():

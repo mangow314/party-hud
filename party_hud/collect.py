@@ -43,6 +43,8 @@ TMUX_FIELDS = [
     "pane_pid",
     "pane_dead",
     "pane_tty",
+    "@party_lead",
+    "@xv",
 ]
 # wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
@@ -588,6 +590,33 @@ def report_text(pane, wait=False, timeout=600):
             return 2, "", err
 
 
+def group_under_leads(agents, owners):
+    """Put each summoned member right after its lead and mark it with a["lead"] (the lead's pane); one level only.
+    @party_lead names the lead; an xv pane goes under the only Claude of its window, else stays an ordinary member."""
+    panes = {a["pane"]: a for a in agents}
+    claudes = {}
+    for a in agents:
+        if a["kind"] == "claude" and not owners.get(a["pane"], ("", False, ""))[1]:
+            claudes.setdefault(a["window"], []).append(a["pane"])
+    lead_of = {}
+    for a in agents:
+        lead, xv, window = owners.get(a["pane"], ("", False, ""))
+        if not lead and xv and len(claudes.get(window, [])) == 1:
+            lead = claudes[window][0]
+        if lead in panes and lead != a["pane"]:
+            lead_of[a["pane"]] = lead
+    lead_of = {k: v for k, v in lead_of.items() if v not in lead_of}
+    out = []
+    for a in agents:
+        if a["pane"] not in lead_of:
+            out.append(a)
+            for b in agents:
+                if lead_of.get(b["pane"]) == a["pane"]:
+                    b["lead"] = a["pane"]
+                    out.append(b)
+    return out
+
+
 def collect(fixture=None, now=None):
     """Snapshot: {"t": time, "towns": squads with their members, "panes": {pane_id: window info}}."""
     now = now or time.time()
@@ -617,7 +646,7 @@ def collect(fixture=None, now=None):
         sessions = read_claude_sessions()
         get_party, get_cache, get_transcript, get_summons = read_party, cache_info, transcript_for, summons_for
 
-    towns, meta, here = {}, {}, None
+    towns, meta, here, owners = {}, {}, None, {}
     for p in panes:
         attached = p["session_attached"] not in ("", "0")
         if here is None and attached and p["window_active"] == "1":
@@ -632,6 +661,7 @@ def collect(fixture=None, now=None):
             "dead": p.get("pane_dead") == "1",
             "tty": p.get("pane_tty", ""),
         }
+        owners[p["pane_id"]] = (p.get("@party_lead", ""), p.get("@xv") == "1", p.get("window_id", ""))
         if aux:
             continue
         t = towns.setdefault(p["session_name"], {"name": p["session_name"], "attached": attached, "agents": []})
@@ -701,6 +731,7 @@ def collect(fixture=None, now=None):
                 a["status"] = "working"
     for t in towns.values():
         t["agents"].sort(key=lambda a: STATUS_ORDER.index(a["status"]))
+        t["agents"] = group_under_leads(t["agents"], owners)
         cls = spread([a["id"] for a in t["agents"]], len(CLASSES))
         for a in t["agents"]:
             a["cls"] = cls[a["id"]]
