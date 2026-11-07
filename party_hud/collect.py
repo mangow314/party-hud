@@ -3,6 +3,7 @@
 import fcntl
 import glob
 import json
+import math
 import os
 import subprocess
 import time
@@ -20,6 +21,7 @@ from .common import (
     printable,
     spread,
     tmux,
+    tmux_run,
 )
 
 CLAUDE_STATUS = {"busy": "working", "waiting": "waiting"}
@@ -553,6 +555,39 @@ def report_for(a):
     return None
 
 
+def wait_channel(pane):
+    return "party-" + pane.lstrip("%")
+
+
+def report_text(pane, wait=False, timeout=600):
+    """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent.
+    While the member works, sleep in tmux wait-for (woken by the collector) for up to 2 s, then read the snapshot again."""
+    if not pane.startswith("%") or not pane[1:].isdigit():
+        return 2, "", f"not a pane id: {pane}\n"
+    if not math.isfinite(timeout):
+        return 2, "", f"bad timeout: {timeout}\n"
+    rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
+    if rc != 0:
+        return 2, "", err or f"no such pane: {pane}\n"
+    deadline = time.monotonic() + timeout
+    while True:
+        a = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
+        if a is None:
+            rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
+            if rc != 0:
+                return 2, "", err or f"no such pane: {pane}\n"
+            return 4, "", f"not a known agent: {pane}\n"
+        if not wait or a["status"] != "working":
+            rep = report_for(a)
+            return 0, (str(rep["text"]) + "\n") if rep else "", "" if rep else f"no report for {pane}\n"
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return 3, "", f"timed out waiting for {pane}\n"
+        rc, _, err = tmux_run(["wait-for", wait_channel(pane)], timeout=min(SNAP_MAX_AGE, left))
+        if rc not in (0, None):
+            return 2, "", err
+
+
 def collect(fixture=None, now=None):
     """Snapshot: {"t": time, "towns": squads with their members, "panes": {pane_id: window info}}."""
     now = now or time.time()
@@ -706,6 +741,13 @@ def bell_panes(prev, agents, panes):
     return ring, cur
 
 
+def status_changed(prev, cur):
+    """Members whose status differs from last round's (prev None = first round, none)."""
+    if prev is None:
+        return []
+    return [p for p, s in cur.items() if p in prev and prev[p] != s]
+
+
 def lonely_sidebars(panes):
     """Sidebar panes left alone in their window (the main pane exited)."""
     by_window = {}
@@ -774,6 +816,8 @@ def get_snapshot(fixture=None):
                     os.close(fd_tty)
             except (OSError, KeyError):
                 pass
+        for pane in status_changed(prev, cur):
+            tmux("wait-for", "-S", wait_channel(pane))
         unread = sum(s in ("waiting", "done") for s in cur.values())
         if prev is None or unread != sum(s in ("waiting", "done") for s in prev.values()):
             tmux("set-option", "-g", "@party_reports", str(unread))

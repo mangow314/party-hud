@@ -724,6 +724,89 @@ EOF
 }
 check "Popup and sidebar: peek, hint bar, highlight, key handling" ui_ok
 
+# --report-text --wait: exit codes, the wait-for wake-up from the collector, the 2 s re-read, the timeout
+report_text_ok() {
+  python3 - "$party" "$tmp" <<'EOF'
+import os, stat, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, common
+fails = []
+def ok(cond, msg):
+    if not cond: fails.append(msg)
+calls, snaps = [], []
+real_snapshot = collect.get_snapshot
+agent = lambda s: {"pane": "%5", "kind": "claude", "status": s}
+snap = lambda s: {"towns": [{"agents": [agent(s)]}]}
+def run(rounds, *a, pane_rc=0, **kw):
+    calls.clear()
+    seq = list(rounds)
+    snaps.clear()
+    collect.get_snapshot = lambda: snaps.append(1) or seq.pop(0) if len(seq) > 1 else snaps.append(1) or seq[0]
+    collect.tmux_run = lambda args, timeout=None: calls.append((tuple(args), timeout)) or (
+        (pane_rc, "%5\n", "can't find pane\n") if args[0] == "display-message" else (None, "", ""))
+    collect.report_for = lambda a: {"text": "all done"}
+    return collect.report_text(*a, **kw)
+waits = lambda: [c for c in calls if c[0][0] == "wait-for"]
+ok(run([snap("waiting")], "%5") == (0, "all done\n", ""), "report-text: exit 0 prints the report")
+ok(run([snap("working")], "%5")[0] == 0 and not waits(), "report-text without --wait: no waiting even while working")
+ok(run([snap("waiting")], "5")[0] == 2 and not calls, "report-text: a name that is not a pane id -> 2, tmux not called")
+rc, out, err = run([snap("waiting")], "%5", pane_rc=1)
+ok(rc == 2 and out == "" and "can't find pane" in err, "report-text: pane does not exist -> 2 with the tmux error on stderr")
+rc, out, err = run([{"towns": []}], "%5")
+ok(rc == 4 and out == "" and "%5" in err, "report-text: pane exists but is no known agent -> 4")
+gone = [0]
+def gone_after_wait(args, timeout=None):
+    if args[0] == "display-message":
+        gone[0] += 1
+        return (0, "%5\n", "") if gone[0] == 1 else (1, "", "can't find pane: %5\n")
+    return None, "", ""
+snaps2 = [snap("working"), {"towns": []}]
+collect.get_snapshot = lambda: snaps2.pop(0)
+collect.tmux_run = gone_after_wait
+rc, out, err = collect.report_text("%5", True, 30)
+ok(rc == 2 and out == "" and "can't find pane" in err, "report-text --wait: the pane disappears while waiting -> 2, not 4")
+ok(run([snap("waiting")], "%5", True, float("nan"))[0] == 2 and not calls, "report-text: a non-finite --timeout -> 2")
+rc, out, err = run([snap("working"), snap("working"), snap("done")], "%5", True, 30)
+ok(rc == 0 and out == "all done\n" and len(snaps) == 3 and [c[0] for c in waits()] == [("wait-for", "party-5")] * 2
+   and [c[1] for c in waits()] == [2.0, 2.0],
+   "report-text --wait: each 2 s wait-for timeout is followed by another snapshot read, until the member stops working")
+t0 = time.monotonic()
+rc, out, err = run([snap("working")], "%5", True, 0.3)
+ok(rc == 3 and out == "" and time.monotonic() - t0 < 1 and 0 < waits()[-1][1] <= 0.3 and len(snaps) >= 2,
+   "report-text --wait --timeout: expires with 3, the last wait-for is capped at the time left")
+fake = os.path.join(sys.argv[2], "bin"); os.makedirs(fake)
+with open(os.path.join(fake, "tmux"), "w") as f:
+    f.write(f'#!/bin/sh\necho $$ >"{fake}/pid"\nexec sleep 30\n')
+os.chmod(os.path.join(fake, "tmux"), 0o755)
+os.environ["PATH"] = fake + os.pathsep + os.environ["PATH"]
+t0 = time.monotonic()
+rc = common.tmux_run(["wait-for", "x"], timeout=0.3)
+pid = int(open(os.path.join(fake, "pid")).read())
+try:
+    os.kill(pid, 0); alive = True
+except ProcessLookupError:
+    alive = False
+ok(rc == (None, "", "") and time.monotonic() - t0 < 5 and not alive, "tmux_run: the timeout ends the tmux child and returns rc None")
+sent = []
+collect.tmux = lambda *a: sent.append(a) or ""
+def sig(status):
+    sp = os.path.join(collect.PARTY_DIR, "snapshot.json")
+    if os.path.exists(sp): os.remove(sp)
+    collect.collect = lambda *a: {"t": time.time(), "towns": [{"agents": [{"pane": "%5", "status": status, "focus": True}]}],
+                                  "panes": {"%5": {"window": "@1", "sidebar": False, "visible": True}}}
+    sent.clear()
+    real_snapshot()
+    return [a for a in sent if a[0] == "wait-for"]
+bp = os.path.join(collect.PARTY_DIR, "bells.json")
+if os.path.exists(bp): os.remove(bp)
+r1, r2, r3 = sig("working"), sig("waiting"), sig("waiting")
+ok(r1 == [] and r2 == [("wait-for", "-S", "party-5")] and r3 == [],
+   "collector: wait-for -S party-<pane> only when a member's status changed (not on the first round, not when unchanged)")
+print("\n".join(fails), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF
+}
+check "report-text --wait: exit codes, wait-for wake-up, 2 s re-read, timeout" report_text_ok
+
 # transcript: time of the last usage entry; TTL from the latest usage that wrote cache (1h -> 3600)
 cat >"$tmp/t.jsonl" <<'EOF'
 {"type":"assistant","timestamp":"2026-11-03T04:00:00.000Z","message":{"usage":{"cache_creation":{"ephemeral_1h_input_tokens":500,"ephemeral_5m_input_tokens":0}}}}
