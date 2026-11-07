@@ -1,7 +1,7 @@
 """Draw the squad list and member cards from a snapshot (pure functions; ANSI strings)."""
 
 from .art import ART_MIN_WIDTH, CREST_CELLS, PORTRAIT_CELLS, crest_ids, image_row, portrait_id
-from .common import BUILDINGS, CLASS_NAMES, RESET, STATUS_TAG, SUMMON_ICON, C, bg, class_icon, clip, cw, fg
+from .common import BUILDINGS, CLASS_NAMES, RESET, STATUS_TAG, SUMMON_ICON, C, bg, class_icon, clip, cw, fg, printable
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _tick = 0
@@ -180,6 +180,7 @@ def status_rows(a, width, sel=True):
 HINTS = {
     "popup": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "quit")],
     "sidebar": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "hide")],
+    "report": [("⏎", "go"), ("n", "next"), ("jk", "scroll"), ("q", "close")],
 }
 
 
@@ -203,6 +204,87 @@ def peek_rows(lines, width, height):
         text = clip(l.expandtabs(4), width)
         rows.append(fg("fg") + text + RESET + " " * (width - cw(text)))
     return rows
+
+
+REPORT_TITLE = {"done": "Quest complete", "waiting": "Waiting for you"}
+
+
+def fmt_took(sec):
+    sec = max(0, round(sec))
+    if sec >= 3600:
+        return f"{sec // 3600}h {sec % 3600 // 60:02d}m"
+    return f"{sec // 60}m {sec % 60:02d}s" if sec >= 60 else f"{sec}s"
+
+
+def wrap(text, width):
+    """Text -> rows of at most width columns, breaking anywhere (CJK has no spaces to break at)."""
+    rows = []
+    for line in text.expandtabs(4).split("\n"):
+        row, used = "", 0
+        for ch in printable(line):
+            if used + cw(ch) > width:
+                rows.append(row)
+                row, used = "", 0
+            row += ch
+            used += cw(ch)
+        rows.append(row)
+    return rows
+
+
+def render_report(a, squad, report, peek, width, height, scroll=0, pos=1, total=1):
+    """Report popup: who, how long, HP, then the report text, or the pane's last lines (peek) when there is no report.
+    Returns (frame, largest useful scroll)."""
+    width = max(28, width)
+    inner = width - 2
+    text_w = inner - 2
+    color = STATUS_TAG[a["status"]][2]
+    facts = []
+    if report and report["start"] and report["end"]:
+        facts.append(f"took {fmt_took(report['end'] - report['start'])}")
+    if a.get("hp_left") is not None:
+        facts.append(f"HP {fmt_tokens(a['hp_left'])}" + (f"/{fmt_tokens(a['hp_max'])}" if a.get("hp_max") else ""))
+    elif a.get("hp") is not None:
+        facts.append(f"HP {a['hp']}%")
+    if total > 1:
+        facts.append(f"report {pos}/{total}")
+    if report:
+        body = wrap(report["text"], text_w)
+    else:
+        body = [l.rstrip() for l in peek]
+        while body and not body[-1]:
+            body.pop()
+        body = [r for l in body for r in wrap(l, text_w)] or ["no report yet"]
+    body_h = max(1, height - 1 - 2 - 3)
+    top = max(0, len(body) - body_h)
+    scroll = max(0, min(scroll, top))
+    if top:
+        facts.append(f"lines {scroll + 1}-{scroll + body_h}/{len(body)}")
+
+    def row(text, style):
+        text = clip(text, text_w)
+        return f" {style}{text}{RESET}{' ' * (text_w - cw(text))} "
+
+    rows = [
+        row(f"{class_icon(a)} {a['name']}  {a['kind']} · {squad}", fg("fg", True)),
+        row("  ".join(facts), fg("dim")),
+        row("", ""),
+    ]
+    for l in body[scroll : scroll + body_h]:
+        rows.append(row(l, fg("gold", True) if report and l.startswith("#") else fg("fg" if report else "dim")))
+    title = REPORT_TITLE.get(a["status"], "Report") if report else "Last output"
+    out = box(f"{STATUS_TAG[a['status']][0] or '·'} {title}", rows, width, color, double=True)
+    out += [""] * (height - 1 - len(out))
+    out.append(hint_line("report", width))
+    return "\n".join(out), top
+
+
+def render_no_report(width, height):
+    width = max(28, width)
+    text = clip("Nobody is waiting or done.", width - 4)
+    out = box("Quest reports", [f" {fg('dim')}{text}{RESET}{' ' * (width - 4 - cw(text))} "], width)
+    out += [""] * (height - 1 - len(out))
+    out.append(f" {fg('gold', True)}q{RESET} {fg('dim')}close{RESET}")
+    return "\n".join(out)
 
 
 def box(title, rows, width, color="line", double=False, title_color="gold"):

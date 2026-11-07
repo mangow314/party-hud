@@ -137,7 +137,48 @@ ok(re.search(r"Empty +\(empty\) │", eq) and "no agents ⏎ open session" in eq
 rm3 = []
 st3 = strip(render.render(towns, 33, "%1", row_map=rm3)).splitlines()
 ok(all(rm3[i] == ("agent", "%2") for i, l in enumerate(st3) if "Thief" in l or "140k" in l), "Clicking a row of a member's status box selects that member")
+
+done = dict(agents[0], status="done", hp_left=410000, hp_max=1000000)
+rep = {"text": "## 結果\n完成了報告畫面\n" + "很長的一行中文" * 20, "start": 100, "end": 860}
+frame, top = render.render_report(done, "Studio", rep, [], 60, 20)
+rf = strip(frame).splitlines()
+ok(len(rf) == 20 and "Quest complete" in rf[0] and f"{done['name']}  claude · Studio" in rf[1] and "q close" in rf[-1],
+   "report: title, who and which squad, key hints on the last line")
+ok("took 12m 40s" in rf[2] and "HP 410k/1M" in rf[2], "report: time from prompt to answer, HP left")
+ok(sum(common.cw(l) == 60 for l in rf if l) == len([l for l in rf if l]) - 1 >= 10,
+   "report: every box line is exactly the width (CJK = 2)")
+ok(common.fg("gold", True) + "## 結果" in frame, "report: Markdown headings in gold")
+long = dict(rep, text="\n".join(f"L{n}" for n in range(50)))
+f0, top = render.render_report(done, "Studio", long, [], 60, 20)
+f9 = strip(render.render_report(done, "Studio", long, [], 60, 20, 999)[0])
+ok(top == 36 and "lines 1-14/50" in strip(f0) and "L49" in f9 and "L35" not in f9 and "lines 37-50/50" in f9,
+   "report: long text scrolls, scroll is clamped to the last page")
+last = strip(render.render_report(dict(done, status="waiting"), "Studio", None, ["$ make", "ok", "", ""], 60, 20)[0])
+ok("Last output" in last and "$ make" in last and "took" not in last, "report: no report -> the pane's last lines")
+ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60, 20)[0]), "report: nothing at all -> says so")
+nr = strip(render.render_no_report(40, 10)).splitlines()
+ok(len(nr) == 10 and "Nobody is waiting or done." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
+   "report popup with nobody waiting or done: says so and waits (a popup that exits at once only flashes)")
+ok(render.wrap("一二三四五", 4) == ["一二", "三四", "五"] and render.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
+   "report: wrap by display width; tabs expanded, control characters dropped")
+mk = lambda pane, status: {"pane": pane, "status": status}
+qt = [{"name": "A", "agents": [mk("%1", "done"), mk("%2", "working"), mk("%3", "waiting")]},
+      {"name": "B", "agents": [mk("%4", "done")]}]
+ok([a["pane"] for _, a in ui.report_queue(qt)] == ["%3", "%1", "%4"], "report queue: waiting first, then done")
+ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"] and ui.report_queue(qt, "%2")[0][0] == "A",
+   "report queue: the pane asked for comes first, whatever its status")
+ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") == "report"
+   and ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "popup") is None,
+   "r in the sidebar opens the report popup (not inside the P popup: one popup per client)")
+started = []
+real_popen = ui.subprocess.Popen
+ui.subprocess.Popen = lambda args, **kw: started.append(args)
+ui.open_report("%7")
+ui.subprocess.Popen = real_popen
+ok(len(started) == 1 and started[0][:2] == ["tmux", "display-popup"] and started[0][-1].endswith("--report %7"),
+   "r: the popup starts in the background (display-popup waits until it closes, which froze the sidebar)")
 import json, tempfile
+from datetime import datetime
 pane = lambda pid, cmd: {"session_name": "New", "window_index": "1", "window_name": "w", "window_active": "1",
                          "session_attached": "1", "pane_id": pid, "pane_active": "1", "pane_current_command": cmd,
                          "pane_current_path": "/n", "@workmux_pane_status": "", "pane_pid": ""}
@@ -175,6 +216,45 @@ with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write('{"type":"event_msg","payload":{"type":"token_count","info":null}}\n')
 ok(collect.codex_usage(f.name) == (18981, 258400) and collect.codex_usage("/nope") is None,
    "codex rollout: use the last token_count with usage (skip info: null)")
+with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+    f.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"old","started_at":1,"completed_at":2}}\n')
+    f.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"## 結果\\n完成","started_at":100,'
+            '"completed_at":160,"duration_ms":60000}}\n')
+    f.write('{"type":"event_msg","payload":{"type":"token_count","info":null}}\n')
+with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as g:
+    g.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":null}}\n')
+ok(collect.codex_report(f.name) == {"text": "## 結果\n完成", "start": 100, "end": 160},
+   "codex report: last task_complete's message and start / end time")
+ok(collect.codex_report(g.name) is None and collect.codex_report("/nope") is None,
+   "codex report: no message or no file -> None")
+
+def transcript(*recs):
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+        for r in recs:
+            f.write(json.dumps(r) + "\n")
+    return f.name
+def rec(kind, t, content, **extra):
+    return {"type": kind, "timestamp": f"2026-11-07T10:{t:02d}:00Z", "message": {"content": content}, **extra}
+text = lambda s: {"type": "text", "text": s}
+turn = [rec("user", 0, "earlier"), rec("assistant", 1, [text("old answer")]),
+        rec("user", 2, "fix it"), rec("assistant", 3, [{"type": "thinking", "thinking": "hm"}]),
+        rec("assistant", 3, [text("I'll look first")]), rec("assistant", 4, [{"type": "tool_use", "id": "x"}]),
+        rec("user", 5, [{"type": "tool_result", "tool_use_id": "x"}]),
+        rec("assistant", 6, [text("## 結果\nDone")]), rec("assistant", 7, [text("One more line")]),
+        rec("assistant", 8, [text("subagent noise")], isSidechain=True), rec("user", 9, "caveat", isMeta=True)]
+t0 = datetime.fromisoformat("2026-11-07T10:00:00+00:00").timestamp()
+r = collect.claude_report(transcript(*turn))
+ok(r == {"text": "## 結果\nDone\n\nOne more line", "start": t0 + 120, "end": t0 + 420},
+   "claude report: text after the last tool call, from the prompt's time to the last text (subagent and meta skipped)")
+r = collect.claude_report(transcript(*turn, rec("user", 10, "<bash-input>ls</bash-input>"), rec("user", 10, "<bash-stdout>a</bash-stdout>")))
+ok(r is not None and r["text"].startswith("## 結果") and r["start"] == t0 + 120,
+   "claude report: a ! command after the answer (no reply) does not hide the report")
+ok(collect.claude_report(transcript(*turn[:6])) is None and collect.claude_report(transcript(*turn[:7])) is None
+   and collect.claude_report("/nope") is None,
+   "claude report: turn still in a tool call, or no file -> None")
+ok(collect.claude_report(transcript(*turn[:4])) is None, "claude report: turn with only thinking so far -> None")
+ok(collect.claude_report(transcript(*turn[:2])) == {"text": "old answer", "start": t0, "end": t0 + 60},
+   "claude report: answer without tool calls")
 collect.PARTY_DIR = tempfile.mkdtemp()
 screens = iter(["a", "a", "b", "b"])
 collect.tmux = lambda *args: next(screens)

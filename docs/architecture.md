@@ -72,7 +72,7 @@ All in `$XDG_RUNTIME_DIR/party-hud/` (or `~/.cache/party-hud/`). Deleting the fo
 | `<pane>.json` | statusline integration output (see [integrations](integrations.md)) |
 | `activity.json` | CRC32 of each non-Claude pane's screen and when it last changed |
 | `unseen.json` | members that finished while you were not looking ("done" until you look) |
-| `bells.json` | each member's status at the last collection, to ring only on a change |
+| `bells.json` | each member's status at the last collection, to ring only on a change, and to set the tmux option `@party_reports` (members waiting or done) only when that number changes |
 | `collections` | how many times data was collected (used by the tests and `bench/live.sh`) |
 | `cursor.json` | shared cursor, so every sidebar highlights the same member |
 | `error.log` | tracebacks; a sidebar that hits an error logs it and retries next second |

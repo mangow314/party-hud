@@ -214,6 +214,29 @@ def codex_usage(path):
     return None
 
 
+def codex_report(path):
+    """Last finished turn of a rollout -> {"text", "start", "end"} (epoch seconds, start may be None), or None."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 256 * 1024))
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for raw in reversed(lines):
+        if b'"task_complete"' not in raw:
+            continue
+        try:
+            p = json.loads(raw)["payload"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if p.get("type") != "task_complete":
+            continue
+        text = (p.get("last_agent_message") or "").strip()
+        return {"text": text, "start": p.get("started_at"), "end": p.get("completed_at")} if text else None
+    return None
+
+
 ACTIVE_WINDOW = 4.0  # screen changed this recently = working (spinners and timers keep changing)
 
 
@@ -395,6 +418,71 @@ def _scan_usage(lines):
     return last, ttl, used
 
 
+def _epoch(ts):
+    # Python 3.10 fromisoformat does not accept a trailing Z
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
+
+
+def claude_report(path):
+    """Final answer of the last answered turn -> {"text", "start", "end"} (epoch seconds, start may be None), or None.
+    The answer is the text after the turn's last tool call. A prompt nobody answered (a `!` command, /cost) is skipped."""
+    texts, end, collecting, replied = [], None, True, False
+    try:
+        with open(path, "rb") as f:
+            pos, carry = f.seek(0, os.SEEK_END), b""
+            while pos:
+                start = max(0, pos - 256 * 1024)
+                f.seek(start)
+                lines = (f.read(pos - start) + carry).split(b"\n")
+                carry = lines.pop(0) if start else b""
+                pos = start
+                for raw in reversed(lines):
+                    try:
+                        rec = json.loads(raw)
+                        content = rec["message"]["content"]
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                    if rec.get("isSidechain") or rec.get("isMeta"):
+                        continue
+                    blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+                    blocks = [b for b in blocks if isinstance(b, dict)]
+                    kinds = {b.get("type") for b in blocks}
+                    if rec.get("type") == "assistant":
+                        replied = True
+                        if "tool_use" in kinds:
+                            if not texts:
+                                return None
+                            collecting = False
+                        elif collecting:
+                            said = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+                            if said:
+                                texts.insert(0, said)
+                                end = end or _epoch(rec.get("timestamp"))
+                    elif rec.get("type") == "user":
+                        if "tool_result" in kinds:
+                            if not texts:
+                                return None
+                            collecting = False
+                        elif replied:
+                            if not texts:
+                                return None
+                            return {"text": "\n\n".join(texts), "start": _epoch(rec.get("timestamp")), "end": end}
+    except OSError:
+        return None
+    return {"text": "\n\n".join(texts), "start": None, "end": end} if texts else None
+
+
+def report_for(a):
+    """The member's last report (shape of claude_report), or None. Only Claude Code and Codex write one."""
+    if a["kind"] == "claude":
+        return claude_report(a["transcript"]) if a.get("transcript") else None
+    if a["kind"] == "codex":
+        p = next((p for p in read_tmux() if p["pane_id"] == a["pane"]), None)
+        path = codex_rollout(p.get("pane_pid", ""), p.get("pane_current_path", "")) if p else None
+        return codex_report(path) if path else None
+    return None
+
+
 def collect(fixture=None, now=None):
     """Snapshot: {"t": time, "towns": squads with their members, "panes": {pane_id: window info}}."""
     now = now or time.time()
@@ -494,6 +582,7 @@ def collect(fixture=None, now=None):
                 "fresh": fresh,
                 "model": printable(info.get("model", "")),
                 "summons": get_summons(tx, now) if tx else [],
+                "transcript": tx,
                 "focus": p["window_active"] == "1" and p["pane_active"] == "1" and t["attached"],
             }
         )
@@ -614,6 +703,9 @@ def get_snapshot(fixture=None):
                     os.close(fd_tty)
             except (OSError, KeyError):
                 pass
+        unread = sum(s in ("waiting", "done") for s in cur.values())
+        if prev is None or unread != sum(s in ("waiting", "done") for s in prev.values()):
+            tmux("set-option", "-g", "@party_reports", str(unread))
         with open(f"{bell_path}.{os.getpid()}", "w") as f:
             json.dump(cur, f)
         os.replace(f"{bell_path}.{os.getpid()}", bell_path)

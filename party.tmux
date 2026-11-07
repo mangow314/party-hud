@@ -19,5 +19,6 @@ tmux set -as terminal-features ',xterm-ghostty:usstyle,xterm-kitty:usstyle'
 tmux bind-key "$(opt @party_key_popup P)" display-popup -E -w 36 -h 85% -T " Party " "$party --watch"
 tmux bind-key "$(opt @party_key_toggle C-t)" run-shell -b "$party --toggle"
 tmux bind-key "$(opt @party_key_next a)" run-shell -b "$party --next"
+tmux bind-key "$(opt @party_key_report R)" display-popup -E -w 80% -h 80% -T " Report " "$party --report"
 # After dragging a pane border: if it was a sidebar, remember the width and apply it to every sidebar
 tmux bind-key -n MouseDragEnd1Border run-shell -b "$party --remember-width"

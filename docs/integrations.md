@@ -13,6 +13,7 @@ or add support for another agent.
 | Which pane runs Claude, session id, name, busy / idle / waiting | `~/.claude/sessions/<pid>.json` (`pid`, `sessionId`, `name`, `status`, `tmux`) | Claude Code |
 | Transcript path | `~/.claude/projects/*/<session id>.jsonl` (found by session id) | Claude Code |
 | SP: when the prompt cache expires | last `usage` entry in the transcript: its timestamp + TTL (1 h if it wrote `ephemeral_1h_input_tokens`, else 5 min) | Claude Code |
+| Quest report (`prefix R`, read only when opened) | text blocks of the last answered turn after its last `tool_use`, and the timestamps of its prompt and last text; subagent (`isSidechain`) and `isMeta` entries are skipped, as are prompts nobody answered (`!` commands, `/cost`) | Claude Code |
 | Subagents in flight (paw count) | `<transcript without .jsonl>/subagents/*.meta.json`, not `finished`, log touched in the last 15 min | Claude Code |
 | HP: context left and context size, model name | `$XDG_RUNTIME_DIR/party-hud/<pane>.json` | `integrations/claude-statusline.sh` |
 
@@ -43,6 +44,7 @@ Without the file, HP is estimated from the transcript: the tokens sent in the la
 | Which pane runs Codex | the pane's command is `codex`, or a child process (up to 3 levels down) is `codex` or an interpreter (`node`, `bun`, `deno`, `python*`) running a `codex` script |
 | Working / idle | the pane's screen changed in the last 4 seconds (only a CRC32 hash of the screen is stored, in `activity.json`) |
 | HP | last `token_count` event in the rollout file: `last_token_usage.total_tokens` of `model_context_window` |
+| Quest report (`prefix R`, read only when opened) | last `task_complete` event in the rollout file: `last_agent_message`, `started_at`, `completed_at` |
 
 The rollout file is found in two ways:
 
@@ -56,7 +58,8 @@ SP is not shown: OpenAI does not publish a fixed cache lifetime we could count d
 
 ## agy, Grok
 
-Detected by the pane's command name, or among its child processes as for Codex. Working / idle comes from screen changes, as for Codex. HP and SP show `--`.
+Detected by the pane's command name, or among its child processes as for Codex. Working / idle comes from screen changes, as for Codex. HP and SP show `--`. They write no report: the
+report popup shows the pane's last lines instead.
 
 ## workmux
 

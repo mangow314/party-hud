@@ -45,7 +45,7 @@ check "A client is attached to session a" eq "$(t list-clients -F '#{session_nam
   { echo "     cannot attach a test client (needs util-linux or BSD script); stopping" >&2; exit 1; }
 
 t run-shell "$root/party.tmux"
-check "party.tmux: binds 4 keys (popup, toggle, next, border drag)" eq "$(t list-keys | grep -c 'party.py')" "4"
+check "party.tmux: binds 5 keys (popup, toggle, next, report, border drag)" eq "$(t list-keys | grep -c 'party.py')" "5"
 check "party.tmux: leaves allow-passthrough off globally (other panes cannot bypass tmux)" eq "$(t show -gv allow-passthrough)" "off"
 
 t run-shell "python3 $party --toggle"
@@ -105,6 +105,7 @@ bmain=$(t list-panes -t b:0 -F '#{pane_id} #{@party_sidebar}' | grep -v ' 1$' | 
 t set-option -p -t "$bmain" @workmux_pane_status "💬"
 sleep 5
 check "Bell: hidden window b:0 gets the bell flag when its member starts waiting" eq "$(t display -p -t b:0 '#{window_bell_flag}')" "1"
+check "@party_reports counts the waiting member (for the status line)" test "$(t show -gqv @party_reports)" -ge 1
 
 # Closing the main pane of a hidden window (its sidebar is not running) still closes the window
 before=$(windows)

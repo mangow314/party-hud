@@ -3,17 +3,19 @@
 import os
 import re
 import select
+import shlex
 import shutil
 import signal
+import subprocess
 import sys
 import termios
 import time
 import tty
 
 from .art import art_supported, crest_ids, kitty_image, load_art, portrait_id
-from .collect import get_snapshot
+from .collect import get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
-from .render import render
+from .render import render, render_no_report, render_report
 from .sidebars import EXE, install_hooks, mark_sidebar
 
 
@@ -92,6 +94,8 @@ def handle_key(key, st, towns, mode):
         st["focus"] = "party"
     elif key == "v":
         st["peek"] = not st["peek"]
+    elif key == "r" and mode == "sidebar" and st["sel"]:
+        return "report"
     elif key in ("\r", "\n"):
         if st["focus"] == "squad" and towns:
             return "jump_squad"
@@ -150,6 +154,92 @@ def jump_next():
     st = {"focus": "party", "sel": target, "squad": None}
     save_cursor(st)
     tmux("switch-client", "-t", target)
+
+
+def report_queue(towns, pane=None):
+    """[(squad name, member)] to read: waiting first, then done; pane (any status) goes first when given."""
+    members = [(t["name"], a) for t in towns for a in t["agents"]]
+    queue = [m for s in ("waiting", "done") for m in members if m[1]["status"] == s]
+    mine = [m for m in members if m[1]["pane"] == pane]
+    return mine + [m for m in queue if m not in mine]
+
+
+def open_report(pane):
+    # tmux display-popup returns only when the popup closes; waiting would freeze this sidebar
+    subprocess.Popen(
+        [
+            "tmux",
+            "display-popup",
+            "-E",
+            "-w",
+            "80%",
+            "-h",
+            "80%",
+            "-T",
+            " Report ",
+            f"{EXE} --report {shlex.quote(pane)}",
+        ],
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.DEVNULL,
+    )
+
+
+def run_report(pane=None, fixture=None):
+    """Report popup (prefix R, or r in the sidebar): one member's last report at a time."""
+    queue = report_queue(get_snapshot(fixture)["towns"], pane)
+    reports, i, scroll, top = {}, 0, 0, 0
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    dirty = [True]
+    signal.signal(signal.SIGWINCH, lambda *_: dirty.__setitem__(0, True))
+    sys.stdout.write("\033[?25l\033[?7l" + MOUSE_ON)
+    try:
+        tty.setcbreak(fd)
+        while not queue:
+            if dirty[0]:
+                dirty[0] = False
+                size = os.get_terminal_size(sys.stdout.fileno())
+                sys.stdout.write("\033[H" + render_no_report(size.columns - 1, size.lines) + "\033[J")
+                sys.stdout.flush()
+            # a popup that exits at once only flashes: stay until a key
+            if select.select([fd], [], [], 0.5)[0]:
+                return
+        while True:
+            squad, a = queue[i]
+            if dirty[0]:
+                dirty[0] = False
+                if a["pane"] not in reports:
+                    reports[a["pane"]] = None if fixture else report_for(a)
+                report = reports[a["pane"]]
+                peek = capture(a["pane"]) if report is None and not fixture else []
+                size = os.get_terminal_size(sys.stdout.fileno())
+                frame, top = render_report(
+                    a, squad, report, peek, size.columns - 1, size.lines, scroll, i + 1, len(queue)
+                )
+                sys.stdout.write("\033[H" + "\033[K\n".join(frame.split("\n")) + "\033[K\033[J")
+                sys.stdout.flush()
+            # select retries after SIGWINCH (PEP 475), so wake up now and then to redraw after a resize
+            r, _, _ = select.select([fd], [], [], 0.5)
+            if not r:
+                continue
+            dirty[0] = True
+            for kind, key in parse_input(os.read(fd, 1024).decode(errors="ignore")):
+                if kind != "key":
+                    continue
+                if key in ("j", "k"):
+                    scroll = max(0, min(top, scroll + (1 if key == "j" else -1)))
+                elif key == "n":
+                    i, scroll = (i + 1) % len(queue), 0
+                elif key in ("\r", "\n"):
+                    save_cursor({"focus": "party", "sel": a["pane"], "squad": None})
+                    tmux("switch-client", "-t", a["pane"])
+                    return
+                elif key in ("q", "\x1b"):
+                    return
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write(MOUSE_OFF + "\033[?7h\033[?25h\n")
+        sys.stdout.flush()
 
 
 HIDE_AFTER = 2.0
@@ -322,6 +412,8 @@ def run_ui(mode, fixture=None):
                 elif action == "jump_squad":
                     tmux("switch-client", "-t", "=" + towns[st["squad"]]["name"])  # =: exact name match
                     done = mode == "popup"
+                elif action == "report":
+                    open_report(st["sel"])
                 elif action == "back":
                     tmux("select-pane", "-l")
                 elif action == "hide":

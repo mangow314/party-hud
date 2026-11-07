@@ -92,15 +92,32 @@ adjust-underline-thickness = 3
 | `prefix C-t` | 在所有 window 開／關側欄 |
 | `prefix P` | popup 版 |
 | `prefix a` | 不開任何東西，直接跳到下一個等你或做完的隊員 |
+| `prefix R` | 任務回報：看等你或做完的隊員最後交出的報告 |
 | `j`／`k` | 同一隊的下一位／上一位（到頭尾就停） |
 | `J`／`K` | 下一隊／上一隊 |
 | `1`–`9` | 這隊第 N 位 |
 | `Enter` | 切到那位隊員的 pane |
 | `n` | 下一個等你的，沒有的話下一個做完的 |
 | `v` | 看那位隊員最後幾行輸出 |
+| `r` | 在側欄裡：開選中隊員的任務回報 |
 | `Esc`／`q` | 回到原本的 pane／收起全部側欄 |
 
 拖側欄邊框可以調寬度，所有側欄會一起記住新寬度，最窄 30 欄。
+
+### 任務回報
+
+隊員做完或停下來等你時，`prefix R` 會開一個大 popup，顯示它最後交出的報告：標題寫 `Quest complete`，下面是隊員名稱、花了多久（從你送出指令到它回完）、剩下的 HP，再下面是報告本文。
+
+- Claude Code 的報告是最後一輪回覆裡、最後一次工具呼叫之後的文字；Codex 是最後一次完成的回覆。
+- 沒有報告時改顯示 pane 最後幾行（`Last output`）：agy、Grok 一律如此；在等你核准或回答問題的 Claude 通常也是，問題就在那幾行裡。
+- `j`／`k` 捲動，`n` 看下一份，`Enter` 切到那位隊員的 pane，`q`／`Esc` 關閉。
+- 看完報告不會清掉「做完」的標記，切到那個 pane 才會。
+
+想在狀態列看到有幾份報告，collector 會把「等你或做完的隊員數」寫進 tmux 變數 `@party_reports`：
+
+```tmux
+set -ag status-right '#{?#{@party_reports}, 報告 #{@party_reports},}'
+```
 
 ## 選項
 
@@ -111,6 +128,7 @@ adjust-underline-thickness = 3
 | `@party_key_toggle` | `C-t` | 開／關側欄的鍵 |
 | `@party_key_popup` | `P` | popup 的鍵 |
 | `@party_key_next` | `a` | 「跳到下一個等你的」的鍵 |
+| `@party_key_report` | `R` | 任務回報的鍵 |
 | `@party_art` | `auto` | `on`／`off` 強制開／關圖片；`auto` 在 Ghostty、Kitty 自動開 |
 | `@party_sidebar_width` | `34` | 側欄寬度（欄） |
 

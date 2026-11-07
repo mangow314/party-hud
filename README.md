@@ -83,15 +83,35 @@ If you connect over SSH, the remote needs your terminal's terminfo (Ghostty: `sh
 | `prefix C-t` | Open / close the sidebar in every window |
 | `prefix P` | Popup version |
 | `prefix a` | Jump to the next member that is waiting or done, without opening anything |
+| `prefix R` | Quest report: read the last report of members that are waiting or done |
 | `j` / `k` | Next / previous member in this squad (stops at the ends) |
 | `J` / `K` | Next / previous squad |
 | `1`–`9` | Member N of this squad |
 | `Enter` | Go to that member's pane |
 | `n` | Next waiting member, then next finished one |
 | `v` | Peek at the member's last lines of output |
+| `r` | In the sidebar: open the selected member's quest report |
 | `Esc` / `q` | Back to your pane / hide all sidebars |
 
 Drag the sidebar border to resize; the width is remembered for all sidebars (minimum 30 columns).
+
+### Quest reports
+
+When a member finishes or stops to wait for you, `prefix R` opens a large popup with its last report: the title
+`Quest complete`, the member, how long it took (from your prompt to its answer), HP left, then the report itself.
+
+- For Claude Code the report is the text after the last tool call of its last answer; for Codex, its last finished reply.
+- Without a report the pane's last lines are shown instead (`Last output`): always for agy and Grok, and usually for a
+  Claude member waiting for a permission or an answer, whose question is in those lines.
+- `j` / `k` scroll, `n` next report, `Enter` goes to the member's pane, `q` / `Esc` closes.
+- Reading a report does not clear the "done" mark; going to the pane does.
+
+To see the count in your status line, the collector writes the number of members waiting or done to the tmux
+variable `@party_reports`:
+
+```tmux
+set -ag status-right '#{?#{@party_reports}, reports #{@party_reports},}'
+```
 
 ## Options
 
@@ -102,6 +122,7 @@ Set these in `~/.tmux.conf` before the plugin loads.
 | `@party_key_toggle` | `C-t` | Key for open / close |
 | `@party_key_popup` | `P` | Key for the popup |
 | `@party_key_next` | `a` | Key for "next waiting" |
+| `@party_key_report` | `R` | Key for quest reports |
 | `@party_art` | `auto` | `on` / `off` forces images; `auto` uses them on Ghostty and Kitty |
 | `@party_sidebar_width` | `34` | Sidebar width in columns |
 
