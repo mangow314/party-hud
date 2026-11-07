@@ -597,6 +597,25 @@ def report_for(a):
     return None
 
 
+def subagent_unanswered(a):
+    """True when a finished subagent's log is newer than the main report's end: the main conversation has not answered it yet."""
+    if a["kind"] != "claude" or not a.get("transcript"):
+        return False
+    rep = claude_report(a["transcript"])
+    if not rep or not rep["end"]:
+        return False
+    for meta in glob.glob(os.path.join(a["transcript"][: -len(".jsonl")], "subagents", "*.meta.json")):
+        try:
+            with open(meta) as f:
+                if not json.load(f).get("finished"):
+                    continue
+            if os.path.getmtime(meta[: -len(".meta.json")] + ".jsonl") > rep["end"]:
+                return True
+        except (OSError, ValueError, AttributeError):
+            continue
+    return False
+
+
 def wait_channel(pane):
     return "party-" + pane.lstrip("%")
 
@@ -619,7 +638,7 @@ def report_text(pane, wait=False, timeout=600):
             if rc != 0:
                 return 2, "", err or f"no such pane: {pane}\n"
             return 4, "", f"not a known agent: {pane}\n"
-        if not wait or a["status"] != "working":
+        if not wait or not (a["status"] == "working" or a.get("summons") or subagent_unanswered(a)):
             rep = report_for(a)
             return 0, (str(rep["text"]) + "\n") if rep else "", "" if rep else f"no report for {pane}\n"
         left = deadline - time.monotonic()

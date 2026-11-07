@@ -761,8 +761,8 @@ def ok(cond, msg):
     if not cond: fails.append(msg)
 calls, snaps = [], []
 real_snapshot = collect.get_snapshot
-agent = lambda s: {"pane": "%5", "kind": "claude", "status": s}
-snap = lambda s: {"towns": [{"agents": [agent(s)]}]}
+agent = lambda s, summons=(), **kw: {"pane": "%5", "kind": "claude", "status": s, "summons": list(summons), **kw}
+snap = lambda s, summons=(), **kw: {"towns": [{"agents": [agent(s, summons, **kw)]}]}
 def run(rounds, *a, pane_rc=0, **kw):
     calls.clear()
     seq = list(rounds)
@@ -800,6 +800,22 @@ t0 = time.monotonic()
 rc, out, err = run([snap("working")], "%5", True, 0.3)
 ok(rc == 3 and out == "" and time.monotonic() - t0 < 1 and 0 < waits()[-1][1] <= 0.3 and len(snaps) >= 2,
    "report-text --wait --timeout: expires with 3, the last wait-for is capped at the time left")
+rc, out, err = run([snap("idle", [{}]), snap("idle", [{}]), snap("idle")], "%5", True, 30)
+ok(rc == 0 and len(snaps) == 3 and len(waits()) == 2,
+   "report-text --wait: keeps waiting while subagents run (idle with summons), returns once they are gone")
+tx = os.path.join(sys.argv[2], "main.jsonl")
+sub = os.path.join(sys.argv[2], "main", "subagents"); os.makedirs(sub)
+open(os.path.join(sub, "agent-x.meta.json"), "w").write('{"finished": true}')
+open(os.path.join(sub, "agent-x.jsonl"), "w").close()
+real_cr = collect.claude_report
+collect.claude_report = lambda t, sidechain=False: {"text": "mid", "start": None, "end": 100}
+os.utime(os.path.join(sub, "agent-x.jsonl"), (200, 200))
+run([snap("idle", transcript=tx), snap("idle", transcript=tx)], "%5", True, 0.3)
+ok(len(waits()) > 0, "report-text --wait: keeps waiting while subagents run (finished subagent log newer than the main report)")
+os.utime(os.path.join(sub, "agent-x.jsonl"), (50, 50))
+ok(run([snap("idle", transcript=tx)], "%5", True, 30)[0] == 0 and not waits(),
+   "report-text --wait: returns when the finished subagent is older than the main report")
+collect.claude_report = real_cr
 fake = os.path.join(sys.argv[2], "bin"); os.makedirs(fake)
 with open(os.path.join(fake, "tmux"), "w") as f:
     f.write(f'#!/bin/sh\necho $$ >"{fake}/pid"\nexec sleep 30\n')
