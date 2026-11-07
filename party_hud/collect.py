@@ -146,8 +146,17 @@ def proc_tree(pane_pid):
         todo = [k for pid in todo for k in proc_children(pid)]
 
 
+def is_codex_proc(args):
+    if not args:
+        return False
+    name = os.path.basename(args[0])
+    if name in ("node", "bun", "deno") and len(args) > 1:
+        return os.path.basename(args[1]) in ("codex", "codex.js")
+    return name == "codex"
+
+
 def find_codex(pane_pid):
-    return next((pid for pid in proc_tree(pane_pid) if any("codex" in a for a in proc_args(pid) or [])), None)
+    return next((pid for pid in proc_tree(pane_pid) if is_codex_proc(proc_args(pid))), None)
 
 
 def codex_rollout(pane_pid, cwd="", panes=()):
@@ -155,7 +164,7 @@ def codex_rollout(pane_pid, cwd="", panes=()):
     `panes` (tmux panes) lets codex processes in the same cwd each take a different rollout."""
     codex_pid = None
     for pid in proc_tree(pane_pid):
-        if codex_pid is None and any("codex" in a for a in proc_args(pid) or []):
+        if codex_pid is None and is_codex_proc(proc_args(pid)):
             codex_pid = pid
         for fd in glob.glob(
             f"/proc/{pid}/fd/*"

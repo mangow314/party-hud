@@ -624,6 +624,10 @@ both = [{"pane_pid": "10", "pane_current_path": "/w/p"}, {"pane_pid": "20", "pan
 got = [collect.codex_rollout(pp, "/w/p", both) for pp in ("10", "20")]
 solo = collect.codex_rollout("10", "/w/p", both[:1])
 ok(got == [ra, rb] and solo == rb, "codex_rollout: two same-cwd panes get their own rollouts; a lone codex still gets the newest")
+procs = {"30": ["bash", "/tmp/codex-notes.sh"], "31": ["vim", "codex.md"], "32": ["/x/bin/codex"], "33": ["node", "/x/bin/codex.js"]}
+ok([bool(collect.is_codex_proc(procs[k])) for k in ("30", "31", "32", "33")] == [False, False, True, True]
+   and collect.find_codex("30") is None and collect.find_codex("33") == "33",
+   "codex process: matched by program name, not by an argument containing codex")
 fields = {f: "" for f in collect.TMUX_FIELDS}
 tpanes = [dict(fields, pane_id=f"%{i}", pane_pid=pp, pane_current_path="/w/p", pane_current_command="codex",
                session_name="s", session_attached="1", window_active="1", window_id="@1", window_panes="2")
