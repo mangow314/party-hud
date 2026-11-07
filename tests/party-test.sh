@@ -161,6 +161,27 @@ ok(len(nr) == 10 and "Nobody is waiting or done." in nr[1] and all(common.cw(l) 
    "report popup with nobody waiting or done: says so and waits (a popup that exits at once only flashes)")
 ok(render.wrap("一二三四五", 4) == ["一二", "三四", "五"] and render.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
    "report: wrap by display width; tabs expanded, control characters dropped")
+md = render.render_markdown
+B, I, R, fgc = "\033[1m", "\033[3m", common.RESET, common.fg
+ok(md("# T\n###### s", 20) == [fgc("gold", True) + "T" + R, fgc("gold", True) + "s" + R], "markdown: # to ###### headings in gold bold, marker dropped")
+ok(md("a **b** c", 20) == ["a " + B + "b" + R + " c"], "markdown: **bold**")
+ok(md("*x* _y_ snake_case_name", 30) == [I + "x" + R + " " + I + "y" + R + " snake_case_name"], "markdown: *italic* and _italic_, not the underscores inside a word")
+ok(md("a `**x**` b", 20) == ["a " + fgc("amber") + "**x**" + R + " b"], "markdown: `inline code` is literal")
+ok([strip(r) for r in md("- a\n* b\n1. c", 20)] == ["• a", "• b", "1. c"] and [strip(r) for r in md("- 一二三四五", 6)] == ["• 一二", "  三四", "  五"],
+   "markdown: -, * and 1. lists; wrapped items hang under the text")
+ok(md("```py\n**x**\n```\nabcdef", 20) == [fgc("green") + "**x**" + R, "abcdef"] and [strip(r) for r in md("```\nabcdef", 4)] == ["abcd", "ef"],
+   "markdown: fenced code block is literal, fences dropped, long lines wrap")
+ok(md("see [doc](http://u/x) ok", 40) == ["see " + fgc("blue") + "\033[4m" + "doc" + R + fgc("dim") + " (http://u/x)" + R + " ok"], "markdown: [text](url) shows the text and the url")
+ok(md("---", 10) == [fgc("dim") + "─" * 10 + R], "markdown: --- is a rule as wide as the pane")
+ok([strip(r) for r in md("a\nb\n\nc", 5)] == ["a", "b", "", "c"], "markdown: every source line stays a line, blank lines stay")
+ok([strip(r) for r in md("一二三e\u0301f", 5)] == ["一二", "三e\u0301f"] and all(common.cw(strip(r)) <= 5 for r in md("一二三e\u0301f", 5)),
+   "markdown: CJK = 2 columns, combining marks = 0")
+ok([strip(r) for r in md("1. abcdefgh", 6)] == ["1. abc", "   def", "   gh"], "markdown: 1. lists keep the number and hang wrapped rows under the text")
+ok([strip(r) for r in md("e\u0301" * 5, 5)] == ["e\u0301" * 5], "markdown: combining marks take no column, five e+accent fit in width 5")
+wr = md("**aaa bbb ccc**", 5)
+ok(len(wr) == 3 and all(r.startswith(B) and r.endswith(R) and common.cw(strip(r)) <= 5 for r in wr), "markdown: styled text wraps, every row carries its own style and reset")
+raw = ["  - **x**", "  - nested", "| a | b |", "![img](u.png)", "<b>x</b>", "> *q*"]
+ok(md("\n".join(raw), 30) == raw, "markdown: nested lists, tables, images, HTML and quotes are shown as written")
 mk = lambda pane, status: {"pane": pane, "status": status}
 qt = [{"name": "A", "agents": [mk("%1", "done"), mk("%2", "working"), mk("%3", "waiting")]},
       {"name": "B", "agents": [mk("%4", "done")]}]
