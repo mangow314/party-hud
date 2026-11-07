@@ -13,7 +13,8 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
 ## Guardrails
 
 - `party.py` and `party_hud/` use only the Python 3.10+ standard library. Pillow / NumPy only under `scripts/`.
-- Read only: never write to an agent's files, never send data over the network.
+- Read only: the HUD (sidebar, collector, report pane) only reads; the summon and send subcommands open panes and send keys only when an agent explicitly calls them; never write to an agent's files, never use the network under any circumstances.
+  (HUD（側欄、collector、回報 pane）只讀；召集和送出的子指令只在 agent 明確呼叫時，才開 pane 和送按鍵；任何情況都不寫 agent 的檔案、不走網路。)
 - A change that adds work per frame or per collection needs `python3 bench/bench.py` numbers before and after.
 - No comments by default. Allowed only for what the code cannot show: outside behavior a line depends on (tmux,
   terminal, OS, Python, an agent), a constraint set elsewhere in the code, the name of an opaque value, a lint
