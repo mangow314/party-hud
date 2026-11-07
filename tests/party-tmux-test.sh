@@ -142,6 +142,30 @@ check "Report: allow-passthrough stays off globally" eq "$(t show -gv allow-pass
 check "Report: the main pane's allow-passthrough is still off" eq "$(t display -p -t "$host" '#{allow-passthrough}')" "off"
 t kill-pane -t "$report"
 
+# Agent collaboration: summon a fake agy (its report is read off the screen), ask it one line, wait for the reply
+fake="$tmp/fake"
+mkdir -p "$fake/real"
+cat >"$fake/real/agy" <<'PY'
+#!/usr/bin/env python3
+import time
+print("ready", flush=True)
+input()
+print("\nparty-test-reply-42", flush=True)
+time.sleep(120)
+PY
+# The python child is what agent_kind recognises ("python3 .../agy"); the wrapper must not exec it.
+printf '#!/usr/bin/env bash\npython3 "%s/real/agy"\necho done\n' "$fake" >"$fake/agy"
+chmod +x "$fake/agy" "$fake/real/agy"
+t set-environment -g PATH "$fake:$PATH"
+as_host() { env TMUX="$(t display -p '#{socket_path},#{pid},0')" TMUX_PANE="$host" python3 "$party" "$@"; }
+member=$(as_host --summon agy --timeout 30)
+check "Summon: --summon agy prints the new pane id" test -n "$member"
+sent=$(as_host --ask "$member" "hello")
+check "Ask: --ask prints the time it sent" test -n "$sent"
+check "Ask then report: --report-text --wait --after returns the agent's reply" \
+  eq "$(as_host --report-text "$member" --wait --after "$sent" --timeout 30)" "party-test-reply-42"
+t kill-pane -t "$member" 2>/dev/null
+
 # Pressing q in a sidebar hides all sidebars (including itself)
 t send-keys -t "$(t list-panes -a -F '#{pane_id} #{@party_sidebar} #{pane_dead}' | grep ' 1 0$' | head -1 | cut -d' ' -f1)" q
 sleep 3

@@ -620,26 +620,36 @@ def wait_channel(pane):
     return "party-" + pane.lstrip("%")
 
 
-def report_text(pane, wait=False, timeout=600):
+def report_text(pane, wait=False, timeout=600, after=None):
     """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent.
-    While the member works, sleep in tmux wait-for (woken by the collector) for up to 2 s, then read the snapshot again."""
+    While the member works, sleep in tmux wait-for (woken by the collector) for up to 2 s, then read the snapshot again.
+    With after (epoch seconds, from --ask) it also keeps waiting until the snapshot is newer than after + SNAP_MAX_AGE
+    and, for Claude and Codex, the report ends after after."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
     if not math.isfinite(timeout):
         return 2, "", f"bad timeout: {timeout}\n"
+    if after is not None and (not wait or not math.isfinite(after)):
+        return 2, "", "--after needs --wait and a finite epoch\n"
     rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
     if rc != 0:
         return 2, "", err or f"no such pane: {pane}\n"
     deadline = time.monotonic() + timeout
     while True:
-        a = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
+        snap = get_snapshot()
+        a = next((a for t in snap["towns"] for a in t["agents"] if a["pane"] == pane), None)
         if a is None:
             rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
             if rc != 0:
                 return 2, "", err or f"no such pane: {pane}\n"
             return 4, "", f"not a known agent: {pane}\n"
-        if not wait or not (a["status"] == "working" or a.get("summons") or subagent_unanswered(a)):
-            rep = report_for(a)
+        busy = wait and (a["status"] == "working" or a.get("summons") or subagent_unanswered(a))
+        rep = None if busy else report_for(a)
+        if after is not None and not busy:
+            busy = snap["t"] <= after + SNAP_MAX_AGE or (
+                a["kind"] in ("claude", "codex") and (not rep or not rep["end"] or rep["end"] <= after)
+            )
+        if not busy:
             return 0, (str(rep["text"]) + "\n") if rep else "", "" if rep else f"no report for {pane}\n"
         left = deadline - time.monotonic()
         if left <= 0:

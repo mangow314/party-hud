@@ -756,6 +756,7 @@ report_text_ok() {
   python3 - "$party" "$tmp" <<'EOF'
 import os, stat, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, common
+import party
 fails = []
 def ok(cond, msg):
     if not cond: fails.append(msg)
@@ -816,6 +817,52 @@ os.utime(os.path.join(sub, "agent-x.jsonl"), (50, 50))
 ok(run([snap("idle", transcript=tx)], "%5", True, 30)[0] == 0 and not waits(),
    "report-text --wait: returns when the finished subagent is older than the main report")
 collect.claude_report = real_cr
+A = 1000.0
+def run_after(t, end, kind="claude"):
+    calls.clear()
+    collect.get_snapshot = lambda: {"t": t, "towns": [{"agents": [agent("waiting", kind=kind)]}]}
+    collect.tmux_run = lambda args, timeout=None: calls.append((tuple(args), timeout)) or (
+        (0, "%5\n", "") if args[0] == "display-message" else (None, "", ""))
+    collect.report_for = lambda a: {"text": "answer", "end": end} if end is not False else None
+    return collect.report_text("%5", True, 0.3, A)
+rc, _, _ = run_after(A + 1, A + 5)
+ok(rc == 3 and waits(), "report-text --wait --after: waits for a report newer than the ask (snapshot older than EPOCH + 2 s)")
+rc, _, _ = run_after(A + 3, A - 5)
+ok(rc == 3 and waits(), "report-text --wait --after: waits for a report newer than the ask (report ends before EPOCH)")
+rc, _, _ = run_after(A + 3, False)
+ok(rc == 3 and waits(), "report-text --wait --after: waits for a report newer than the ask (no report yet)")
+ok(run_after(A + 3, A + 2) == (0, "answer\n", "") and not waits(),
+   "report-text --wait --after: waits for a report newer than the ask, returns once it ends after EPOCH and the snapshot is fresh")
+ok(run_after(A + 3, None, "agy") == (0, "answer\n", "") and not waits(),
+   "report-text --wait --after: agy and grok reports carry no time, only the snapshot age counts")
+ok(run_after(A + 1, None, "agy")[0] == 3, "report-text --wait --after: agy with a stale snapshot waits")
+ok(run([snap("waiting")], "%5", False, 30, after=A)[0] == 2, "report-text --after without --wait -> 2")
+ask_calls = []
+party.get_snapshot = lambda: snap("waiting")
+party.tmux_run = lambda args, timeout=None: ask_calls.append(("tmux", tuple(args))) or (
+    (0, "%5\n", "") if args[0] == "display-message" else (0, "", ""))
+real_run = party.subprocess.run
+party.subprocess.run = lambda cmd, **kw: ask_calls.append((tuple(cmd), kw.get("input"))) or subprocess.CompletedProcess(cmd, 0, "", "")
+t0 = time.time()
+rc, out, err = party.ask("%5", "hello")
+ok(rc == 0 and t0 <= float(out) <= time.time() and err == ""
+   and [c[1] for c in ask_calls[1:]] == [("send-keys", "-t", "%5", "-l", "--", "hello"), ("send-keys", "-t", "%5", "Enter")],
+   "ask: one line -> send-keys -l -- then Enter, stdout is the send time")
+ask_calls.clear()
+party.ask("%5", "-Rxyz")
+ok(ask_calls[1][1] == ("send-keys", "-t", "%5", "-l", "--", "-Rxyz"), "ask: single-line text starting with - goes after --")
+ask_calls.clear()
+rc, out, err = party.ask("%5", "a\nb")
+ok(rc == 0 and ask_calls[1:] == [(("tmux", "load-buffer", "-b", "party-ask", "-"), "a\nb"),
+                                  ("tmux", ("paste-buffer", "-p", "-d", "-b", "party-ask", "-t", "%5")),
+                                  ("tmux", ("send-keys", "-t", "%5", "Enter"))],
+   "ask: several lines -> load-buffer from stdin, paste-buffer -p -d, then Enter")
+party.subprocess.run = real_run
+ok(party.ask("5", "x")[0] == 2, "ask: a name that is not a pane id -> 2")
+party.get_snapshot = lambda: {"towns": []}
+ok(party.ask("%5", "x")[0] == 4, "ask: pane exists but is no known agent -> 4")
+party.tmux_run = lambda args, timeout=None: (1, "", "can't find pane\n")
+ok(party.ask("%5", "x")[0] == 2, "ask: pane does not exist -> 2")
 fake = os.path.join(sys.argv[2], "bin"); os.makedirs(fake)
 with open(os.path.join(fake, "tmux"), "w") as f:
     f.write(f'#!/bin/sh\necho $$ >"{fake}/pid"\nexec sleep 30\n')
