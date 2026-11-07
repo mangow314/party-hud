@@ -37,6 +37,7 @@ TMUX_FIELDS = [
     "window_id",
     "window_panes",
     "@party_sidebar",
+    "@party_report",
     "pane_pid",
     "pane_dead",
     "pane_tty",
@@ -562,16 +563,17 @@ def collect(fixture=None, now=None):
         attached = p["session_attached"] not in ("", "0")
         if here is None and attached and p["window_active"] == "1":
             here = {"session": p["session_name"], "window": p.get("window_id", "")}
+        aux = p.get("@party_sidebar") == "1" or p.get("@party_report") == "1"
         meta[p["pane_id"]] = {
             "visible": p["window_active"] == "1" and attached,
             "window": p.get("window_id", ""),
             "session": p["session_name"],
             "window_panes": int(p.get("window_panes") or 0),
-            "sidebar": p.get("@party_sidebar") == "1",
+            "sidebar": aux,
             "dead": p.get("pane_dead") == "1",
             "tty": p.get("pane_tty", ""),
         }
-        if p.get("@party_sidebar") == "1":
+        if aux:
             continue
         t = towns.setdefault(p["session_name"], {"name": p["session_name"], "attached": attached, "agents": []})
         icon = p.get("@workmux_pane_status", "")

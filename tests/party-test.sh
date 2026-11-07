@@ -140,22 +140,25 @@ ok(all(rm3[i] == ("agent", "%2") for i, l in enumerate(st3) if "Thief" in l or "
 
 done = dict(agents[0], status="done", hp_left=410000, hp_max=1000000)
 rep = {"text": "## 結果\n完成了報告畫面\n" + "很長的一行中文" * 20, "start": 100, "end": 860}
-frame, top = render.render_report(done, "Studio", rep, [], 60, 20)
+frame = render.render_report(done, "Studio", rep, [], 60)
 rf = strip(frame).splitlines()
-ok(len(rf) == 20 and "Quest complete" in rf[0] and f"{done['name']}  claude · Studio" in rf[1] and "q close" in rf[-1],
-   "report: title, who and which squad, key hints on the last line")
+ok("Quest complete" in rf[0] and f"{done['name']}  claude · Studio" in rf[1] and "q close" in rf[-1] and "scroll" not in rf[-1],
+   "report: title, who and which squad, key hints on the last line (j / k are gone: copy-mode scrolls)")
 ok("took 12m 40s" in rf[2] and "HP 410k/1M" in rf[2], "report: time from prompt to answer, HP left")
-ok(sum(common.cw(l) == 60 for l in rf if l) == len([l for l in rf if l]) - 1 >= 10,
-   "report: every box line is exactly the width (CJK = 2)")
-ok(common.fg("gold", True) + "## 結果" in frame, "report: Markdown headings in gold")
+ok(all(common.cw(l) <= 60 for l in rf) and sum(common.cw(l) == 60 for l in rf) >= 1,
+   "report: no row is wider than the width, CJK wraps by display width")
+ok(common.fg("gold", True) + "結果" in frame and "## " not in strip(frame), "report: the text goes through render_markdown (heading in gold, marker dropped)")
 long = dict(rep, text="\n".join(f"L{n}" for n in range(50)))
-f0, top = render.render_report(done, "Studio", long, [], 60, 20)
-f9 = strip(render.render_report(done, "Studio", long, [], 60, 20, 999)[0])
-ok(top == 36 and "lines 1-14/50" in strip(f0) and "L49" in f9 and "L35" not in f9 and "lines 37-50/50" in f9,
-   "report: long text scrolls, scroll is clamped to the last page")
-last = strip(render.render_report(dict(done, status="waiting"), "Studio", None, ["$ make", "ok", "", ""], 60, 20)[0])
+lf = strip(render.render_report(done, "Studio", long, [], 60)).splitlines()
+ok(all(f"L{n}" in lf for n in range(50)), "report: a report taller than any pane is printed in full, every line (no paging)")
+ar = render.render_report(done, "Studio", rep, [], 60, art=True).splitlines()
+pid = art.portrait_id(done)
+ok(all(ar[r].startswith(art.image_row(pid, r, art.PORTRAIT_CELLS[0])) for r in range(3)) and chr(0x10EEEE) not in frame
+   and all(common.cw(strip(l)) <= 60 for l in ar),
+   "report: with art the portrait stands left of the first three rows; without art there are no placeholders")
+last = strip(render.render_report(dict(done, status="waiting"), "Studio", None, ["$ make", "ok", "", ""], 60))
 ok("Last output" in last and "$ make" in last and "took" not in last, "report: no report -> the pane's last lines")
-ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60, 20)[0]), "report: nothing at all -> says so")
+ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60)), "report: nothing at all -> says so")
 nr = strip(render.render_no_report(40, 10)).splitlines()
 ok(len(nr) == 10 and "Nobody is waiting or done." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
    "report popup with nobody waiting or done: says so and waits (a popup that exits at once only flashes)")
@@ -190,15 +193,94 @@ ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"]
    "report queue: the pane asked for comes first, whatever its status")
 ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") == "report"
    and ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "popup") is None,
-   "r in the sidebar opens the report popup (not inside the P popup: one popup per client)")
-started = []
-real_popen = ui.subprocess.Popen
-ui.subprocess.Popen = lambda args, **kw: started.append(args)
+   "r in the sidebar opens the report pane (not inside the P popup)")
+opened = []
+real_open = ui.open_report_pane
+ui.open_report_pane = lambda *a: opened.append(a)
+os.environ["TMUX_PANE"] = "%5"
 ui.open_report("%7")
-ui.subprocess.Popen = real_popen
-ok(len(started) == 1 and started[0][:2] == ["tmux", "display-popup"] and started[0][-1].endswith("--report %7"),
-   "r: the popup starts in the background (display-popup waits until it closes, which froze the sidebar)")
+ui.open_report_pane = real_open
+ok(opened == [("%5", "%7")], "r: the report opens beside the sidebar's own window, for the selected member")
+calls = []
+real_tmux = sidebars.tmux
+def fake_tmux(usage, rows="%1 1 s1 r\n%2 0 s r\n"):
+    def run(*a):
+        calls.append(a)
+        return usage if a[0] == "list-commands" else rows if a[0] == "list-panes" else "%9\n" if a[0] in ("new-pane", "split-window") else ""
+    return run
+open_cmd = lambda: next(c for c in calls if c[0] in ("new-pane", "split-window"))
+sidebars._new_pane = None
+sidebars.tmux = fake_tmux("new-pane (newp) [-AbCDefhIkKLMOPvWZ] [-c start-directory] [-F format] [-t target-pane] [shell-command]")
+sidebars.open_report_pane("@1", "%7")
+c = open_cmd()
+ok(c[0] == "new-pane" and all(f in c for f in ("-x80%", "-y80%", "-X10%", "-Y10%"))
+   and "-O" not in c and "-D" not in c and c[c.index("-t") + 1] == "%2" and c[-1].endswith("--report %7"),
+   "report pane: tmux with new-pane (O flag in its usage) floats it at 80% x 80%, beside the first non-sidebar pane")
+ok(("set-option", "-p", "-t", "%9", "@party_report", "1", ";", "set-option", "-p", "-t", "%9", "allow-passthrough", "on") in calls,
+   "report pane: marked @party_report and allow-passthrough on, this pane only, in one tmux call")
+calls.clear()
+sidebars.open_report_pane("@1", "")
+ok(not any(c[0] == "list-commands" for c in calls) and open_cmd()[0] == "new-pane" and open_cmd()[-1].endswith("party.py --report"),
+   "report pane: the new-pane answer is cached for the life of the process")
+for usage in ("split-window (splitw) [-bdefhIPvZ] [-c start-directory] [-l size] [-t target-pane] [shell-command]", ""):
+    calls.clear()
+    sidebars._new_pane = None
+    sidebars.tmux = fake_tmux(usage)
+    sidebars.open_report_pane("@1", "%7")
+    c = open_cmd()
+    ok(c[0] == "split-window" and c[1:4] == ("-h", "-l", "50%") and "new-pane" not in [x[0] for x in calls] and c[c.index("-t") + 1] == "%2",
+       "report pane: tmux without new-pane (" + ("no O flag" if usage else "command unknown") + ") splits the window in half")
+sidebars.tmux = real_tmux
+sidebars._new_pane = None
+killed = []
+sidebars.tmux = lambda *a: "%1 @1 s1 r\n%2 @1 s r1\n%3 @2 s1 r\n%4 @2 s r\n" if a[0] == "list-panes" else killed.append(a[2]) or ""
+sidebars.tidy()
+sidebars.tmux = real_tmux
+ok(sorted(killed) == ["%1", "%2"], "Tidy: a report pane counts as a sidebar, so a window with only a sidebar and a report is closed")
 import json, tempfile
+import fcntl, pty, select as _sel, struct, subprocess, termios as _tm
+child = """
+import sys
+sys.path.insert(0, %r)
+from party_hud import collect, ui
+ui.get_snapshot = lambda f=None: collect.collect(%r)
+ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(60)), "start": 1, "end": 2}
+ui.tmux = lambda *a: print("TMUX", a, flush=True) or ""
+ui.run_report("%%1")
+print("EXITED", flush=True)
+"""
+def report_session(keys, rows=10):
+    m, sl = pty.openpty()
+    fcntl.ioctl(sl, _tm.TIOCSWINSZ, struct.pack("HHHH", rows, 60, 0, 0))
+    env = dict(os.environ, TMUX_PANE="%99")
+    p = subprocess.Popen([sys.executable, "-c", child % (os.path.dirname(sys.argv[1]), sys.argv[2])], stdin=sl, stdout=sl, stderr=sl, env=env, close_fds=True)
+    os.close(sl)
+    out = b""
+    def read_until(marker, n):
+        nonlocal out
+        for _ in range(100):
+            if out.count(marker) >= n:
+                return
+            if _sel.select([m], [], [], 0.1)[0]:
+                try:
+                    out += os.read(m, 65536)
+                except OSError:
+                    return
+    for n, key in enumerate(keys, 1):
+        read_until(b"close", n)
+        os.write(m, key)
+    read_until(b"EXITED", 1)
+    p.wait(timeout=5)
+    os.close(m)
+    return out.decode(errors="ignore")
+once = report_session([b"\r"])
+ok(all(f"L{n}" in once for n in range(60)), "report pane: a report taller than the terminal is printed in full, so copy-mode can scroll it")
+ok("\x1b[?1049h" not in once and "\x1b[H" not in once and "\x1b[?1003h" not in once, "report pane: normal screen, no cursor homing, no mouse reporting (tmux needs both for copy-mode)")
+ok("TMUX ('switch-client', '-t'" in once and "EXITED" in once, "report pane: Enter jumps to the member's pane and exits")
+twice = report_session([b"n", b"q"])
+ok(twice.count("close") == 2 and twice.index("clear-history', '-t', '%99'") < twice.index("\x1b[2J") < twice.rindex("close"),
+   "report pane: n clears this pane's history, then clears the screen and prints the next report")
+ok("EXITED" in twice and "L59" in twice[twice.rindex("\x1b[2J"):], "report pane: q ends the program, which closes the pane")
 from datetime import datetime
 pane = lambda pid, cmd: {"session_name": "New", "window_index": "1", "window_name": "w", "window_active": "1",
                          "session_attached": "1", "pane_id": pid, "pane_active": "1", "pane_current_command": cmd,
@@ -213,6 +295,13 @@ ok(new["%20"]["hp"] == 100 and new["%20"]["fresh"] and re.search(r"新開.*· id
    "Freshly started Claude (no request sent yet): HP 100%, SP full at 60")
 ok(render.sp_points({"sp": (10.0, 300)}) == 1 and render.sp_points({"sp": (3600.0, 3600)}) == 60 and render.sp_points({"sp": None}) is None,
    "SP = cache minutes left (rounded up, max 60); unknown is --")
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as g:
+    json.dump({"panes": [pane("%30", "claude"), dict(pane("%31", "python3"), **{"@party_report": "1", "window_id": "@7"})], "now": 10000,
+               "sessions": {"%30": {"sid": "s30", "name": "x", "status": "idle"}}}, g)
+rs = collect.collect(g.name)
+ok(rs["panes"]["%31"]["sidebar"] is True and rs["panes"]["%30"]["sidebar"] is False
+   and [a["pane"] for t in rs["towns"] for a in t["agents"]] == ["%30"],
+   "A report pane (@party_report) is treated like a sidebar: not a member, and it does not keep a window alive")
 ok(new["%21"]["hp"] is None and not new["%21"]["fresh"] and re.search(r"agy.*\n.*· idle.*\n.*HP +-- +│\n.*SP +-- +│", nl),
    "Other agents with unreadable context: HP / SP stay --")
 ok(new["%22"]["status"] == "working" and new["%21"]["status"] == "idle", "Other agents: recent screen change = busy, no change = idle")

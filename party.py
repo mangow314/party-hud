@@ -7,7 +7,8 @@ Modes (started by tmux; see party.tmux):
   party.py --sidebar          sidebar UI, one per window
   party.py --toggle           open / close the sidebars in every window (prefix C-t)
   party.py --next             jump to the next waiting / done member (prefix a)
-  party.py --report [PANE]    popup with the last report of waiting / done members (prefix R)
+  party.py --open-report [PANE]  open the report pane, floating on tmux 3.8+ else a split (prefix R, sidebar r)
+  party.py --report [PANE]    what runs in the report pane: the last report of waiting / done members
   party.py --ensure WID       add a sidebar to a window (hook)
   party.py --reflow WID       put the sidebar width back (hook)
   party.py --nudge [WID]      restart a stopped sidebar and redraw now (hook)
@@ -23,7 +24,7 @@ import shutil
 
 from party_hud.collect import get_snapshot
 from party_hud.render import render
-from party_hud.sidebars import ensure, nudge, reflow, remember_width, tidy, toggle
+from party_hud.sidebars import ensure, nudge, open_report_pane, reflow, remember_width, tidy, toggle
 from party_hud.ui import jump_next, run_report, run_ui
 
 
@@ -38,6 +39,7 @@ def main():
     ap.add_argument("--nudge", nargs="?", const="", metavar="WINDOW_ID")
     ap.add_argument("--tidy", action="store_true")
     ap.add_argument("--next", action="store_true")
+    ap.add_argument("--open-report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--width", type=int)
     ap.add_argument("--fixture")
@@ -56,6 +58,8 @@ def main():
         tidy()
     elif args.next:
         jump_next()
+    elif args.open_report is not None:
+        open_report_pane("", args.open_report)
     elif args.report is not None:
         run_report(args.report or None, args.fixture)
     elif args.watch or args.sidebar:

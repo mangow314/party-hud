@@ -182,7 +182,7 @@ def status_rows(a, width, sel=True):
 HINTS = {
     "popup": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "quit")],
     "sidebar": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "hide")],
-    "report": [("⏎", "go"), ("n", "next"), ("jk", "scroll"), ("q", "close")],
+    "report": [("⏎", "go"), ("n", "next"), ("q", "close")],
 }
 
 
@@ -313,13 +313,10 @@ def printable_lines(text):
     return [printable(line) for line in text.replace("\r", "").expandtabs(4).split("\n")]
 
 
-def render_report(a, squad, report, peek, width, height, scroll=0, pos=1, total=1):
-    """Report popup: who, how long, HP, then the report text, or the pane's last lines (peek) when there is no report.
-    Returns (frame, largest useful scroll)."""
+def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
+    """Report pane text: who, how long, HP, then the whole report as Markdown, or the pane's last lines (peek) when there is no report.
+    With art the portrait stands left of the first three rows."""
     width = max(28, width)
-    inner = width - 2
-    text_w = inner - 2
-    color = STATUS_TAG[a["status"]][2]
     facts = []
     if report and report["start"] and report["end"]:
         facts.append(f"took {fmt_took(report['end'] - report['start'])}")
@@ -329,35 +326,27 @@ def render_report(a, squad, report, peek, width, height, scroll=0, pos=1, total=
         facts.append(f"HP {a['hp']}%")
     if total > 1:
         facts.append(f"report {pos}/{total}")
-    if report:
-        body = wrap(report["text"], text_w)
-    else:
-        body = [l.rstrip() for l in peek]
-        while body and not body[-1]:
-            body.pop()
-        body = [r for l in body for r in wrap(l, text_w)] or ["no report yet"]
-    body_h = max(1, height - 1 - 2 - 3)
-    top = max(0, len(body) - body_h)
-    scroll = max(0, min(scroll, top))
-    if top:
-        facts.append(f"lines {scroll + 1}-{scroll + body_h}/{len(body)}")
-
-    def row(text, style):
-        text = clip(text, text_w)
-        return f" {style}{text}{RESET}{' ' * (text_w - cw(text))} "
-
-    rows = [
-        row(f"{class_icon(a)} {a['name']}  {a['kind']} · {squad}", fg("fg", True)),
-        row("  ".join(facts), fg("dim")),
-        row("", ""),
-    ]
-    for l in body[scroll : scroll + body_h]:
-        rows.append(row(l, fg("gold", True) if report and l.startswith("#") else fg("fg" if report else "dim")))
     title = REPORT_TITLE.get(a["status"], "Report") if report else "Last output"
-    out = box(f"{STATUS_TAG[a['status']][0] or '·'} {title}", rows, width, color, double=True)
-    out += [""] * (height - 1 - len(out))
-    out.append(hint_line("report", width))
-    return "\n".join(out), top
+    pid = portrait_id(a)
+    text_w = width - PORTRAIT_CELLS[0] - 1 if art else width
+    head = [
+        (f"{STATUS_TAG[a['status']][0] or '·'} {title}", fg(STATUS_TAG[a["status"]][2], True)),
+        (f"{class_icon(a)} {a['name']}  {a['kind']} · {squad}", fg("fg", True)),
+        ("  ".join(facts), fg("dim")),
+    ]
+    rows = []
+    for r, (text, style) in enumerate(head):
+        line = style + clip(text, text_w) + RESET
+        rows.append(f"{image_row(pid, r, PORTRAIT_CELLS[0])} {line}" if art else line)
+    rows.append("")
+    if report:
+        rows += render_markdown(report["text"], width)
+    else:
+        lines = [l.rstrip() for l in peek]
+        while lines and not lines[-1]:
+            lines.pop()
+        rows += [fg("dim") + r + RESET for l in lines for r in wrap(l, width)] or [fg("dim") + "no report yet" + RESET]
+    return "\n".join(rows + ["", hint_line("report", width)])
 
 
 def render_no_report(width, height):

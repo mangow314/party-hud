@@ -90,20 +90,23 @@ If you connect over SSH, the remote needs your terminal's terminfo (Ghostty: `sh
 | `Enter` | Go to that member's pane |
 | `n` | Next waiting member, then next finished one |
 | `v` | Peek at the member's last lines of output |
-| `r` | In the sidebar: open the selected member's quest report |
+| `r` | In the sidebar: open the selected member's quest report in a pane |
 | `Esc` / `q` | Back to your pane / hide all sidebars |
 
 Drag the sidebar border to resize; the width is remembered for all sidebars (minimum 30 columns).
 
 ### Quest reports
 
-When a member finishes or stops to wait for you, `prefix R` opens a large popup with its last report: the title
-`Quest complete`, the member, how long it took (from your prompt to its answer), HP left, then the report itself.
+When a member finishes or stops to wait for you, `prefix R` opens a pane with its last report: the title
+`Quest complete`, the member's portrait (on Ghostty and Kitty), how long it took (from your prompt to its answer), HP left,
+then the report itself with its Markdown styled. On tmux 3.8+ the pane floats over the window; on older tmux it splits the
+current window in half.
 
 - For Claude Code the report is the text after the last tool call of its last answer; for Codex, its last finished reply.
 - Without a report the pane's last lines are shown instead (`Last output`): always for agy and Grok, and usually for a
   Claude member waiting for a permission or an answer, whose question is in those lines.
-- `j` / `k` scroll, `n` next report, `Enter` goes to the member's pane, `q` / `Esc` closes.
+- The whole report is printed at once. Scroll and copy with tmux copy-mode (`prefix [`).
+- `n` next report, `Enter` goes to the member's pane, `q` / `Esc` closes the pane.
 - Reading a report does not clear the "done" mark; going to the pane does.
 
 To see the count in your status line, the collector writes the number of members waiting or done to the tmux
@@ -127,7 +130,7 @@ Set these in `~/.tmux.conf` before the plugin loads.
 | `@party_sidebar_width` | `34` | Sidebar width in columns |
 
 Images leave tmux through `allow-passthrough`, which party-hud turns on for its own sidebar panes only: a program in any
-other pane still cannot send escape sequences straight to your terminal. The popup is not a pane, so it shows images only if
+other pane still cannot send escape sequences straight to your terminal. The `prefix P` popup is not a pane, so it shows images only if
 you set `allow-passthrough on` globally in `~/.tmux.conf` yourself (then every pane can bypass tmux); otherwise it uses
 the text version.
 

@@ -131,6 +131,17 @@ echo "     $(sidebars) sidebars, $(running) running, $((seq2 - seq1)) collection
 check "Performance: 3 to 6 collections in 10 s (about one per 2 s)" test "$(ge $((seq2 - seq1)) 3 && le $((seq2 - seq1)) 6 && echo y)" = y
 check "Memory: with $(sidebars) sidebars, at most 2 processes run" le "$(running)" 2
 
+# Quest report: opens as a pane (floating on tmux 3.8+, else a split); passthrough on for that pane only
+host=$(t list-panes -a -F '#{pane_id} #{@party_sidebar}' | grep -v ' 1$' | head -1 | cut -d' ' -f1)
+t run-shell -t "$host" "python3 $party --open-report"
+sleep 2
+report=$(t list-panes -a -F '#{pane_id} #{@party_report}' | grep ' 1$' | cut -d' ' -f1)
+check "Report: --open-report opens one pane marked @party_report" eq "$(echo "$report" | grep -c '%')" "1"
+check "Report: allow-passthrough is on in the report pane" eq "$(t display -p -t "$report" '#{allow-passthrough}')" "on"
+check "Report: allow-passthrough stays off globally" eq "$(t show -gv allow-passthrough)" "off"
+check "Report: the main pane's allow-passthrough is still off" eq "$(t display -p -t "$host" '#{allow-passthrough}')" "off"
+t kill-pane -t "$report"
+
 # Pressing q in a sidebar hides all sidebars (including itself)
 t send-keys -t "$(t list-panes -a -F '#{pane_id} #{@party_sidebar} #{pane_dead}' | grep ' 1 0$' | head -1 | cut -d' ' -f1)" q
 sleep 3

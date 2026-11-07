@@ -1,6 +1,7 @@
 """Sidebar panes: open, close, restart, hooks, widths."""
 
 import os
+import re
 import shlex
 import sys
 
@@ -49,6 +50,65 @@ def mark_sidebar(pane):
         "remain-on-exit-format",
         "",
     )
+
+
+def mark_report(pane):
+    """Mark a pane as the quest report. allow-passthrough, on this pane only, lets the portrait reach the outer terminal.
+    No remain-on-exit: the pane closes when the report ends."""
+    tmux(
+        "set-option",
+        "-p",
+        "-t",
+        pane,
+        "@party_report",
+        "1",
+        ";",
+        "set-option",
+        "-p",
+        "-t",
+        pane,
+        "allow-passthrough",
+        "on",
+    )
+
+
+PANE_FLAGS = "s#{@party_sidebar} r#{@party_report}"  # always two words: s or s1, r or r1
+_new_pane = None
+
+
+def has_new_pane():
+    """tmux 3.8 added new-pane (floating panes); it is told apart by the O flag in its usage, not by the version string."""
+    global _new_pane
+    if _new_pane is None:
+        usage = re.search(r"\[-([A-Za-z]+)\]", tmux("list-commands", "new-pane"))
+        _new_pane = bool(usage and "O" in usage[1])
+    return _new_pane
+
+
+def report_host(target):
+    """The pane to open the report beside: the target window's active pane, unless that is a sidebar or a report."""
+    rows = [
+        l.split()
+        for l in tmux(
+            "list-panes", *(("-t", target) if target else ()), "-F", "#{pane_id} #{pane_active} " + PANE_FLAGS
+        ).splitlines()
+    ]
+    plain = [r for r in rows if len(r) == 4 and r[2:] == ["s", "r"]]
+    return next((r[0] for r in plain if r[1] == "1"), plain[0][0] if plain else target)
+
+
+def open_report_pane(target, pane):
+    """Open the quest report (of pane, or of whoever waits first) as a floating pane on tmux 3.8+, else beside the pane in target's window."""
+    cmd = f"{EXE} --report {shlex.quote(pane)}" if pane else f"{EXE} --report"
+    host = report_host(target)
+    where = ("-t", host) if host else ()
+    if has_new_pane():
+        args = ["new-pane", "-x80%", "-y80%", "-X10%", "-Y10%", "-T", " Report ", *where]
+    else:
+        args = ["split-window", "-h", "-l", "50%", *where]
+    pid = tmux(*args, "-P", "-F", "#{pane_id}", cmd).strip()
+    if pid:
+        mark_report(pid)
 
 
 def install_hooks():
@@ -127,10 +187,10 @@ def tidy():
     """After kill-pane: close windows left with only a sidebar. Panes whose program exited are handled by the collector
     (pane-exited is a pane hook and cannot be set with -g)."""
     panes = {}
-    for line in tmux("list-panes", "-a", "-F", "#{pane_id} #{window_id} #{@party_sidebar}").splitlines():
+    for line in tmux("list-panes", "-a", "-F", "#{pane_id} #{window_id} " + PANE_FLAGS).splitlines():
         parts = line.split()
-        if len(parts) >= 2:
-            panes[parts[0]] = {"window": parts[1], "sidebar": len(parts) == 3 and parts[2] == "1"}
+        if len(parts) == 4:
+            panes[parts[0]] = {"window": parts[1], "sidebar": "s1" in parts[2:] or "r1" in parts[2:]}
     for pane in lonely_sidebars(panes):
         tmux("kill-pane", "-t", pane)
 
