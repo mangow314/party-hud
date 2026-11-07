@@ -155,9 +155,10 @@ def jump_next():
 
 
 def report_queue(towns, pane=None):
-    """[(squad name, member)] to read: waiting first, then done; pane (any status) goes first when given."""
+    """[(squad name, member)] to read: waiting, done, then working with running subagents; pane (any status) goes first when given."""
     members = [(t["name"], a) for t in towns for a in t["agents"]]
     queue = [m for s in ("waiting", "done") for m in members if m[1]["status"] == s]
+    queue += [m for m in members if m[1]["status"] == "working" and m[1].get("summons")]
     mine = [m for m in members if m[1]["pane"] == pane]
     return mine + [m for m in queue if m not in mine]
 

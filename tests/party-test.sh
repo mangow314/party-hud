@@ -201,6 +201,10 @@ qt = [{"name": "A", "agents": [mk("%1", "done"), mk("%2", "working"), mk("%3", "
 ok([a["pane"] for _, a in ui.report_queue(qt)] == ["%3", "%1", "%4"], "report queue: waiting first, then done")
 ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"] and ui.report_queue(qt, "%2")[0][0] == "A",
    "report queue: the pane asked for comes first, whatever its status")
+qs = [{"name": "A", "agents": [dict(mk("%1", "working"), summons=[{}]), mk("%2", "working"), mk("%3", "done"), dict(mk("%4", "working"), summons=[])]},
+      {"name": "B", "agents": [mk("%5", "waiting"), dict(mk("%6", "working"), summons=[{}])]}]
+ok([a["pane"] for _, a in ui.report_queue(qs)] == ["%5", "%3", "%1", "%6"],
+   "report queue: working member with running subagents comes after waiting and done; working without subagents is left out")
 ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") == "report"
    and ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "popup") is None,
    "r in the sidebar opens the report pane (not inside the P popup)")
