@@ -138,6 +138,28 @@ yet, it waits until that stops and then prints. `--timeout` is the most seconds 
 | 3 | `--timeout` ran out while waiting |
 | 4 | The pane exists but is not a known agent |
 
+### Crew skill for Claude Code
+
+`--summon AGENT` opens a pane running `claude`, `codex`, `agy` or `grok` and prints its pane id once it takes input.
+`--ask PANE TEXT` types text into an agent's pane and prints the time it was sent. Together with `--report-text PANE
+--wait --after EPOCH` (above), one agent can hand work to another and wait for the answer:
+
+```sh
+m=$(python3 ~/.tmux/plugins/party-hud/party.py --summon agy)
+t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "your question")
+python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
+```
+
+`--summon` exits 0 ready, 2 bad arguments or tmux failure, 3 timeout (`--cwd DIR`, `--window`, `--timeout SEC`). `--ask` exits
+0 sent, 2 bad or missing pane, 4 not an agent. The sidebar still only reads; these commands open panes or send keys only
+when called.
+
+`skills/party-crew/SKILL.md` teaches Claude Code when to call them. Link it once:
+
+```sh
+ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
+```
+
 ## Options
 
 Set these in `~/.tmux.conf` before the plugin loads.

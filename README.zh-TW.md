@@ -140,6 +140,26 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE [--wait] [--timeou
 | 3 | 等待時 `--timeout` 用完 |
 | 4 | pane 存在，但不是已知 agent |
 
+### Claude Code 的協作 skill
+
+`--summon AGENT` 開一個跑 `claude`、`codex`、`agy` 或 `grok` 的 pane，等它可以輸入後印出 pane id。`--ask PANE TEXT`
+把文字打進 agent 的 pane，並印出送出的時間。搭配上面的 `--report-text PANE --wait --after EPOCH`，一個 agent 就能把工作交給另一個並等回覆：
+
+```sh
+m=$(python3 ~/.tmux/plugins/party-hud/party.py --summon agy)
+t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "你的問題")
+python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
+```
+
+`--summon` 退出碼：0 就緒、2 參數錯誤或 tmux 失敗、3 逾時（可加 `--cwd DIR`、`--window`、`--timeout SEC`）。`--ask`：0 已送出、2 pane 錯誤或不存在、4 不是 agent。
+側欄仍然只讀；這些指令只在被呼叫時才開 pane 或送按鍵。
+
+`skills/party-crew/SKILL.md` 教 Claude Code 何時呼叫它們。連結一次即可：
+
+```sh
+ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
+```
+
 ## 選項
 
 設定在 `~/.tmux.conf`，要放在載入外掛之前。
