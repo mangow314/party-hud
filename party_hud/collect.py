@@ -662,6 +662,8 @@ def report_text(pane, wait=False, timeout=600, after=None):
 def group_under_leads(agents, owners):
     """Put each summoned member right after its lead and mark it with a["lead"] (the lead's pane); one level only.
     @party_lead names the lead; an xv pane goes under the only Claude of its window, else stays an ordinary member."""
+    if not any(lead or xv for lead, xv, _ in owners.values()):
+        return agents
     panes = {a["pane"]: a for a in agents}
     claudes = {}
     for a in agents:

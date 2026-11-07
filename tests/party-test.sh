@@ -949,6 +949,9 @@ ok([m["pane"] for m in got] == ["%1", "%4"] and x.get("lead") == "%1", "@xv: the
 a, a2, x = agent("%1"), agent("%2"), agent("%4", "codex")
 got = collect.group_under_leads([a, a2, x], {"%1": ("", False, "@1"), "%2": ("", False, "@1"), "%4": ("", True, "@1")})
 ok([m["pane"] for m in got] == ["%1", "%2", "%4"] and "lead" not in x, "@xv: two Claudes in the window -> an ordinary member")
+a, b, c = agent("%1"), agent("%2", "codex"), agent("%3", "claude", "@2")
+got = collect.group_under_leads([c, b, a], {"%1": ("", False, "@1"), "%2": ("", False, "@1"), "%3": ("", False, "@2")})
+ok([m["pane"] for m in got] == ["%3", "%2", "%1"] and not any("lead" in m for m in got), "group under leads: no lead or xv keeps order")
 a = {**agent("%1"), "name": "boss", "hp": 50, "hp_max": 100, "hp_left": 50, "sp": None, "fresh": False, "model": "", "summons": [], "cls": 0, "focus": False, "id": "i1"}
 for art in (False, True):
     for lead in ("", "%1"):
