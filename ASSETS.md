@@ -2,7 +2,7 @@
 
 ## Images in `art/`: CC0 1.0, AI-generated
 
-All 16 images (8 portraits, 8 squad crests) were generated locally with an open-weight image model,
+All 20 images (8 portraits, 8 squad crests, 4 report banners) were generated locally with an open-weight image model,
 then post-processed by the scripts in `scripts/art/`. They are dedicated to the public domain under
 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (full text: `art/LICENSE`).
 Use them for anything; no credit required.
@@ -17,13 +17,19 @@ plainly either way. This file is a record of how the images were made, not legal
 | 1. Generate | Text-to-image only. No reference image, photo or screenshot was used as input (empty latent). | `scripts/art/generate.py` + `scripts/art/prompts.json` (exact prompt, seed, sampler, batch index of every image) |
 | 2. Portraits | Crop to 8:9, cut the character out of its plain background, paint a new background (glow, rays, bokeh, stars), add a silver frame | `scripts/art/decor.py` |
 | 3. Crests | The model draws a black silhouette only; the shield, colors and shadow are drawn by code | `scripts/art/crest_compose.py` |
+| 4. Banners | The model draws one hilltop scene (1280x320); code shrinks it to 320x80, reduces it to 48 colors, draws the title in gold pixel letters, and enlarges the result x3 (nearest) to 960x240 | `scripts/art/banner_compose.py` |
 
-Steps 2 and 3 reproduce `art/` byte-for-byte from the raw images. The raw images (16 PNGs, 6.5 MB) are kept
+Steps 2 to 4 reproduce `art/` byte-for-byte from the raw images. The raw images (17 PNGs; the four banners share one) are kept
 out of the repository so plugin installs stay small. Each GitHub release attaches them as
-`party-hud-raw-art.tar.gz`; extract it into `scripts/art/` to rerun steps 2 and 3 without ComfyUI, or regenerate
+`party-hud-raw-art.tar.gz`; extract it into `scripts/art/` to rerun steps 2 to 4 without ComfyUI, or regenerate
 them with step 1. Regenerating on different hardware or ComfyUI versions may give slightly different pictures.
 Prompts describe generic fantasy roles ("swordsman", "cleric", "lion head silhouette") and do not name
 any existing game, character or artist.
+
+### Font
+
+Banner titles use Noto Serif Display Bold (`noto-fonts` package, SIL OFL 1.1 without Reserved Font Name). It is
+used only by `scripts/art/` when drawing the banners; no font file is distributed with the plugin.
 
 ### Models (all run locally through ComfyUI)
 

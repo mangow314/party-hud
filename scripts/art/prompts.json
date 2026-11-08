@@ -190,5 +190,17 @@
   "steps": 4,
   "sampler": "euler",
   "cfg": 1.0
+ },
+ {
+  "name": "banner-hill",
+  "text": "no text, no letters, no logo, no watermark, no border, wide panoramic banner. Pixel art: four tiny pixel heroes celebrating on a grassy hilltop on the right third of the frame, open sky and valley on the left at golden hour, raised swords and staffs, sparkles, sweeping valley below, dramatic sky, depth of field.",
+  "seed": 11,
+  "width": 1280,
+  "height": 320,
+  "batch": 1,
+  "pick": 0,
+  "steps": 4,
+  "sampler": "euler",
+  "cfg": 1.0
  }
 ]
