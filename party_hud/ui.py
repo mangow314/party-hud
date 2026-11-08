@@ -1,16 +1,18 @@
 """The interactive loop of the sidebar and the popup: input, cursor, redraws."""
 
+import fcntl
 import os
 import re
 import select
 import shutil
 import signal
+import struct
 import sys
 import termios
 import time
 import tty
 
-from .art import art_supported, crest_ids, kitty_image, load_art, portrait_id
+from .art import BANNER_MAX_COLS, art_supported, banner_id, crest_ids, kitty_image, load_art, portrait_id
 from .collect import get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
 from .render import render, render_no_report, render_report
@@ -167,6 +169,19 @@ def open_report(pane):
     open_report_pane(os.environ.get("TMUX_PANE", ""), pane)
 
 
+def banner_cells(width):
+    """(cols, rows) of the report banner: as wide as the text up to BANNER_MAX_COLS, 4:1 in pixels; cells count as 1:2 when the terminal reports no pixel size."""
+    cols = min(BANNER_MAX_COLS, max(28, width))
+    try:
+        lines, columns, xpix, ypix = struct.unpack(
+            "HHHH", fcntl.ioctl(sys.stdout.fileno(), termios.TIOCGWINSZ, bytes(8))
+        )
+    except OSError:
+        lines = columns = xpix = ypix = 0
+    ratio = xpix * lines / (ypix * columns) if xpix and ypix and lines and columns else 0.5
+    return cols, max(1, round(cols * ratio / 4))
+
+
 def run_report(pane=None, fixture=None):
     """Report pane (prefix R, or r in the sidebar): prints one member's last report on the normal screen, so tmux keeps it
     in the pane history for copy-mode (a report taller than the pane opens in copy-mode at its first line); afterwards it only
@@ -201,13 +216,15 @@ def run_report(pane=None, fixture=None):
             report = reports[a["pane"]]
             peek = capture(a["pane"]) if report is None and not fixture else []
             size = os.get_terminal_size(sys.stdout.fileno())
-            text = render_report(a, squad, report, peek, size.columns - 1, i + 1, len(queue), art is not None)
+            banner = banner_cells(size.columns - 1)
+            text = render_report(a, squad, report, peek, size.columns - 1, i + 1, len(queue), art is not None, banner)
             sys.stdout.write(text + "\n")
             sys.stdout.flush()
             if art:
                 time.sleep(ART_SETTLE)
+                bid = banner_id(a["status"], bool(report), bool(a.get("summons")))
                 img = portrait_id(a)
-                sys.stdout.write(kitty_image(img, *art[img]))
+                sys.stdout.write(kitty_image(bid, art[bid][0], *banner) + kitty_image(img, *art[img]))
                 sys.stdout.flush()
             if me and text.count("\n") + 1 >= size.lines:
                 tmux("copy-mode", "-t", me)

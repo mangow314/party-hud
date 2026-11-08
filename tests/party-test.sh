@@ -156,9 +156,14 @@ lf = strip(render.render_report(done, "Studio", long, [], 60)).splitlines()
 ok(all(f"L{n}" in lf for n in range(50)), "report: a report taller than any pane is printed in full, every line (no paging)")
 ar = render.render_report(done, "Studio", rep, [], 60, art=True).splitlines()
 pid = art.portrait_id(done)
-ok(all(ar[r].startswith(art.image_row(pid, r, art.PORTRAIT_CELLS[0])) for r in range(3)) and chr(0x10EEEE) not in frame
+ok(all(ar[10 + r].startswith(art.image_row(pid, r, art.PORTRAIT_CELLS[0])) for r in range(3)) and chr(0x10EEEE) not in frame
    and all(common.cw(strip(l)) <= 60 for l in ar),
-   "report: with art the portrait stands left of the first three rows; without art there are no placeholders")
+   "report: with art the portrait stands left of the first three rows below the banner; without art there are no placeholders")
+bn = art.banner_id("done", True, False)
+ok(ar[0] == art.image_row(bn, 0, 60) and ar[9] == art.image_row(bn, 9, 60) and ar[10].startswith(art.image_row(pid, 0, 6))
+   and "Quest complete" not in strip("\n".join(ar)) and "Quest complete" in strip(frame)
+   and [art.banner_id(s, r, m) - art.BANNER_ID for s, r, m in (("done", True, False), ("waiting", True, False), ("working", True, False), ("done", False, False), ("done", True, True))] == [0, 1, 2, 3, 2],
+   "report: with art the banner opens the page and the title row is gone; state picks the banner; without art the title stays")
 last = strip(render.render_report(dict(done, status="waiting"), "Studio", None, ["$ make", "ok", "", ""], 60))
 ok("Last output" in last and "$ make" in last and "took" not in last, "report: no report -> the pane's last lines")
 ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60)), "report: nothing at all -> says so")
@@ -168,6 +173,10 @@ bf = strip(render.render_report(busy, "Studio", dict(rep, subagents=[sub]), [], 
 ok("Quest complete" not in bf and "還有 1 個分支任務進行中" in bf.splitlines()[0] and "進行中" in bf.split("\n\n", 1)[1]
    and all(common.cw(l) <= 60 for l in bf.splitlines()),
    "report: a branch task still running -> title says so instead of Quest complete, task listed as 進行中, rows fit")
+bart = render.render_report(busy, "Studio", rep, [], 60, art=True, banner=(40, 5)).splitlines()
+ok(len(bart) > 5 and bart[0] == art.image_row(art.banner_id("done", True, True), 0, 40) and "還有 1 個分支任務進行中" in strip(bart[5])
+   and all(common.cw(strip(l)) <= 60 for l in bart),
+   "report: art plus a running branch task -> banner then the 還有 N 個分支任務進行中 line, rows fit")
 sf = strip(render.render_report(done, "Studio", dict(rep, subagents=[sub]), [], 60))
 ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > sf.index("完成了報告畫面") and "subagent said hi" in sf
    and "## " not in sf and "進行中" not in sf,
@@ -233,8 +242,9 @@ c = open_cmd()
 ok(c[0] == "new-pane" and all(f in c for f in ("-x80%", "-y80%", "-X10%", "-Y10%"))
    and "-O" not in c and "-D" not in c and c[c.index("-t") + 1] == "%2" and c[-1].endswith("--report %7"),
    "report pane: tmux with new-pane (O flag in its usage) floats it at 80% x 80%, beside the first non-sidebar pane")
-ok(("set-option", "-p", "-t", "%9", "@party_report", "1", ";", "set-option", "-p", "-t", "%9", "allow-passthrough", "on") in calls,
-   "report pane: marked @party_report and allow-passthrough on, this pane only, in one tmux call")
+ok(("set-option", "-p", "-t", "%9", "@party_report", "1", ";", "set-option", "-p", "-t", "%9", "allow-passthrough", "on",
+    ";", "set-option", "-p", "-t", "%9", "window-style", "bg=#221a2c", ";", "set-option", "-p", "-t", "%9", "window-active-style", "bg=#221a2c") in calls,
+   "report pane: marked @party_report, allow-passthrough on and the dusk background (window-style and window-active-style), this pane only, in one tmux call")
 calls.clear()
 sidebars.open_report_pane("@1", "")
 ok(not any(c[0] == "list-commands" for c in calls) and open_cmd()[0] == "new-pane" and open_cmd()[-1].endswith("party.py --report"),
@@ -518,11 +528,12 @@ ok(fh["sel"] == "%2", "Cursor already on a member of that window (just clicked):
 import os, unicodedata
 art.ART_DIR = tempfile.mkdtemp()
 ok(art.load_art() is None, "No images in art/: load_art returns None (text version)")
-for i, n in enumerate(art.PORTRAIT_FILES + art.CREST_FILES):
-    open(os.path.join(art.ART_DIR, ("portrait-" if i < 8 else "crest-") + n + ".png"), "wb").write(b"PNG" + bytes([i]))
+for i, n in enumerate(art.PORTRAIT_FILES + art.CREST_FILES + art.BANNER_FILES):
+    open(os.path.join(art.ART_DIR, ("portrait-" if i < 8 else "crest-" if i < 16 else "banner-") + n + ".png"), "wb").write(b"PNG" + bytes([i]))
 imgs = art.load_art()
-ok(imgs and len(imgs) == 16 and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2),
-   "All 16 images present: portraits 6x3 cells, crests 4x2 cells")
+ok(imgs and len(imgs) == 20 and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2)
+   and imgs[art.BANNER_ID + 2][0] == b"PNG\x12",
+   "All 20 images present: portraits 6x3 cells, crests 4x2 cells, 4 banners")
 ok(art.art_supported("", "xterm-ghostty") and art.art_supported("", "xterm-kitty") and not art.art_supported("", "xterm-256color")
    and not art.art_supported("", "wezterm") and art.art_supported("on", "xterm-256color") and not art.art_supported("off", "xterm-ghostty"),
    "Images: auto on for Ghostty / Kitty, text elsewhere; @party_art on / off forces it")
@@ -531,6 +542,9 @@ ok(art.load_art() is None, "One image missing -> whole UI falls back to text")
 ok(common.cw(strip(art.image_row(art.PORTRAIT_ID, 2, 6))) == 6 and art.image_row(art.PORTRAIT_ID, 2, 6).count("\U0010EEEE") == 6,
    "Placeholder row is 6 cells: diacritics (row, column) take no width")
 row = art.image_row(0x7A0103, 1, 2)
+ok(len(art.DIAC) >= 80 and art.DIAC[:3] == [0x305, 0x30D, 0x30E] and len(set(art.DIAC)) == len(art.DIAC)
+   and common.cw(strip(art.image_row(art.BANNER_ID, 9, 80))) == 80,
+   "Placeholders: 80 distinct diacritics, so a banner row can be 80 columns")
 ok(row.startswith("\x1b[38;2;122;1;3m") and "\U0010EEEE̍̅\U0010EEEE̍̍" in row,
    "Placeholders: foreground = image id, row-2 diacritic 030D, column diacritics 0305 / 030D")
 os.environ["TMUX"] = "x"

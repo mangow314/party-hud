@@ -106,7 +106,7 @@ adjust-underline-thickness = 3
 
 ### 任務回報
 
-隊員做完或停下來等你時，`prefix R` 會開一個 pane，顯示它最後交出的報告：標題寫 `Quest complete`，旁邊是隊員頭像（Ghostty、Kitty），下面是隊員名稱、花了多久（從你送出指令到它回完）、剩下的 HP，再下面是報告本文，Markdown 會上色。tmux 3.8 以上是浮在視窗上的 pane；更舊的 tmux 則把目前視窗切成兩半。
+隊員做完或停下來等你時，`prefix R` 會開一個 pane，顯示它最後交出的報告。pane 底色是暮色紫。Ghostty、Kitty 上，頁面最上方是一張像素橫幅（最寬 80 欄，標題畫在圖裡），橫幅下面是隊員頭像；其他終端機則是一行文字標題。接著是隊員名稱、花了多久（從你送出指令到它回完）、剩下的 HP，再下面是報告本文，Markdown 會上色。tmux 3.8 以上是浮在視窗上的 pane；更舊的 tmux 則把目前視窗切成兩半。
 
 - Claude Code 的報告是最後一輪回覆裡、最後一次工具呼叫之後的文字；Codex 是最後一次完成的回覆。
 - 沒有報告時改顯示 pane 最後幾行（`Last output`）：agy、Grok 一律如此；在等你核准或回答問題的 Claude 通常也是，問題就在那幾行裡。

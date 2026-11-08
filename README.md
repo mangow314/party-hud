@@ -97,8 +97,9 @@ Drag the sidebar border to resize; the width is remembered for all sidebars (min
 
 ### Quest reports
 
-When a member finishes or stops to wait for you, `prefix R` opens a pane with its last report: the title
-`Quest complete`, the member's portrait (on Ghostty and Kitty), how long it took (from your prompt to its answer), HP left,
+When a member finishes or stops to wait for you, `prefix R` opens a pane with its last report, on a dusk-purple background. On Ghostty and
+Kitty the page opens with a pixel-art banner (up to 80 columns wide) with the title drawn inside the picture, and the member's
+portrait below it; elsewhere the title is a text line. Then come how long it took (from your prompt to its answer), HP left,
 then the report itself with its Markdown styled. On tmux 3.8+ the pane floats over the window; on older tmux it splits the
 current window in half.
 

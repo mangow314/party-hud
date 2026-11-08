@@ -55,8 +55,12 @@ def mark_sidebar(pane):
     )
 
 
+REPORT_BG = "bg=#221a2c"
+
+
 def mark_report(pane):
-    """Mark a pane as the quest report. allow-passthrough, on this pane only, lets the portrait reach the outer terminal.
+    """Mark a pane as the quest report. allow-passthrough, on this pane only, lets the images reach the outer terminal.
+    window-style and window-active-style both get the dusk background: the pane is usually active, and a user's window-active-style would win over window-style.
     No remain-on-exit: the pane closes when the report ends."""
     tmux(
         "set-option",
@@ -72,6 +76,20 @@ def mark_report(pane):
         pane,
         "allow-passthrough",
         "on",
+        ";",
+        "set-option",
+        "-p",
+        "-t",
+        pane,
+        "window-style",
+        REPORT_BG,
+        ";",
+        "set-option",
+        "-p",
+        "-t",
+        pane,
+        "window-active-style",
+        REPORT_BG,
     )
 
 

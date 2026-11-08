@@ -2,7 +2,7 @@
 
 import re
 
-from .art import ART_MIN_WIDTH, CREST_CELLS, PORTRAIT_CELLS, crest_ids, image_row, portrait_id
+from .art import ART_MIN_WIDTH, CREST_CELLS, PORTRAIT_CELLS, banner_id, crest_ids, image_row, portrait_id
 from .common import BUILDINGS, CLASS_NAMES, RESET, STATUS_TAG, SUMMON_ICON, C, bg, class_icon, clip, cw, fg, printable
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -313,9 +313,9 @@ def printable_lines(text):
     return [printable(line) for line in text.replace("\r", "").expandtabs(4).split("\n")]
 
 
-def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
+def render_report(a, squad, report, peek, width, pos=1, total=1, art=False, banner=(80, 10)):
     """Report pane text: who, how long, HP, then the whole report as Markdown, or the pane's last lines (peek) when there is no report.
-    With art the portrait stands left of the first three rows."""
+    With art a banner (banner = cols, rows) opens the page in place of the title row, and the portrait stands left of the first three rows."""
     width = max(28, width)
     facts = []
     if report and report["start"] and report["end"]:
@@ -332,12 +332,16 @@ def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
         title = f"還有 {len(summons)} 個分支任務進行中"
     pid = portrait_id(a)
     text_w = width - PORTRAIT_CELLS[0] - 1 if art else width
+    show_title = not art or bool(report and summons)
     head = [
-        (f"{STATUS_TAG[a['status']][0] or '·'} {title}", fg(STATUS_TAG[a["status"]][2], True)),
+        (f"{STATUS_TAG[a['status']][0] or '·'} {title}" if show_title else "", fg(STATUS_TAG[a["status"]][2], True)),
         (f"{class_icon(a)} {a['name']}  {a['kind']} · {squad}", fg("fg", True)),
         ("  ".join(facts), fg("dim")),
     ]
     rows = []
+    if art:
+        bid = banner_id(a["status"], bool(report), bool(summons))
+        rows += [image_row(bid, r, min(banner[0], width)) for r in range(banner[1])]
     for r, (text, style) in enumerate(head):
         line = style + clip(text, text_w) + RESET
         rows.append(f"{image_row(pid, r, PORTRAIT_CELLS[0])} {line}" if art else line)
