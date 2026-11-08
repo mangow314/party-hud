@@ -17,7 +17,8 @@ The HUD itself only reads. These subcommands open a pane or send keys only when 
 
 ## Commands
 
-`party.py --summon AGENT [--cwd DIR] [--window] [--timeout SEC]`
+`party.py --summon AGENT [--cwd DIR] [--window] [--read-only] [--timeout SEC]`
+- `--read-only`: starts the agent in an enforced read-only sandbox. Only `codex` has one (`codex -s read-only`); other agents exit 2 and no pane is opened. Use it for review work that must not change the tree.
 - Splits next to your pane (or `--window` for a new window), working dir `--cwd` (default: current).
 - stdout: the new pane id, e.g. `%12`. `--timeout` default 60.
 - Exit: 0 ready, 2 bad arguments, unknown agent, not in tmux, or tmux failure, 3 timeout.

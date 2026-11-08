@@ -151,7 +151,7 @@ t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "your question")
 python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
 ```
 
-`--summon` exits 0 ready, 2 bad arguments or tmux failure, 3 timeout (`--cwd DIR`, `--window`, `--timeout SEC`). `--ask` exits
+`--summon` exits 0 ready, 2 bad arguments or tmux failure, 3 timeout (`--cwd DIR`, `--window`, `--timeout SEC`). `--summon codex --read-only` starts codex in its enforced read-only sandbox (`-s read-only`); the other agents have no such mode and exit 2. `--ask` exits
 0 sent, 2 bad or missing pane, 4 not an agent. The sidebar still only reads; these commands open panes or send keys only
 when called.
 

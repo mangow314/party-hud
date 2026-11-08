@@ -151,7 +151,7 @@ t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "你的問題")
 python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
 ```
 
-`--summon` 退出碼：0 就緒、2 參數錯誤或 tmux 失敗、3 逾時（可加 `--cwd DIR`、`--window`、`--timeout SEC`）。`--ask`：0 已送出、2 pane 錯誤或不存在、4 不是 agent。
+`--summon` 退出碼：0 就緒、2 參數錯誤或 tmux 失敗、3 逾時（可加 `--cwd DIR`、`--window`、`--timeout SEC`）。`--summon codex --read-only` 以 codex 的強制唯讀沙箱（`-s read-only`）啟動；其他 agent 沒有這種模式，會以 2 退出。`--ask`：0 已送出、2 pane 錯誤或不存在、4 不是 agent。
 側欄仍然只讀；這些指令只在被呼叫時才開 pane 或送按鍵。
 
 `skills/party-crew/SKILL.md` 教 Claude Code 何時呼叫它們。連結一次即可：

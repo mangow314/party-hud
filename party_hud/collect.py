@@ -50,6 +50,7 @@ TMUX_FIELDS = [
 ]
 # wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
+READ_ONLY_CMDS = {"codex": "codex -s read-only"}
 
 
 HAVE_PROC = os.path.isdir("/proc/self")

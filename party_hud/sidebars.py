@@ -9,7 +9,7 @@ import time
 import zlib
 
 from .art import ART_MIN_WIDTH
-from .collect import AGENT_CMDS, FIELD_SEP, agent_kind, get_snapshot, lonely_sidebars
+from .collect import AGENT_CMDS, FIELD_SEP, READ_ONLY_CMDS, agent_kind, get_snapshot, lonely_sidebars
 from .common import CURSOR, PARTY_DIR, ROOT, tmux, tmux_run
 
 SIDEBAR_WIDTH = 34
@@ -117,12 +117,14 @@ def open_report_pane(target, pane):
 SUMMON_POLL = 1.0
 
 
-def summon(agent, cwd, window, timeout):
+def summon(agent, cwd, window, timeout, read_only=False):
     """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments or tmux failure, 3 timeout.
     Ready = the pane's agent is recognised, two polls in a row see the same screen (CRC32), and the snapshot lists the pane
     (so --ask and --report-text, which read the snapshot, accept it right away)."""
     if agent not in AGENT_CMDS:
         return 2, "", f"unknown agent: {agent} (one of {', '.join(AGENT_CMDS)})\n"
+    if read_only and agent not in READ_ONLY_CMDS:
+        return 2, "", f"{agent} has no enforced read-only mode (only: {', '.join(READ_ONLY_CMDS)})\n"
     caller = os.environ.get("TMUX_PANE", "")
     if not caller:
         return 2, "", "not inside tmux ($TMUX_PANE is not set)\n"
@@ -132,7 +134,9 @@ def summon(agent, cwd, window, timeout):
     if not os.path.isdir(cwd):
         return 2, "", f"not a directory: {cwd}\n"
     where = ["new-window"] if window else ["split-window", "-t", caller]
-    rc, out, err = tmux_run([*where, "-P", "-F", "#{pane_id}", "-c", cwd, AGENT_CMDS[agent]])
+    rc, out, err = tmux_run(
+        [*where, "-P", "-F", "#{pane_id}", "-c", cwd, (READ_ONLY_CMDS if read_only else AGENT_CMDS)[agent]]
+    )
     pane = out.strip()
     if rc != 0 or not pane:
         return 2, "", err or "tmux could not open the pane\n"

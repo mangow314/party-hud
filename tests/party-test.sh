@@ -1019,7 +1019,13 @@ ok(("set-option", "-p", "-t", "%9", "@party_lead", "%1") in calls, "summon: the 
 calls.clear(); shows[:] = ready
 sidebars.summon("codex", tmp, True, 5)
 ok(calls[0] == ("new-window", "-P", "-F", "#{pane_id}", "-c", tmp, "codex"), "summon --window: new-window, --cwd passed to -c")
+calls.clear(); shows[:] = ready
+sidebars.summon("codex", tmp, False, 5, True)
+ok(calls[0] == ("split-window", "-t", "%1", "-P", "-F", "#{pane_id}", "-c", tmp, "codex -s read-only"), "summon --read-only: codex starts with -s read-only")
 calls.clear()
+for kind in ("claude", "agy", "grok"):
+    rc, out, err = sidebars.summon(kind, tmp, False, 5, True)
+    ok(rc == 2 and out == "" and "no enforced read-only mode" in err and not calls, f"summon --read-only: {kind} -> 2, no pane opened")
 ok(sidebars.summon("vim", tmp, False, 5)[0] == 2 and not calls, "summon: an agent outside AGENT_CMDS -> 2, tmux not called")
 del os.environ["TMUX_PANE"]
 ok(sidebars.summon("claude", tmp, False, 5)[0] == 2 and not calls, "summon: outside tmux -> 2")

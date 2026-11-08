@@ -12,7 +12,8 @@ Modes (started by tmux; see party.tmux):
   party.py --report-text PANE [--wait [--after EPOCH]] [--timeout SEC]  print a member's last report; --wait until it stops working;
                               --after EPOCH (the time --ask printed) also waits for a report that ends after it
   party.py --ask PANE TEXT    type TEXT into an agent's pane and press Enter (several lines: one paste); print the time sent
-  party.py --summon AGENT [--cwd DIR] [--window] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id
+  party.py --summon AGENT [--cwd DIR] [--window] [--read-only] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id;
+                              --read-only starts it in an enforced read-only sandbox (codex only)
   party.py --ensure WID       add a sidebar to a window (hook)
   party.py --reflow WID       put the sidebar width back (hook)
   party.py --nudge [WID]      restart a stopped sidebar and redraw now (hook)
@@ -79,6 +80,7 @@ def main():
     ap.add_argument("--summon", metavar="AGENT")
     ap.add_argument("--cwd", metavar="DIR")
     ap.add_argument("--window", action="store_true")
+    ap.add_argument("--read-only", action="store_true", help="with --summon: enforced read-only sandbox, codex only")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--timeout", type=float)
     ap.add_argument("--width", type=int)
@@ -115,7 +117,9 @@ def main():
         sys.stderr.write(err)
         sys.exit(rc)
     elif args.summon is not None:
-        rc, out, err = summon(args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout)
+        rc, out, err = summon(
+            args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout, args.read_only
+        )
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)
