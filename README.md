@@ -105,7 +105,7 @@ current window in half.
 - For Claude Code the report is the text after the last tool call of its last answer; for Codex, its last finished reply.
 - Without a report the pane's last lines are shown instead (`Last output`): always for agy and Grok, and usually for a
   Claude member waiting for a permission or an answer, whose question is in those lines.
-- The whole report is printed at once. Scroll and copy with tmux copy-mode (`prefix [`).
+- A report taller than the pane opens in tmux copy-mode at its first line: scroll and copy with the copy-mode keys, and press `q` to leave copy-mode before `n`, `Enter` and `q` take effect. A report that fits is shown as is.
 - If you split the floating report pane, it stays smaller after the new pane closes; press `q` and `prefix R` to reopen it.
 - `n` next report, `Enter` goes to the member's pane, `q` / `Esc` closes the pane.
 - Reading a report does not clear the "done" mark; going to the pane does.

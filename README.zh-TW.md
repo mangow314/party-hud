@@ -110,7 +110,7 @@ adjust-underline-thickness = 3
 
 - Claude Code 的報告是最後一輪回覆裡、最後一次工具呼叫之後的文字；Codex 是最後一次完成的回覆。
 - 沒有報告時改顯示 pane 最後幾行（`Last output`）：agy、Grok 一律如此；在等你核准或回答問題的 Claude 通常也是，問題就在那幾行裡。
-- 整份報告一次印出，要捲動或複製請用 tmux 的 copy-mode（`prefix [`）。
+- 報告比 pane 高時，pane 會開在 tmux copy-mode 並停在第一行，用 copy-mode 的按鍵捲動或複製；先按 `q` 離開 copy-mode，`n`、`Enter`、`q` 才有作用。放得下的報告直接顯示。
 - 在浮動的報告 pane 上再切分出 pane，關掉那個 pane 後報告 pane 不會長回原大小；按 `q` 再按 `prefix R` 重開即可。
 - `n` 看下一份，`Enter` 切到那位隊員的 pane，`q`／`Esc` 關閉這個 pane。
 - 看完報告不會清掉「做完」的標記，切到那個 pane 才會。

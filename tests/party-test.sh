@@ -258,16 +258,16 @@ import sys
 sys.path.insert(0, %r)
 from party_hud import collect, ui
 ui.get_snapshot = lambda f=None: collect.collect(%r)
-ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(60)), "start": 1, "end": 2}
+ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(%d)), "start": 1, "end": 2}
 ui.tmux = lambda *a: print("TMUX", a, flush=True) or ""
 ui.run_report("%%1")
 print("EXITED", flush=True)
 """
-def report_session(keys, rows=10):
+def report_session(keys, rows=10, lines=60):
     m, sl = pty.openpty()
     fcntl.ioctl(sl, _tm.TIOCSWINSZ, struct.pack("HHHH", rows, 60, 0, 0))
     env = dict(os.environ, TMUX_PANE="%99")
-    p = subprocess.Popen([sys.executable, "-c", child % (os.path.dirname(sys.argv[1]), sys.argv[2])], stdin=sl, stdout=sl, stderr=sl, env=env, close_fds=True)
+    p = subprocess.Popen([sys.executable, "-c", child % (os.path.dirname(sys.argv[1]), sys.argv[2], lines)], stdin=sl, stdout=sl, stderr=sl, env=env, close_fds=True)
     os.close(sl)
     out = b""
     def read_until(marker, n):
@@ -294,6 +294,9 @@ ok("TMUX ('switch-client', '-t'" in once and "EXITED" in once, "report pane: Ent
 twice = report_session([b"n", b"q"])
 ok(twice.count("close") == 2 and twice.index("clear-history', '-t', '%99'") < twice.index("\x1b[2J") < twice.rindex("close"),
    "report pane: n clears this pane's history, then clears the screen and prints the next report")
+ok(once.index("TMUX ('copy-mode', '-t', '%99')") < once.index("TMUX ('send-keys', '-t', '%99', '-X', 'history-top')") < once.index("switch-client"),
+   "report pane: a report taller than the pane opens in copy-mode at its first line")
+ok("copy-mode" not in report_session([b"q"], rows=40, lines=3), "report pane: a report that fits the pane does not enter copy-mode")
 ok("EXITED" in twice and "L59" in twice[twice.rindex("\x1b[2J"):], "report pane: q ends the program, which closes the pane")
 from datetime import datetime
 pane = lambda pid, cmd: {"session_name": "New", "window_index": "1", "window_name": "w", "window_active": "1",

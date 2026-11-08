@@ -169,7 +169,8 @@ def open_report(pane):
 
 def run_report(pane=None, fixture=None):
     """Report pane (prefix R, or r in the sidebar): prints one member's last report on the normal screen, so tmux keeps it
-    in the pane history for copy-mode; afterwards it only reads keys."""
+    in the pane history for copy-mode (a report taller than the pane opens in copy-mode at its first line); afterwards it only
+    reads keys."""
     queue = report_queue(get_snapshot(fixture)["towns"], pane)
     me = os.environ.get("TMUX_PANE", "")
     art = (
@@ -199,14 +200,18 @@ def run_report(pane=None, fixture=None):
                 reports[a["pane"]] = None if fixture else report_for(a)
             report = reports[a["pane"]]
             peek = capture(a["pane"]) if report is None and not fixture else []
-            cols = os.get_terminal_size(sys.stdout.fileno()).columns
-            sys.stdout.write(render_report(a, squad, report, peek, cols - 1, i + 1, len(queue), art is not None) + "\n")
+            size = os.get_terminal_size(sys.stdout.fileno())
+            text = render_report(a, squad, report, peek, size.columns - 1, i + 1, len(queue), art is not None)
+            sys.stdout.write(text + "\n")
             sys.stdout.flush()
             if art:
                 time.sleep(ART_SETTLE)
                 img = portrait_id(a)
                 sys.stdout.write(kitty_image(img, *art[img]))
                 sys.stdout.flush()
+            if me and text.count("\n") + 1 >= size.lines:
+                tmux("copy-mode", "-t", me)
+                tmux("send-keys", "-t", me, "-X", "history-top")
             while True:
                 data = os.read(fd, 1024)
                 if not data:
