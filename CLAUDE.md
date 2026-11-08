@@ -9,6 +9,8 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
 - No per-test filter: run all of `bash tests/party-test.sh` (about 2 s) and grep its output for `FAIL`.
 - Before done, run: `ruff check . && ruff format --check . && basedpyright . && bash tests/party-test.sh`.
 - Code must run on Linux and macOS (CI runs both): `/proc` exists only on Linux, macOS goes through `ps`.
+- Local runs cover one OS only; macOS differences (`ps` output, locale, Python's `Python.app` re-exec) show up only in
+  CI. On a branch that will run for more than a commit or two, push early and read the `macos-latest` job each push.
 
 ## Guardrails
 
