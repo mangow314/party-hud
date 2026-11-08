@@ -406,10 +406,10 @@ ok(collect.claude_report(os.path.join(sdir, "agent-a.jsonl")) is None
 fin = collect.finished_subagents(sess)
 ok(fin == [{"type": "executor", "desc": "Fin one", "text": "sub final"}, {"type": "executor", "desc": "No log text", "text": ""}],
    "subagents: only finished: true metas, with their final text (unfinished, broken or non-object metas skipped)")
-ok(collect.report_for({"kind": "claude", "transcript": sess})["subagents"] == fin
+ok(collect.report_for({"kind": "claude", "transcript": sess})["subagents"] == [s for s in fin if s["desc"] == "No log text"]
    and collect.report_for({"kind": "claude", "transcript": sess})["text"].startswith("## 結果")
    and collect.report_for({"kind": "claude", "transcript": transcript(*turn)})["subagents"] == [],
-   "report_for: main report carries the finished subagents; no subagents/ directory -> empty list, same report")
+   "report_for: main report carries the subagents finished in its turn; no subagents/ directory -> empty list, same report")
 handback = [rec("user", 0, "go", isSidechain=True), rec("assistant", 1, [text("working")], isSidechain=True),
             rec("assistant", 2, [{"type": "tool_use", "id": "h", "name": "SubagentHandback", "input": {"message": "  ## 報告\nall good \n"}}], isSidechain=True),
             rec("user", 3, [{"type": "tool_result", "tool_use_id": "h", "content": [text('{"success":true}')]}], isSidechain=True)]
@@ -420,6 +420,10 @@ ok(collect.claude_report(hb_log, sidechain=True) == {"text": "## 報告\nall goo
    and collect.claude_report(hb_log) is None
    and collect.claude_report(transcript(*[{**r_, "isSidechain": False} for r_ in handback])) is None,
    "subagent report: SubagentHandback message (stripped), main conversation unaffected")
+os.utime(os.path.join(sdir, "agent-d.jsonl"), (t0, t0))
+ok([s["desc"] for s in collect.finished_subagents(sess, t0 + 120)] == ["Handback"]
+   and [s["desc"] for s in collect.report_for({"kind": "claude", "transcript": sess})["subagents"]] == ["Handback"],
+   "subagents: only those that ended in the report's turn (report end, else log mtime, at or after the prompt)")
 common_tmux = collect.tmux
 agy_screen = "old\n\nI changed 2 files.\nAll tests pass.\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 > ask   \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n  ? for shortcuts\n"
 grok_screen = "first\n\nDone: \u4fee\u597d\u4e86\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n> \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n grok-4  ctx 3%\n"
