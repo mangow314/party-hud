@@ -4,6 +4,9 @@
 # Needs a real tmux socket: won't run inside the Claude Code sandbox; run it in a normal terminal or via `!`.
 # Takes about 50 seconds.
 set -uo pipefail
+# sort order follows the locale and differs on macOS; LC_ALL would override LC_COLLATE, so keep it as LC_CTYPE (UTF-8).
+if [ -n "${LC_ALL:-}" ]; then export LC_CTYPE="$LC_ALL"; unset LC_ALL; fi
+export LC_COLLATE=C
 
 root=$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)
 party="$root/party.py"
