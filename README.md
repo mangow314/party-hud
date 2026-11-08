@@ -112,7 +112,8 @@ current window in half.
 - A Claude Code member that is still running subagents also gets a report page. The title changes from
   `Quest complete` to `還有 N 個分支任務進行中` (N = running subagents), and each running subagent is listed under the
   report with its name and `進行中`.
-- Finished subagents are listed under the report too, each with the last report it handed back (Markdown styled).
+- Subagents that finished during that answer's turn (since your last prompt) are listed under the report too, each
+  with the last report it handed back (Markdown styled).
 
 To see the count in your status line, the collector writes the number of members waiting or done to the tmux
 variable `@party_reports`:

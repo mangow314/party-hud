@@ -116,7 +116,7 @@ adjust-underline-thickness = 3
 - 看完報告不會清掉「做完」的標記，切到那個 pane 才會。
 - Claude Code 隊員還有 subagent 在跑時，同樣有報告頁。標題從 `Quest complete` 改成 `還有 N 個分支任務進行中`（N 是進行中的
   subagent 數），報告下方逐一列出進行中的 subagent，附名稱與 `進行中`。
-- 已完成的 subagent 也列在報告下方，附上它最後交回的報告（Markdown 會上色）。
+- 這一輪（你最後一次送出之後）完成的 subagent 也列在報告下方，附上它最後交回的報告（Markdown 會上色）。
 
 想在狀態列看到有幾份報告，collector 會把「等你或做完的隊員數」寫進 tmux 變數 `@party_reports`：
 

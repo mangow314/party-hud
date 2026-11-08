@@ -546,8 +546,9 @@ def claude_report(path, sidechain=False):
     return {"text": "\n\n".join(texts), "start": None, "end": end} if texts else None
 
 
-def finished_subagents(transcript):
-    """Subagents with `finished: true` in their meta -> [{"type", "desc", "text"}] (text is "" when the log has no final answer)."""
+def finished_subagents(transcript, since=None):
+    """Subagents with `finished: true` in their meta -> [{"type", "desc", "text"}] (text is "" when the log has no final answer).
+    With since (epoch seconds), only those whose report (or, without one, whose log) ends at or after it."""
     out = []
     for meta in sorted(glob.glob(os.path.join(transcript[: -len(".jsonl")], "subagents", "*.meta.json"))):
         try:
@@ -555,7 +556,10 @@ def finished_subagents(transcript):
                 d = json.load(f)
             if not d.get("finished"):
                 continue
-            rep = claude_report(meta[: -len(".meta.json")] + ".jsonl", sidechain=True)
+            log = meta[: -len(".meta.json")] + ".jsonl"
+            rep = claude_report(log, sidechain=True)
+            if since is not None and ((rep and rep["end"]) or os.path.getmtime(log)) < since:
+                continue
             out.append(
                 {
                     "type": d.get("agentType", "agent"),
@@ -651,7 +655,7 @@ def report_for(a):
     """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Claude Code and Codex write one; agy and grok are read off the screen."""
     if a["kind"] == "claude":
         rep = claude_report(a["transcript"]) if a.get("transcript") else None
-        return dict(rep, subagents=finished_subagents(a["transcript"])) if rep else None
+        return dict(rep, subagents=finished_subagents(a["transcript"], rep["start"])) if rep else None
     if a["kind"] == "codex":
         panes = read_tmux()
         p = next((p for p in panes if p["pane_id"] == a["pane"]), None)
