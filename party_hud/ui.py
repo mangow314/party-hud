@@ -11,10 +11,10 @@ import time
 import tty
 
 from .art import art_supported, crest_ids, kitty_image, load_art, portrait_id
-from .collect import get_snapshot
+from .collect import get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
-from .render import render
-from .sidebars import EXE, install_hooks, mark_sidebar
+from .render import render, render_no_report, render_report
+from .sidebars import EXE, install_hooks, mark_sidebar, open_report_pane
 
 
 def follow_here(st, towns, here):
@@ -92,6 +92,8 @@ def handle_key(key, st, towns, mode):
         st["focus"] = "party"
     elif key == "v":
         st["peek"] = not st["peek"]
+    elif key == "r" and mode == "sidebar" and st["sel"]:
+        return "report"
     elif key in ("\r", "\n"):
         if st["focus"] == "squad" and towns:
             return "jump_squad"
@@ -150,6 +152,87 @@ def jump_next():
     st = {"focus": "party", "sel": target, "squad": None}
     save_cursor(st)
     tmux("switch-client", "-t", target)
+
+
+def report_queue(towns, pane=None):
+    """[(squad name, member)] to read: waiting, done, then working with running subagents; pane (any status) goes first when given."""
+    members = [(t["name"], a) for t in towns for a in t["agents"]]
+    queue = [m for s in ("waiting", "done") for m in members if m[1]["status"] == s]
+    queue += [m for m in members if m[1]["status"] == "working" and m[1].get("summons")]
+    mine = [m for m in members if m[1]["pane"] == pane]
+    return mine + [m for m in queue if m not in mine]
+
+
+def open_report(pane):
+    open_report_pane(os.environ.get("TMUX_PANE", ""), pane)
+
+
+def run_report(pane=None, fixture=None):
+    """Report pane (prefix R, or r in the sidebar): prints one member's last report on the normal screen, so tmux keeps it
+    in the pane history for copy-mode (a report taller than the pane opens in copy-mode at its first line); afterwards it only
+    reads keys."""
+    queue = report_queue(get_snapshot(fixture)["towns"], pane)
+    me = os.environ.get("TMUX_PANE", "")
+    art = (
+        load_art()
+        if not fixture
+        and art_supported(
+            tmux("show-option", "-gqv", "@party_art").strip(),
+            tmux("display-message", "-p", "#{client_termname}").strip(),
+        )
+        else None
+    )
+    reports, i = {}, 0
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    sys.stdout.write("\033[?25l")
+    try:
+        tty.setcbreak(fd)
+        if not queue:
+            size = os.get_terminal_size(sys.stdout.fileno())
+            sys.stdout.write(render_no_report(size.columns - 1, size.lines) + "\n")
+            sys.stdout.flush()
+            os.read(fd, 1024)
+            return
+        while True:
+            squad, a = queue[i]
+            if a["pane"] not in reports:
+                reports[a["pane"]] = None if fixture else report_for(a)
+            report = reports[a["pane"]]
+            peek = capture(a["pane"]) if report is None and not fixture else []
+            size = os.get_terminal_size(sys.stdout.fileno())
+            text = render_report(a, squad, report, peek, size.columns - 1, i + 1, len(queue), art is not None)
+            sys.stdout.write(text + "\n")
+            sys.stdout.flush()
+            if art:
+                time.sleep(ART_SETTLE)
+                img = portrait_id(a)
+                sys.stdout.write(kitty_image(img, *art[img]))
+                sys.stdout.flush()
+            if me and text.count("\n") + 1 >= size.lines:
+                tmux("copy-mode", "-t", me)
+                tmux("send-keys", "-t", me, "-X", "history-top")
+            while True:
+                data = os.read(fd, 1024)
+                if not data:
+                    return
+                keys = [key for kind, key in parse_input(data.decode(errors="ignore")) if kind == "key"]
+                if "n" in keys:
+                    i = (i + 1) % len(queue)
+                    if me:
+                        tmux("clear-history", "-t", me)
+                    sys.stdout.write("\033[H\033[2J\033[3J")
+                    break
+                if "\r" in keys or "\n" in keys:
+                    save_cursor({"focus": "party", "sel": a["pane"], "squad": None})
+                    tmux("switch-client", "-t", a["pane"])
+                    return
+                if "q" in keys or "\x1b" in keys:
+                    return
+    finally:
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write("\033[?25h")
+        sys.stdout.flush()
 
 
 HIDE_AFTER = 2.0
@@ -322,6 +405,8 @@ def run_ui(mode, fixture=None):
                 elif action == "jump_squad":
                     tmux("switch-client", "-t", "=" + towns[st["squad"]]["name"])  # =: exact name match
                     done = mode == "popup"
+                elif action == "report":
+                    open_report(st["sel"])
                 elif action == "back":
                     tmux("select-pane", "-l")
                 elif action == "hide":

@@ -83,15 +83,82 @@ If you connect over SSH, the remote needs your terminal's terminfo (Ghostty: `sh
 | `prefix C-t` | Open / close the sidebar in every window |
 | `prefix P` | Popup version |
 | `prefix a` | Jump to the next member that is waiting or done, without opening anything |
+| `prefix R` | Quest report: read the last report of members that are waiting or done |
 | `j` / `k` | Next / previous member in this squad (stops at the ends) |
 | `J` / `K` | Next / previous squad |
 | `1`–`9` | Member N of this squad |
 | `Enter` | Go to that member's pane |
 | `n` | Next waiting member, then next finished one |
 | `v` | Peek at the member's last lines of output |
+| `r` | In the sidebar: open the selected member's quest report in a pane |
 | `Esc` / `q` | Back to your pane / hide all sidebars |
 
 Drag the sidebar border to resize; the width is remembered for all sidebars (minimum 30 columns).
+
+### Quest reports
+
+When a member finishes or stops to wait for you, `prefix R` opens a pane with its last report: the title
+`Quest complete`, the member's portrait (on Ghostty and Kitty), how long it took (from your prompt to its answer), HP left,
+then the report itself with its Markdown styled. On tmux 3.8+ the pane floats over the window; on older tmux it splits the
+current window in half.
+
+- For Claude Code the report is the text after the last tool call of its last answer; for Codex, its last finished reply.
+- Without a report the pane's last lines are shown instead (`Last output`): always for agy and Grok, and usually for a
+  Claude member waiting for a permission or an answer, whose question is in those lines.
+- A report taller than the pane opens in tmux copy-mode at its first line: scroll and copy with the copy-mode keys, and press `q` to leave copy-mode before `n`, `Enter` and `q` take effect. A report that fits is shown as is.
+- If you split the floating report pane, it stays smaller after the new pane closes; press `q` and `prefix R` to reopen it.
+- `n` next report, `Enter` goes to the member's pane, `q` / `Esc` closes the pane.
+- Reading a report does not clear the "done" mark; going to the pane does.
+- A Claude Code member that is still running subagents also gets a report page. The title changes from
+  `Quest complete` to `還有 N 個分支任務進行中` (N = running subagents), and each running subagent is listed under the
+  report with its name and `進行中`.
+- Finished subagents are listed under the report too, each with the last report it handed back (Markdown styled).
+
+To see the count in your status line, the collector writes the number of members waiting or done to the tmux
+variable `@party_reports`:
+
+```tmux
+set -ag status-right '#{?#{@party_reports}, reports #{@party_reports},}'
+```
+
+### Reading a report from a script
+
+```sh
+python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE [--wait] [--timeout SEC]
+```
+
+`PANE` is a tmux pane id such as `%12`. Without `--wait` it prints the member's current report at once. With `--wait`,
+if the member is working, still has subagents running, or has a finished subagent the main conversation has not answered
+yet, it waits until that stops and then prints. `--timeout` is the most seconds to wait (default 600).
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Report printed. A known agent with no report also exits 0: stdout is empty and stderr says `no report for PANE` |
+| 2 | Bad arguments (not a pane id, bad timeout) or the pane does not exist |
+| 3 | `--timeout` ran out while waiting |
+| 4 | The pane exists but is not a known agent |
+
+### Crew skill for Claude Code
+
+`--summon AGENT` opens a pane running `claude`, `codex`, `agy` or `grok` and prints its pane id once it takes input.
+`--ask PANE TEXT` pastes text into an agent's pane, presses Enter, and prints the time it was sent. Together with `--report-text PANE
+--wait --after EPOCH` (above), one agent can hand work to another and wait for the answer:
+
+```sh
+m=$(python3 ~/.tmux/plugins/party-hud/party.py --summon agy)
+t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "your question")
+python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
+```
+
+`--summon` exits 0 ready, 2 bad arguments or tmux failure, 3 timeout (`--cwd DIR`, `--window`, `--timeout SEC`). `--ask` exits
+0 sent, 2 bad or missing pane, 4 not an agent. The sidebar still only reads; these commands open panes or send keys only
+when called.
+
+`skills/party-crew/SKILL.md` teaches Claude Code when to call them. Link it once:
+
+```sh
+ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
+```
 
 ## Options
 
@@ -102,11 +169,12 @@ Set these in `~/.tmux.conf` before the plugin loads.
 | `@party_key_toggle` | `C-t` | Key for open / close |
 | `@party_key_popup` | `P` | Key for the popup |
 | `@party_key_next` | `a` | Key for "next waiting" |
+| `@party_key_report` | `R` | Key for quest reports |
 | `@party_art` | `auto` | `on` / `off` forces images; `auto` uses them on Ghostty and Kitty |
 | `@party_sidebar_width` | `34` | Sidebar width in columns |
 
 Images leave tmux through `allow-passthrough`, which party-hud turns on for its own sidebar panes only: a program in any
-other pane still cannot send escape sequences straight to your terminal. The popup is not a pane, so it shows images only if
+other pane still cannot send escape sequences straight to your terminal. The `prefix P` popup is not a pane, so it shows images only if
 you set `allow-passthrough on` globally in `~/.tmux.conf` yourself (then every pane can bypass tmux); otherwise it uses
 the text version.
 

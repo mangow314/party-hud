@@ -140,7 +140,168 @@ ok(re.search(r"Empty +\(empty\) │", eq) and "no agents ⏎ open session" in eq
 rm3 = []
 st3 = strip(render.render(towns, 33, "%1", row_map=rm3)).splitlines()
 ok(all(rm3[i] == ("agent", "%2") for i, l in enumerate(st3) if "Thief" in l or "140k" in l), "Clicking a row of a member's status box selects that member")
+
+done = dict(agents[0], status="done", hp_left=410000, hp_max=1000000)
+rep = {"text": "## 結果\n完成了報告畫面\n" + "很長的一行中文" * 20, "start": 100, "end": 860}
+frame = render.render_report(done, "Studio", rep, [], 60)
+rf = strip(frame).splitlines()
+ok("Quest complete" in rf[0] and f"{done['name']}  claude · Studio" in rf[1] and "q close" in rf[-1] and "scroll" not in rf[-1],
+   "report: title, who and which squad, key hints on the last line (j / k are gone: copy-mode scrolls)")
+ok("took 12m 40s" in rf[2] and "HP 410k/1M" in rf[2], "report: time from prompt to answer, HP left")
+ok(all(common.cw(l) <= 60 for l in rf) and sum(common.cw(l) == 60 for l in rf) >= 1,
+   "report: no row is wider than the width, CJK wraps by display width")
+ok(common.fg("gold", True) + "結果" in frame and "## " not in strip(frame), "report: the text goes through render_markdown (heading in gold, marker dropped)")
+long = dict(rep, text="\n".join(f"L{n}" for n in range(50)))
+lf = strip(render.render_report(done, "Studio", long, [], 60)).splitlines()
+ok(all(f"L{n}" in lf for n in range(50)), "report: a report taller than any pane is printed in full, every line (no paging)")
+ar = render.render_report(done, "Studio", rep, [], 60, art=True).splitlines()
+pid = art.portrait_id(done)
+ok(all(ar[r].startswith(art.image_row(pid, r, art.PORTRAIT_CELLS[0])) for r in range(3)) and chr(0x10EEEE) not in frame
+   and all(common.cw(strip(l)) <= 60 for l in ar),
+   "report: with art the portrait stands left of the first three rows; without art there are no placeholders")
+last = strip(render.render_report(dict(done, status="waiting"), "Studio", None, ["$ make", "ok", "", ""], 60))
+ok("Last output" in last and "$ make" in last and "took" not in last, "report: no report -> the pane's last lines")
+ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60)), "report: nothing at all -> says so")
+sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## 子結果\nsubagent said hi"}
+busy = dict(done, summons=[{"type": "executor", "desc": "Branch 還在跑" * 8}])
+bf = strip(render.render_report(busy, "Studio", dict(rep, subagents=[sub]), [], 60))
+ok("Quest complete" not in bf and "還有 1 個分支任務進行中" in bf.splitlines()[0] and "進行中" in bf.split("\n\n", 1)[1]
+   and all(common.cw(l) <= 60 for l in bf.splitlines()),
+   "report: a branch task still running -> title says so instead of Quest complete, task listed as 進行中, rows fit")
+sf = strip(render.render_report(done, "Studio", dict(rep, subagents=[sub]), [], 60))
+ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > sf.index("完成了報告畫面") and "subagent said hi" in sf
+   and "## " not in sf and "進行中" not in sf,
+   "report: finished subagent listed below the main report with its own report (Markdown), no 進行中")
+nr = strip(render.render_no_report(40, 10)).splitlines()
+ok(len(nr) == 10 and "Nobody is waiting or done." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
+   "report popup with nobody waiting or done: says so and waits (a popup that exits at once only flashes)")
+ok(render.wrap("一二三四五", 4) == ["一二", "三四", "五"] and render.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
+   "report: wrap by display width; tabs expanded, control characters dropped")
+md = render.render_markdown
+B, I, R, fgc = "\033[1m", "\033[3m", common.RESET, common.fg
+ok(md("# T\n###### s", 20) == [fgc("gold", True) + "T" + R, fgc("gold", True) + "s" + R], "markdown: # to ###### headings in gold bold, marker dropped")
+ok(md("a **b** c", 20) == ["a " + B + "b" + R + " c"], "markdown: **bold**")
+ok(md("*x* _y_ snake_case_name", 30) == [I + "x" + R + " " + I + "y" + R + " snake_case_name"], "markdown: *italic* and _italic_, not the underscores inside a word")
+ok(md("a `**x**` b", 20) == ["a " + fgc("amber") + "**x**" + R + " b"], "markdown: `inline code` is literal")
+ok([strip(r) for r in md("- a\n* b\n1. c", 20)] == ["• a", "• b", "1. c"] and [strip(r) for r in md("- 一二三四五", 6)] == ["• 一二", "  三四", "  五"],
+   "markdown: -, * and 1. lists; wrapped items hang under the text")
+ok(md("```py\n**x**\n```\nabcdef", 20) == [fgc("green") + "**x**" + R, "abcdef"] and [strip(r) for r in md("```\nabcdef", 4)] == ["abcd", "ef"],
+   "markdown: fenced code block is literal, fences dropped, long lines wrap")
+ok(md("see [doc](http://u/x) ok", 40) == ["see " + fgc("blue") + "\033[4m" + "doc" + R + fgc("dim") + " (http://u/x)" + R + " ok"], "markdown: [text](url) shows the text and the url")
+ok(md("---", 10) == [fgc("dim") + "─" * 10 + R], "markdown: --- is a rule as wide as the pane")
+ok([strip(r) for r in md("a\nb\n\nc", 5)] == ["a", "b", "", "c"], "markdown: every source line stays a line, blank lines stay")
+ok([strip(r) for r in md("一二三e\u0301f", 5)] == ["一二", "三e\u0301f"] and all(common.cw(strip(r)) <= 5 for r in md("一二三e\u0301f", 5)),
+   "markdown: CJK = 2 columns, combining marks = 0")
+ok([strip(r) for r in md("1. abcdefgh", 6)] == ["1. abc", "   def", "   gh"], "markdown: 1. lists keep the number and hang wrapped rows under the text")
+ok([strip(r) for r in md("e\u0301" * 5, 5)] == ["e\u0301" * 5], "markdown: combining marks take no column, five e+accent fit in width 5")
+wr = md("**aaa bbb ccc**", 5)
+ok(len(wr) == 3 and all(r.startswith(B) and r.endswith(R) and common.cw(strip(r)) <= 5 for r in wr), "markdown: styled text wraps, every row carries its own style and reset")
+raw = ["  - **x**", "  - nested", "| a | b |", "![img](u.png)", "<b>x</b>", "> *q*"]
+ok(md("\n".join(raw), 30) == raw, "markdown: nested lists, tables, images, HTML and quotes are shown as written")
+mk = lambda pane, status: {"pane": pane, "status": status}
+qt = [{"name": "A", "agents": [mk("%1", "done"), mk("%2", "working"), mk("%3", "waiting")]},
+      {"name": "B", "agents": [mk("%4", "done")]}]
+ok([a["pane"] for _, a in ui.report_queue(qt)] == ["%3", "%1", "%4"], "report queue: waiting first, then done")
+ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"] and ui.report_queue(qt, "%2")[0][0] == "A",
+   "report queue: the pane asked for comes first, whatever its status")
+qs = [{"name": "A", "agents": [dict(mk("%1", "working"), summons=[{}]), mk("%2", "working"), mk("%3", "done"), dict(mk("%4", "working"), summons=[])]},
+      {"name": "B", "agents": [mk("%5", "waiting"), dict(mk("%6", "working"), summons=[{}])]}]
+ok([a["pane"] for _, a in ui.report_queue(qs)] == ["%5", "%3", "%1", "%6"],
+   "report queue: working member with running subagents comes after waiting and done; working without subagents is left out")
+ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") == "report"
+   and ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "popup") is None,
+   "r in the sidebar opens the report pane (not inside the P popup)")
+opened = []
+real_open = ui.open_report_pane
+ui.open_report_pane = lambda *a: opened.append(a)
+os.environ["TMUX_PANE"] = "%5"
+ui.open_report("%7")
+ui.open_report_pane = real_open
+ok(opened == [("%5", "%7")], "r: the report opens beside the sidebar's own window, for the selected member")
+calls = []
+real_tmux = sidebars.tmux
+def fake_tmux(usage, rows="%1 1 s1 r\n%2 0 s r\n"):
+    def run(*a):
+        calls.append(a)
+        return usage if a[0] == "list-commands" else rows if a[0] == "list-panes" else "%9\n" if a[0] in ("new-pane", "split-window") else ""
+    return run
+open_cmd = lambda: next(c for c in calls if c[0] in ("new-pane", "split-window"))
+sidebars._new_pane = None
+sidebars.tmux = fake_tmux("new-pane (newp) [-AbCDefhIkKLMOPvWZ] [-c start-directory] [-F format] [-t target-pane] [shell-command]")
+sidebars.open_report_pane("@1", "%7")
+c = open_cmd()
+ok(c[0] == "new-pane" and all(f in c for f in ("-x80%", "-y80%", "-X10%", "-Y10%"))
+   and "-O" not in c and "-D" not in c and c[c.index("-t") + 1] == "%2" and c[-1].endswith("--report %7"),
+   "report pane: tmux with new-pane (O flag in its usage) floats it at 80% x 80%, beside the first non-sidebar pane")
+ok(("set-option", "-p", "-t", "%9", "@party_report", "1", ";", "set-option", "-p", "-t", "%9", "allow-passthrough", "on") in calls,
+   "report pane: marked @party_report and allow-passthrough on, this pane only, in one tmux call")
+calls.clear()
+sidebars.open_report_pane("@1", "")
+ok(not any(c[0] == "list-commands" for c in calls) and open_cmd()[0] == "new-pane" and open_cmd()[-1].endswith("party.py --report"),
+   "report pane: the new-pane answer is cached for the life of the process")
+for usage in ("split-window (splitw) [-bdefhIPvZ] [-c start-directory] [-l size] [-t target-pane] [shell-command]", ""):
+    calls.clear()
+    sidebars._new_pane = None
+    sidebars.tmux = fake_tmux(usage)
+    sidebars.open_report_pane("@1", "%7")
+    c = open_cmd()
+    ok(c[0] == "split-window" and c[1:4] == ("-h", "-l", "50%") and "new-pane" not in [x[0] for x in calls] and c[c.index("-t") + 1] == "%2",
+       "report pane: tmux without new-pane (" + ("no O flag" if usage else "command unknown") + ") splits the window in half")
+sidebars.tmux = real_tmux
+sidebars._new_pane = None
+killed = []
+sidebars.tmux = lambda *a: "%1 @1 s1 r\n%2 @1 s r1\n%3 @2 s1 r\n%4 @2 s r\n" if a[0] == "list-panes" else killed.append(a[2]) or ""
+sidebars.tidy()
+sidebars.tmux = real_tmux
+ok(sorted(killed) == ["%1", "%2"], "Tidy: a report pane counts as a sidebar, so a window with only a sidebar and a report is closed")
 import json, tempfile
+import fcntl, pty, select as _sel, struct, subprocess, termios as _tm
+child = """
+import sys
+sys.path.insert(0, %r)
+from party_hud import collect, ui
+ui.get_snapshot = lambda f=None: collect.collect(%r)
+ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(%d)), "start": 1, "end": 2}
+ui.tmux = lambda *a: print("TMUX", a, flush=True) or ""
+ui.run_report("%%1")
+print("EXITED", flush=True)
+"""
+def report_session(keys, rows=10, lines=60):
+    m, sl = pty.openpty()
+    fcntl.ioctl(sl, _tm.TIOCSWINSZ, struct.pack("HHHH", rows, 60, 0, 0))
+    env = dict(os.environ, TMUX_PANE="%99")
+    p = subprocess.Popen([sys.executable, "-c", child % (os.path.dirname(sys.argv[1]), sys.argv[2], lines)], stdin=sl, stdout=sl, stderr=sl, env=env, close_fds=True)
+    os.close(sl)
+    out = b""
+    def read_until(marker, n):
+        nonlocal out
+        for _ in range(100):
+            if out.count(marker) >= n:
+                return
+            if _sel.select([m], [], [], 0.1)[0]:
+                try:
+                    out += os.read(m, 65536)
+                except OSError:
+                    return
+    for n, key in enumerate(keys, 1):
+        read_until(b"close", n)
+        os.write(m, key)
+    read_until(b"EXITED", 1)
+    p.wait(timeout=5)
+    os.close(m)
+    return out.decode(errors="ignore")
+once = report_session([b"\r"])
+ok(all(f"L{n}" in once for n in range(60)), "report pane: a report taller than the terminal is printed in full, so copy-mode can scroll it")
+ok("\x1b[?1049h" not in once and "\x1b[H" not in once and "\x1b[?1003h" not in once, "report pane: normal screen, no cursor homing, no mouse reporting (tmux needs both for copy-mode)")
+ok("TMUX ('switch-client', '-t'" in once and "EXITED" in once, "report pane: Enter jumps to the member's pane and exits")
+twice = report_session([b"n", b"q"])
+ok(twice.count("close") == 2 and twice.index("clear-history', '-t', '%99'") < twice.index("\x1b[2J") < twice.rindex("close"),
+   "report pane: n clears this pane's history, then clears the screen and prints the next report")
+ok(once.index("TMUX ('copy-mode', '-t', '%99')") < once.index("TMUX ('send-keys', '-t', '%99', '-X', 'history-top')") < once.index("switch-client"),
+   "report pane: a report taller than the pane opens in copy-mode at its first line")
+ok("copy-mode" not in report_session([b"q"], rows=40, lines=3), "report pane: a report that fits the pane does not enter copy-mode")
+ok("EXITED" in twice and "L59" in twice[twice.rindex("\x1b[2J"):], "report pane: q ends the program, which closes the pane")
+from datetime import datetime
 pane = lambda pid, cmd: {"session_name": "New", "window_index": "1", "window_name": "w", "window_active": "1",
                          "session_attached": "1", "pane_id": pid, "pane_active": "1", "pane_current_command": cmd,
                          "pane_current_path": "/n", "@workmux_pane_status": "", "pane_pid": ""}
@@ -154,6 +315,13 @@ ok(new["%20"]["hp"] == 100 and new["%20"]["fresh"] and re.search(r"新開.*· id
    "Freshly started Claude (no request sent yet): HP 100%, SP full at 60")
 ok(render.sp_points({"sp": (10.0, 300)}) == 1 and render.sp_points({"sp": (3600.0, 3600)}) == 60 and render.sp_points({"sp": None}) is None,
    "SP = cache minutes left (rounded up, max 60); unknown is --")
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as g:
+    json.dump({"panes": [pane("%30", "claude"), dict(pane("%31", "python3"), **{"@party_report": "1", "window_id": "@7"})], "now": 10000,
+               "sessions": {"%30": {"sid": "s30", "name": "x", "status": "idle"}}}, g)
+rs = collect.collect(g.name)
+ok(rs["panes"]["%31"]["sidebar"] is True and rs["panes"]["%30"]["sidebar"] is False
+   and [a["pane"] for t in rs["towns"] for a in t["agents"]] == ["%30"],
+   "A report pane (@party_report) is treated like a sidebar: not a member, and it does not keep a window alive")
 ok(new["%21"]["hp"] is None and not new["%21"]["fresh"] and re.search(r"agy.*\n.*· idle.*\n.*HP +-- +│\n.*SP +-- +│", nl),
    "Other agents with unreadable context: HP / SP stay --")
 ok(new["%22"]["status"] == "working" and new["%21"]["status"] == "idle", "Other agents: recent screen change = busy, no change = idle")
@@ -178,6 +346,152 @@ with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write('{"type":"event_msg","payload":{"type":"token_count","info":null}}\n')
 ok(collect.codex_usage(f.name) == (18981, 258400) and collect.codex_usage("/nope") is None,
    "codex rollout: use the last token_count with usage (skip info: null)")
+with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+    f.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"old","started_at":1,"completed_at":2}}\n')
+    f.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"## 結果\\n完成","started_at":100,'
+            '"completed_at":160,"duration_ms":60000}}\n')
+    f.write('{"type":"event_msg","payload":{"type":"token_count","info":null}}\n')
+with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as g:
+    g.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":null}}\n')
+ok(collect.codex_report(f.name) == {"text": "## 結果\n完成", "start": 100, "end": 160},
+   "codex report: last task_complete's message and start / end time")
+ok(collect.codex_report(g.name) is None and collect.codex_report("/nope") is None,
+   "codex report: no message or no file -> None")
+
+def transcript(*recs):
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+        for r in recs:
+            f.write(json.dumps(r) + "\n")
+    return f.name
+def rec(kind, t, content, **extra):
+    return {"type": kind, "timestamp": f"2026-11-07T10:{t:02d}:00Z", "message": {"content": content}, **extra}
+text = lambda s: {"type": "text", "text": s}
+turn = [rec("user", 0, "earlier"), rec("assistant", 1, [text("old answer")]),
+        rec("user", 2, "fix it"), rec("assistant", 3, [{"type": "thinking", "thinking": "hm"}]),
+        rec("assistant", 3, [text("I'll look first")]), rec("assistant", 4, [{"type": "tool_use", "id": "x"}]),
+        rec("user", 5, [{"type": "tool_result", "tool_use_id": "x"}]),
+        rec("assistant", 6, [text("## 結果\nDone")]), rec("assistant", 7, [text("One more line")]),
+        rec("assistant", 8, [text("subagent noise")], isSidechain=True), rec("user", 9, "caveat", isMeta=True)]
+t0 = datetime.fromisoformat("2026-11-07T10:00:00+00:00").timestamp()
+r = collect.claude_report(transcript(*turn))
+ok(r == {"text": "## 結果\nDone\n\nOne more line", "start": t0 + 120, "end": t0 + 420},
+   "claude report: text after the last tool call, from the prompt's time to the last text (subagent and meta skipped)")
+r = collect.claude_report(transcript(*turn, rec("user", 10, "<bash-input>ls</bash-input>"), rec("user", 10, "<bash-stdout>a</bash-stdout>")))
+ok(r is not None and r["text"].startswith("## 結果") and r["start"] == t0 + 120,
+   "claude report: a ! command after the answer (no reply) does not hide the report")
+ok(collect.claude_report(transcript(*turn[:6])) is None and collect.claude_report(transcript(*turn[:7])) is None
+   and collect.claude_report("/nope") is None,
+   "claude report: turn still in a tool call, or no file -> None")
+ok(collect.claude_report(transcript(*turn[:4])) is None, "claude report: turn with only thinking so far -> None")
+ok(collect.claude_report(transcript(*turn[:2])) == {"text": "old answer", "start": t0, "end": t0 + 60},
+   "claude report: answer without tool calls")
+sess = transcript(*turn)
+sdir = os.path.join(sess[:-6], "subagents")
+os.makedirs(sdir)
+def agent(name, meta, *recs):
+    if meta is not None:
+        open(os.path.join(sdir, f"agent-{name}.meta.json"), "w").write(meta if isinstance(meta, str) else json.dumps(meta))
+    with open(os.path.join(sdir, f"agent-{name}.jsonl"), "w") as g:
+        for r in recs:
+            g.write(json.dumps(r) + "\n")
+agent("a", {"agentType": "executor", "description": "Fin one", "finished": True},
+      rec("user", 0, "go", isSidechain=True), rec("assistant", 1, [text("sub final")], isSidechain=True))
+agent("b", {"agentType": "executor", "description": "Still running"}, rec("user", 0, "go", isSidechain=True))
+agent("c", "not json {", rec("user", 0, "go", isSidechain=True))
+agent("e", "[1]", rec("user", 0, "go", isSidechain=True))
+agent("d", {"agentType": "executor", "description": "No log text", "finished": True}, rec("user", 0, "go", isSidechain=True))
+ok(collect.claude_report(os.path.join(sdir, "agent-a.jsonl")) is None
+   and collect.claude_report(os.path.join(sdir, "agent-a.jsonl"), sidechain=True)["text"] == "sub final",
+   "subagent report: its log is all sidechain records, read only on request")
+fin = collect.finished_subagents(sess)
+ok(fin == [{"type": "executor", "desc": "Fin one", "text": "sub final"}, {"type": "executor", "desc": "No log text", "text": ""}],
+   "subagents: only finished: true metas, with their final text (unfinished, broken or non-object metas skipped)")
+ok(collect.report_for({"kind": "claude", "transcript": sess})["subagents"] == fin
+   and collect.report_for({"kind": "claude", "transcript": sess})["text"].startswith("## 結果")
+   and collect.report_for({"kind": "claude", "transcript": transcript(*turn)})["subagents"] == [],
+   "report_for: main report carries the finished subagents; no subagents/ directory -> empty list, same report")
+handback = [rec("user", 0, "go", isSidechain=True), rec("assistant", 1, [text("working")], isSidechain=True),
+            rec("assistant", 2, [{"type": "tool_use", "id": "h", "name": "SubagentHandback", "input": {"message": "  ## 報告\nall good \n"}}], isSidechain=True),
+            rec("user", 3, [{"type": "tool_result", "tool_use_id": "h", "content": [text('{"success":true}')]}], isSidechain=True)]
+agent("h", {"agentType": "general-purpose", "description": "Handback", "finished": True}, *handback)
+hb_log = os.path.join(sdir, "agent-h.jsonl")
+ok(collect.claude_report(hb_log, sidechain=True) == {"text": "## 報告\nall good", "start": t0, "end": t0 + 120}
+   and [s for s in collect.finished_subagents(sess) if s["desc"] == "Handback"][0]["text"] == "## 報告\nall good"
+   and collect.claude_report(hb_log) is None
+   and collect.claude_report(transcript(*[{**r_, "isSidechain": False} for r_ in handback])) is None,
+   "subagent report: SubagentHandback message (stripped), main conversation unaffected")
+common_tmux = collect.tmux
+agy_screen = "old\n\nI changed 2 files.\nAll tests pass.\n\n\u256d\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256e\n\u2502 > ask   \u2502\n\u2570\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u256f\n  ? for shortcuts\n"
+grok_screen = "first\n\nDone: \u4fee\u597d\u4e86\n\n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n> \n\u2500\u2500\u2500\u2500\u2500\u2500\u2500\u2500\n grok-4  ctx 3%\n"
+for screen in (agy_screen, grok_screen):
+    collect.tmux = lambda *args, s=screen: s
+    got = collect.report_for({"kind": "agy" if screen is agy_screen else "grok", "pane": "%3"})
+    want = "I changed 2 files. All tests pass." if screen is agy_screen else "Done: \u4fee\u597d\u4e86"
+    ok(got and got["text"] == want, f"report_for agy/grok: last paragraph above the input box and status bar ({want[:8]!r})")
+agy_real = "\n".join([
+    "\u2500" * 49, "> 分三段回答，不要用工具：第一段說明 tmux session", "  persistence 是什麼；第二段列出三個常用指令（用 -", "  開頭的清單）；第三段一句話總結。", "",
+    "\u26a0 Sign-in update needed", "  \u23bf  Your sign-in is missing permissions that are", "     now required, so some requests may fail. Run", "     /logout to sign in again.", "",
+    "\u25b8 Thought for 10s, 829 tokens", "",
+    "  tmux session", "  persistence（工作階段持久化）是指當終端機關閉、", "  SSH 連線中斷或網路異常時，tmux", "  仍能在伺服器背景持續運行所有程式與終端狀態，讓",
+    "  使用者隨時能重新連回原先的作業環境；廣義上亦包", "  含透過外掛（如 tmux-", "  resurrect）在伺服器重新開機後復原 session", "  與視窗佈局的機制。", "",
+    "  \u2022 tmux new -s <名稱>：建立並進入一個具名的全新", "  session。", "  \u2022 tmux detach：將目前的 session", "  脫離至背景繼續執行（或使用快捷鍵 Ctrl+b 接", "  d）。",
+    "  \u2022 tmux attach -t", "  <名稱>：重新附加並回到指定的背景 session", "  繼續作業。", "",
+    "  tmux session persistence", "  能徹底避免因斷線導致工作中斷或進度遺失，實現隨", "  時暫停且無縫接續的終端工作流。", "",
+    "\u2500" * 52, ">", "\u2500" * 52, "? for shortcuts              Gemini 3.8 Flash · high", ""])
+grok_real = "\n".join([
+    "  sdlc/quest-report-v2 ~/projects/party-hud [Click here to Upgrade]                 32K / 256K \u2502 [Dashboard]", "", "",
+    "     \u276f 分三段回答，不要用工具：第一段說明 tmux session persistence 是什麼；第二段列出三個常用指令（用 - 開頭的清單）；第三段   12:47 AM   \u2588",
+    "       一句話總結。          \u2588", "          \u2588",
+    "     \u25c6 Thought for 0.8s       \u2588", "          \u2588",
+    "     tmux session persistence 是指終端機視窗關掉、SSH 斷線，或你登出之後，tmux 裡的工作階段仍留在背景繼續跑。程序、視窗配置和  12:47 AM   \u2588",
+    "     工作目錄都還在，之後重新連上同一台機器就能接回去。        \u2588", "          \u2588",
+    "     \u2022 tmux new -s work：建立名為 work 的工作階段       \u2588", "     \u2022 tmux ls：列出目前還在的工作階段       \u2588",
+    "     \u2022 tmux attach -t work：接回名為 work 的工作階段       \u2588", "          \u2588",
+    "     一句話：tmux 把終端工作留在伺服器上，斷線後還能原樣接回來。       \u2588", "          \u2588",
+    "     Worked for 4.9s        \u2588", "          \u2588", "",
+    "  Help improve Grok                                    [Opt out] [Opt in]",
+    "  Off by default. Opt-in to allow SpaceXAI to retain coding data, e.g., prompts, traces, & metrics, for training and",
+    "  debugging purposes. Change anytime via settings.", "  Read Terms and Privacy Policy.", "",
+    "  \u256d" + "\u2500" * 40 + "\u256e", "  \u2502 \u276f" + " " * 38 + "\u2502", "  \u2570" + "\u2500" * 20 + " Grok 4.7 (high) \u2500\u256f", "",
+    "  Shift+Tab:mode  \u2502  Ctrl+x:shortcuts"])
+for kind, screen, want in (
+    ("agy", agy_real, "tmux session persistence（工作階段持久化）是指當終端機關閉、SSH 連線中斷或網路異常時，tmux 仍能在伺服器背景持續運行所有程式與終端狀態，讓"
+     "使用者隨時能重新連回原先的作業環境；廣義上亦包含透過外掛（如 tmux-resurrect）在伺服器重新開機後復原 session 與視窗佈局的機制。\n\n"
+     "\u2022 tmux new -s <名稱>：建立並進入一個具名的全新 session。\n\u2022 tmux detach：將目前的 session 脫離至背景繼續執行（或使用快捷鍵 Ctrl+b 接 d）。\n"
+     "\u2022 tmux attach -t <名稱>：重新附加並回到指定的背景 session 繼續作業。\n\n"
+     "tmux session persistence 能徹底避免因斷線導致工作中斷或進度遺失，實現隨時暫停且無縫接續的終端工作流。"),
+    ("grok", grok_real, "tmux session persistence 是指終端機視窗關掉、SSH 斷線，或你登出之後，tmux 裡的工作階段仍留在背景繼續跑。程序、視窗配置和工作目錄都還在，之後重新連上同一台機器就能接回去。\n\n"
+     "\u2022 tmux new -s work：建立名為 work 的工作階段\n\u2022 tmux ls：列出目前還在的工作階段\n\u2022 tmux attach -t work：接回名為 work 的工作階段\n\n"
+     "一句話：tmux 把終端工作留在伺服器上，斷線後還能原樣接回來。")):
+    collect.tmux = lambda *args, s=screen: s
+    got = collect.report_for({"kind": kind, "pane": "%3"})
+    ok(got and got["text"] == want, f"screen report: whole last reply, unwrapped ({kind})")
+collect.tmux = lambda *args: "> ask\n\nonly line\n"
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "only line", "screen report: prompt then one output line -> that line")
+collect.tmux = lambda *args: "no border\n\nlast words\n"
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "last words", "screen report: no box on screen -> last paragraph as is")
+grok_scrolled = "\n".join([
+    "  [Click here to Upgra… 32K / 256K \u2502 [Dashboard]", "", "    tmux 把終端工作留在可隨時接回的", "    背景 session 裡，關掉視窗不會中", "    斷裡面的程式。", "",
+    "    Worked for 13s                              \u2588", "                                                \u2588", "",
+    " Help improve Grok            [Opt out] [Opt in]", " Off by default. Opt-in to allow SpaceXAI to", " retain coding data, e.g., prompts, traces, &",
+    " metrics, for training and debugging purposes.", " Change anytime via settings.", " Read Terms and Privacy Policy.",
+    " \u256d" + "\u2500" * 45 + "\u256e", " \u2502 \u276f" + " " * 42 + "\u2502", " \u2570" + "\u2500" * 27 + " Grok 4.7 (high) \u2500\u256f", " Ctrl+x:shortcuts"])
+collect.tmux = lambda *args: grok_scrolled
+ok(collect.report_for({"kind": "grok", "pane": "%3"})["text"] == "tmux 把終端工作留在可隨時接回的背景 session 裡，關掉視窗不會中斷裡面的程式。",
+   "screen report: grok scrolled past the prompt -> paragraph above Worked for")
+cap_args = []
+collect.tmux = lambda *args: cap_args.append(args) or "x\n"
+collect.report_for({"kind": "agy", "pane": "%3"})
+ok(cap_args and "-S" in cap_args[0] and "-J" in cap_args[0], "screen report: reads scrollback")
+agy_thought = "\n".join(["> 問題", "", "▸ Thought for 6s", "  第一段的", "  文字。", "", "  第二段。", "", "─" * 20, ">", "─" * 20])
+collect.tmux = lambda *args: agy_thought
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "第一段的文字。\n\n第二段。",
+   "screen report: thought line glued to the first paragraph keeps that paragraph")
+collect.tmux = lambda *args: "ready\nhello\n\nparty-test-reply-42\n"
+ok(collect.report_for({"kind": "agy", "pane": "%3"})["text"] == "party-test-reply-42", "screen report: fake agy screen (no prompt line, echo, blank, reply) -> the reply")
+collect.tmux = lambda *args: "\n\n"
+ok(collect.report_for({"kind": "grok", "pane": "%3"}) is None, "screen report: blank screen -> None")
+collect.tmux = common_tmux
 collect.PARTY_DIR = tempfile.mkdtemp()
 screens = iter(["a", "a", "b", "b"])
 collect.tmux = lambda *args: next(screens)
@@ -284,17 +598,71 @@ ok(strip(mr) == "HP" + " " * 11 + "124k/200k" and mr.count(render.ul("hp")) == 1
    "Value row: label left, value right; full-row underline, first 50% in bar color, rest dim")
 ok(render.meter_row("SP", "sp", "--", "fg", "", None, "dim", 22).count(render.ul("line")) == 22, "Unknown value: whole underline is dim")
 import tempfile as _tf, time as _t
-from datetime import datetime as _dt
+from datetime import datetime as _dt, timezone as _tz
 root = _tf.mkdtemp(); now_ = _t.time(); day = os.path.join(root, f"{_dt.now():%Y/%m/%d}"); os.makedirs(day)
-def roll(name, cwd, age):
+def roll(name, cwd, age, ts=None):
     p = os.path.join(day, f"rollout-{name}.jsonl")
-    open(p, "w").write(json.dumps({"type": "session_meta", "payload": {"cwd": cwd}}) + "\n")
+    meta = {"cwd": cwd, **({"timestamp": _dt.fromtimestamp(ts, _tz.utc).isoformat().replace("+00:00", "Z") if isinstance(ts, float) else ts} if ts is not None else {})}
+    open(p, "w").write(json.dumps({"type": "session_meta", "payload": meta}) + "\n")
     os.utime(p, (now_ - age, now_ - age))
     return p
 roll("old", "/w/a", 600); new_a = roll("new", "/w/a", 5); roll("other", "/w/b", 1)
 ok(collect.newest_rollout("/w/a", now_ - 60, root) == new_a and collect.newest_rollout("/w/a", now_ - 3, root) is None
    and collect.newest_rollout("/w/c", now_ - 60, root) is None,
    "codex rollout: newest file written after codex started, same cwd; older files and other dirs don't count")
+roll("bad-ts", "/w/e", 5, "not a time"); num_ts = roll("num-ts", "/w/e", 4, 12345); no_ts = roll("no-ts", "/w/e", 3)
+first = collect.newest_rollout("/w/e", now_ - 60, root)
+os.utime(no_ts, (now_ - 30, now_ - 30))
+ok(first == no_ts and collect.newest_rollout("/w/e", now_ - 60, root) == num_ts
+   and collect.paired_rollout("/w/e", now_ - 60, [now_ - 50], root) is None,
+   "codex rollout: a broken or missing session_meta.timestamp still counts for the newest rollout, only pairing skips it")
+ra = roll("pair-a", "/w/p", 20, now_ - 50.0); rb = roll("pair-b", "/w/p", 5, now_ - 40.0)
+ok(collect.paired_rollout("/w/p", now_ - 110, [now_ - 60], root) == ra and collect.paired_rollout("/w/p", now_ - 60, [now_ - 110], root) == rb
+   and collect.paired_rollout("/w/p", now_ - 110, [now_ - 60, now_ - 10], root) == ra
+   and collect.paired_rollout("/w/p", now_ - 10, [now_ - 110, now_ - 60], root) is None,
+   "codex rollout: same-cwd codex processes take rollouts one to one by start time; none is reused")
+procs = {"10": ["codex"], "20": ["codex"]}; starts = {"10": now_ - 110, "20": now_ - 60}
+real = (collect.proc_args, collect.proc_children, collect.proc_start, collect.rollouts_since, collect.glob.glob)
+collect.proc_args, collect.proc_children = (lambda pid: procs.get(str(pid))), (lambda pid: [])
+collect.proc_start, collect.rollouts_since = (lambda pid: starts.get(str(pid))), (lambda c, s, r=None: real[3](c, s, root))
+collect.glob.glob = lambda pat, _g=real[4]: [] if pat.startswith("/proc/") else _g(pat)
+both = [{"pane_pid": "10", "pane_current_path": "/w/p"}, {"pane_pid": "20", "pane_current_path": "/w/p"}]
+got = [collect.codex_rollout(pp, "/w/p", both) for pp in ("10", "20")]
+solo = collect.codex_rollout("10", "/w/p", both[:1])
+ok(got == [ra, rb] and solo == rb, "codex_rollout: two same-cwd panes get their own rollouts; a lone codex still gets the newest")
+cprocs = {"30": ["bash", "/tmp/codex-notes.sh"], "31": ["vim", "codex.md"], "32": ["/x/bin/codex"], "33": ["node", "/x/bin/codex.js"]}
+procs.update(cprocs)
+ok([bool(collect.is_codex_proc(cprocs[k])) for k in ("30", "31", "32", "33")] == [False, False, True, True]
+   and collect.find_codex("30") is None and collect.find_codex("33") == "33",
+   "codex process: matched by program name, not by an argument containing codex")
+fields = {f: "" for f in collect.TMUX_FIELDS}
+tpanes = [dict(fields, pane_id=f"%{i}", pane_pid=pp, pane_current_path="/w/p", pane_current_command="codex",
+               session_name="s", session_attached="1", window_active="1", window_id="@1", window_panes="2")
+          for i, pp in ((1, "10"), (2, "20"))]
+real2 = (collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed)
+seen = []
+collect.read_tmux, collect.read_claude_sessions = (lambda: tpanes), (lambda: {})
+collect.screen_changed = lambda ps, now: {}
+collect.codex_rollout = lambda *a: seen.append(real2[2](*a)) or seen[-1]
+collect.collect()
+from_collect, seen[:] = list(seen), []
+for i in (1, 2):
+    collect.report_for({"kind": "codex", "pane": f"%{i}"})
+collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed = real2
+collect.proc_args, collect.proc_children, collect.proc_start, collect.rollouts_since, collect.glob.glob = real
+ok(from_collect == [ra, rb] and seen == [ra, rb], "codex rollout: the collect path and the report path pair the same rollouts")
+kids = {"50": ["51"], "51": ["52"]}
+cpanes = [dict(fields, pane_id="%7", pane_pid="50", pane_current_command="sleep", session_name="s",
+               session_attached="1", window_active="1", window_id="@1", window_panes="1")]
+real3 = (collect.read_tmux, collect.read_claude_sessions, collect.proc_children, collect.screen_changed)
+collect.read_tmux, collect.proc_children = (lambda: cpanes), (lambda pid: kids.get(str(pid), []))
+collect.screen_changed = lambda ps, now: {}
+kinds = []
+for spid in ("52", "99"):
+    collect.read_claude_sessions = lambda spid=spid: {"%7": {"pid": spid, "sid": "", "name": "", "status": "idle"}}
+    kinds.append([a["kind"] for t in collect.collect()["towns"] for a in t["agents"]])
+collect.read_tmux, collect.read_claude_sessions, collect.proc_children, collect.screen_changed = real3
+ok(kinds == [["claude"], []], "claude session: only a pane whose process tree holds its pid")
 nw = [{"pane": p, "status": s} for p, s in (("%1", "idle"), ("%2", "done"), ("%3", "waiting"), ("%4", "done"))]
 ok(ui.next_waiting(nw, "%1") == "%3" and ui.next_waiting(nw, "%3") == "%3"
    and ui.next_waiting([dict(a, status="idle") if a["status"] == "waiting" else a for a in nw], "%2") == "%4",
@@ -331,6 +699,8 @@ ok(ak("node", "8") is None and ak("bash") is None and ak("tmux") is None, "Plain
 fake.update({"9": [["codex", "exec", "--json", "hi"]], "10": [["/usr/bin/python3.13", "/opt/agy"]], "11": [["nvim", "codex"]]})
 ok(ak("python3", "9") == "codex" and ak("bash", "10") == "agy" and ak("bash", "11") is None,
    "Wrappers: an agent among any pane's child processes counts (xv runs codex under python3); a file named codex does not")
+fake["12"] = [["/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python", "/tmp/agy"]]
+ok(ak("bash", "12") == "agy", "Wrappers: macOS framework Python shows up in ps as .../MacOS/Python and still counts")
 # Without /proc (macOS): one `ps` call gives children, command lines and start times
 ps_out = ("  100     1 Wed Nov  4 11:46:42 2026 -zsh\n"
           "  200   100 Wed Nov  4 11:50:00 2026 node /opt/homebrew/bin/codex --yolo\n"
@@ -464,6 +834,220 @@ sys.exit(1 if fails else 0)
 EOF
 }
 check "Popup and sidebar: peek, hint bar, highlight, key handling" ui_ok
+
+# --report-text --wait: exit codes, the wait-for wake-up from the collector, the 2 s re-read, the timeout
+report_text_ok() {
+  python3 - "$party" "$tmp" <<'EOF'
+import os, stat, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, common
+import party
+fails = []
+def ok(cond, msg):
+    if not cond: fails.append(msg)
+calls, snaps = [], []
+real_snapshot = collect.get_snapshot
+agent = lambda s, summons=(), **kw: {"pane": "%5", "kind": "claude", "status": s, "summons": list(summons), **kw}
+snap = lambda s, summons=(), **kw: {"towns": [{"agents": [agent(s, summons, **kw)]}]}
+def run(rounds, *a, pane_rc=0, **kw):
+    calls.clear()
+    seq = list(rounds)
+    snaps.clear()
+    collect.get_snapshot = lambda: snaps.append(1) or seq.pop(0) if len(seq) > 1 else snaps.append(1) or seq[0]
+    collect.tmux_run = lambda args, timeout=None: calls.append((tuple(args), timeout)) or (
+        (pane_rc, "%5\n", "can't find pane\n") if args[0] == "display-message" else (None, "", ""))
+    collect.report_for = lambda a: {"text": "all done"}
+    return collect.report_text(*a, **kw)
+waits = lambda: [c for c in calls if c[0][0] == "wait-for"]
+ok(run([snap("waiting")], "%5") == (0, "all done\n", ""), "report-text: exit 0 prints the report")
+ok(run([snap("working")], "%5")[0] == 0 and not waits(), "report-text without --wait: no waiting even while working")
+ok(run([snap("waiting")], "5")[0] == 2 and not calls, "report-text: a name that is not a pane id -> 2, tmux not called")
+rc, out, err = run([snap("waiting")], "%5", pane_rc=1)
+ok(rc == 2 and out == "" and "can't find pane" in err, "report-text: pane does not exist -> 2 with the tmux error on stderr")
+rc, out, err = run([{"towns": []}], "%5")
+ok(rc == 4 and out == "" and "%5" in err, "report-text: pane exists but is no known agent -> 4")
+gone = [0]
+def gone_after_wait(args, timeout=None):
+    if args[0] == "display-message":
+        gone[0] += 1
+        return (0, "%5\n", "") if gone[0] == 1 else (1, "", "can't find pane: %5\n")
+    return None, "", ""
+snaps2 = [snap("working"), {"towns": []}]
+collect.get_snapshot = lambda: snaps2.pop(0)
+collect.tmux_run = gone_after_wait
+rc, out, err = collect.report_text("%5", True, 30)
+ok(rc == 2 and out == "" and "can't find pane" in err, "report-text --wait: the pane disappears while waiting -> 2, not 4")
+ok(run([snap("waiting")], "%5", True, float("nan"))[0] == 2 and not calls, "report-text: a non-finite --timeout -> 2")
+rc, out, err = run([snap("working"), snap("working"), snap("done")], "%5", True, 30)
+ok(rc == 0 and out == "all done\n" and len(snaps) == 3 and [c[0] for c in waits()] == [("wait-for", "party-5")] * 2
+   and [c[1] for c in waits()] == [2.0, 2.0],
+   "report-text --wait: each 2 s wait-for timeout is followed by another snapshot read, until the member stops working")
+t0 = time.monotonic()
+rc, out, err = run([snap("working")], "%5", True, 0.3)
+ok(rc == 3 and out == "" and time.monotonic() - t0 < 1 and 0 < waits()[-1][1] <= 0.3 and len(snaps) >= 2,
+   "report-text --wait --timeout: expires with 3, the last wait-for is capped at the time left")
+rc, out, err = run([snap("idle", [{}]), snap("idle", [{}]), snap("idle")], "%5", True, 30)
+ok(rc == 0 and len(snaps) == 3 and len(waits()) == 2,
+   "report-text --wait: keeps waiting while subagents run (idle with summons), returns once they are gone")
+tx = os.path.join(sys.argv[2], "main.jsonl")
+sub = os.path.join(sys.argv[2], "main", "subagents"); os.makedirs(sub)
+open(os.path.join(sub, "agent-x.meta.json"), "w").write('{"finished": true}')
+open(os.path.join(sub, "agent-x.jsonl"), "w").close()
+real_cr = collect.claude_report
+collect.claude_report = lambda t, sidechain=False: {"text": "mid", "start": None, "end": 100}
+os.utime(os.path.join(sub, "agent-x.jsonl"), (200, 200))
+run([snap("idle", transcript=tx), snap("idle", transcript=tx)], "%5", True, 0.3)
+ok(len(waits()) > 0, "report-text --wait: keeps waiting while subagents run (finished subagent log newer than the main report)")
+os.utime(os.path.join(sub, "agent-x.jsonl"), (50, 50))
+ok(run([snap("idle", transcript=tx)], "%5", True, 30)[0] == 0 and not waits(),
+   "report-text --wait: returns when the finished subagent is older than the main report")
+collect.claude_report = real_cr
+A = 1000.0
+def run_after(t, end, kind="claude"):
+    calls.clear()
+    collect.get_snapshot = lambda: {"t": t, "towns": [{"agents": [agent("waiting", kind=kind)]}]}
+    collect.tmux_run = lambda args, timeout=None: calls.append((tuple(args), timeout)) or (
+        (0, "%5\n", "") if args[0] == "display-message" else (None, "", ""))
+    collect.report_for = lambda a: {"text": "answer", "end": end} if end is not False else None
+    return collect.report_text("%5", True, 0.3, A)
+rc, _, _ = run_after(A + 1, A + 5)
+ok(rc == 3 and waits(), "report-text --wait --after: waits for a report newer than the ask (snapshot older than EPOCH + 2 s)")
+rc, _, _ = run_after(A + 3, A - 5)
+ok(rc == 3 and waits(), "report-text --wait --after: waits for a report newer than the ask (report ends before EPOCH)")
+rc, _, _ = run_after(A + 3, False)
+ok(rc == 3 and waits(), "report-text --wait --after: waits for a report newer than the ask (no report yet)")
+ok(run_after(A + 3, A + 2) == (0, "answer\n", "") and not waits(),
+   "report-text --wait --after: waits for a report newer than the ask, returns once it ends after EPOCH and the snapshot is fresh")
+ok(run_after(A + 3, None, "agy") == (0, "answer\n", "") and not waits(),
+   "report-text --wait --after: agy and grok reports carry no time, only the snapshot age counts")
+ok(run_after(A + 1, None, "agy")[0] == 3, "report-text --wait --after: agy with a stale snapshot waits")
+ok(run([snap("waiting")], "%5", False, 30, after=A)[0] == 2, "report-text --after without --wait -> 2")
+ask_calls = []
+party.get_snapshot = lambda: snap("waiting")
+party.tmux_run = lambda args, timeout=None: ask_calls.append(("tmux", tuple(args))) or (
+    (0, "%5\n", "") if args[0] == "display-message" else (0, "", ""))
+real_run = party.subprocess.run
+party.subprocess.run = lambda cmd, **kw: ask_calls.append((tuple(cmd), kw.get("input"))) or subprocess.CompletedProcess(cmd, 0, "", "")
+t0 = time.time()
+rc, out, err = party.ask("%5", "hello")
+ok(rc == 0 and t0 <= float(out) <= time.time() and err == ""
+   and ask_calls[1:] == [(("tmux", "load-buffer", "-b", "party-ask", "-"), "hello"),
+                         ("tmux", ("paste-buffer", "-p", "-d", "-b", "party-ask", "-t", "%5")),
+                         ("tmux", ("send-keys", "-t", "%5", "Enter"))],
+   "ask: one line -> load-buffer from stdin, paste-buffer -p -d, then Enter; stdout is the send time")
+ask_calls.clear()
+party.ask("%5", "-Rxyz")
+ok(ask_calls[1] == (("tmux", "load-buffer", "-b", "party-ask", "-"), "-Rxyz"), "ask: text starting with - goes in on stdin")
+ask_calls.clear()
+rc, out, err = party.ask("%5", "a\nb")
+ok(rc == 0 and ask_calls[1:] == [(("tmux", "load-buffer", "-b", "party-ask", "-"), "a\nb"),
+                                  ("tmux", ("paste-buffer", "-p", "-d", "-b", "party-ask", "-t", "%5")),
+                                  ("tmux", ("send-keys", "-t", "%5", "Enter"))],
+   "ask: several lines -> load-buffer from stdin, paste-buffer -p -d, then Enter")
+party.subprocess.run = real_run
+ok(party.ask("5", "x")[0] == 2, "ask: a name that is not a pane id -> 2")
+party.get_snapshot = lambda: {"towns": []}
+ok(party.ask("%5", "x")[0] == 4, "ask: pane exists but is no known agent -> 4")
+party.tmux_run = lambda args, timeout=None: (1, "", "can't find pane\n")
+ok(party.ask("%5", "x")[0] == 2, "ask: pane does not exist -> 2")
+fake = os.path.join(sys.argv[2], "bin"); os.makedirs(fake)
+with open(os.path.join(fake, "tmux"), "w") as f:
+    f.write(f'#!/bin/sh\necho $$ >"{fake}/pid"\nexec sleep 30\n')
+os.chmod(os.path.join(fake, "tmux"), 0o755)
+os.environ["PATH"] = fake + os.pathsep + os.environ["PATH"]
+t0 = time.monotonic()
+rc = common.tmux_run(["wait-for", "x"], timeout=0.3)
+pid = int(open(os.path.join(fake, "pid")).read())
+try:
+    os.kill(pid, 0); alive = True
+except ProcessLookupError:
+    alive = False
+ok(rc == (None, "", "") and time.monotonic() - t0 < 5 and not alive, "tmux_run: the timeout ends the tmux child and returns rc None")
+sent = []
+collect.tmux = lambda *a: sent.append(a) or ""
+def sig(status):
+    sp = os.path.join(collect.PARTY_DIR, "snapshot.json")
+    if os.path.exists(sp): os.remove(sp)
+    collect.collect = lambda *a: {"t": time.time(), "towns": [{"agents": [{"pane": "%5", "status": status, "focus": True}]}],
+                                  "panes": {"%5": {"window": "@1", "sidebar": False, "visible": True}}}
+    sent.clear()
+    real_snapshot()
+    return [a for a in sent if a[0] == "wait-for"]
+bp = os.path.join(collect.PARTY_DIR, "bells.json")
+if os.path.exists(bp): os.remove(bp)
+r1, r2, r3 = sig("working"), sig("waiting"), sig("waiting")
+ok(r1 == [] and r2 == [("wait-for", "-S", "party-5")] and r3 == [],
+   "collector: wait-for -S party-<pane> only when a member's status changed (not on the first round, not when unchanged)")
+print("\n".join(fails), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF
+}
+check "report-text --wait: exit codes, wait-for wake-up, 2 s re-read, timeout" report_text_ok
+
+# --summon: tmux arguments, exit codes, readiness; @party_lead / @xv grouping and card widths
+summon_ok() {
+  python3 - "$party" "$tmp" <<'EOF2'
+import os, re, sys, time
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, render, sidebars
+fails = []
+def ok(cond, msg):
+    if not cond: fails.append(msg)
+calls = []
+shows = []
+def fake_run(args, timeout=None):
+    calls.append(tuple(args))
+    if args[0] in ("split-window", "new-window"): return 0, "%9\n", ""
+    if args[0] == "display-message": return 0, shows.pop(0) if len(shows) > 1 else shows[0], ""
+    return 0, "", ""
+sidebars.tmux_run = fake_run
+sidebars.tmux = lambda *a: calls.append(a) or ("screen" if a[0] == "capture-pane" else "")
+sidebars.time.sleep = lambda s: None
+sep = collect.FIELD_SEP
+ready = [f"claude{sep}123\n"]
+os.environ["TMUX_PANE"] = "%1"
+shows[:] = ready
+tmp = sys.argv[2]
+rc, out, err = sidebars.summon("claude", tmp, False, 5)
+ok(rc == 0 and out == "%9\n" and err == "", "summon: ready -> pane id on stdout, rc 0")
+ok(calls[0] == ("split-window", "-t", "%1", "-P", "-F", "#{pane_id}", "-c", tmp, "claude"), "summon: default splits the caller's window")
+ok(("set-option", "-p", "-t", "%9", "@party_lead", "%1") in calls, "summon: the new pane gets @party_lead = caller pane")
+calls.clear(); shows[:] = ready
+sidebars.summon("codex", tmp, True, 5)
+ok(calls[0] == ("new-window", "-P", "-F", "#{pane_id}", "-c", tmp, "codex"), "summon --window: new-window, --cwd passed to -c")
+calls.clear()
+ok(sidebars.summon("vim", tmp, False, 5)[0] == 2 and not calls, "summon: an agent outside AGENT_CMDS -> 2, tmux not called")
+del os.environ["TMUX_PANE"]
+ok(sidebars.summon("claude", tmp, False, 5)[0] == 2 and not calls, "summon: outside tmux -> 2")
+os.environ["TMUX_PANE"] = "%1"
+shows[:] = [f"bash{sep}1\n"]
+t = [0.0]
+time.monotonic = lambda: t[0]
+sidebars.time.sleep = lambda s: t.__setitem__(0, t[0] + s)
+rc, out, err = sidebars.summon("claude", tmp, False, 3)
+ok(rc == 3 and out == "" and "%9" in err, "summon: timeout -> 3, pane id on stderr")
+agent = lambda pane, kind="claude", window="@1": {"pane": pane, "kind": kind, "window": window, "status": "idle"}
+a, b, c = agent("%1"), agent("%2", "codex"), agent("%3", "claude", "@2")
+got = collect.group_under_leads([a, c, b], {"%1": ("", False, "@1"), "%2": ("%1", False, "@1"), "%3": ("", False, "@2")})
+ok([x["pane"] for x in got] == ["%1", "%2", "%3"] and b.get("lead") == "%1" and "lead" not in c,
+   "@party_lead: the member is listed under its lead")
+a, x = agent("%1"), agent("%4", "codex")
+got = collect.group_under_leads([x, a], {"%1": ("", False, "@1"), "%4": ("", True, "@1")})
+ok([m["pane"] for m in got] == ["%1", "%4"] and x.get("lead") == "%1", "@xv: the only Claude of the window becomes the lead")
+a, a2, x = agent("%1"), agent("%2"), agent("%4", "codex")
+got = collect.group_under_leads([a, a2, x], {"%1": ("", False, "@1"), "%2": ("", False, "@1"), "%4": ("", True, "@1")})
+ok([m["pane"] for m in got] == ["%1", "%2", "%4"] and "lead" not in x, "@xv: two Claudes in the window -> an ordinary member")
+a, b, c = agent("%1"), agent("%2", "codex"), agent("%3", "claude", "@2")
+got = collect.group_under_leads([c, b, a], {"%1": ("", False, "@1"), "%2": ("", False, "@1"), "%3": ("", False, "@2")})
+ok([m["pane"] for m in got] == ["%3", "%2", "%1"] and not any("lead" in m for m in got), "group under leads: no lead or xv keeps order")
+a = {**agent("%1"), "name": "boss", "hp": 50, "hp_max": 100, "hp_left": 50, "sp": None, "fresh": False, "model": "", "summons": [], "cls": 0, "focus": False, "id": "i1"}
+for art in (False, True):
+    for lead in ("", "%1"):
+        rows = render.card({**a, "lead": lead}, 40, False, art)
+        ok({render.cw(re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", r)) for r in rows} == {40}, f"card: every line exactly 40 columns (art={art}, lead={lead!r})")
+print("\n".join(fails), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF2
+}
+check "summon: tmux arguments, exit codes, timeout; @party_lead / @xv grouping" summon_ok
 
 # transcript: time of the last usage entry; TTL from the latest usage that wrote cache (1h -> 3600)
 cat >"$tmp/t.jsonl" <<'EOF'

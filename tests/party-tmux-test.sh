@@ -48,7 +48,7 @@ check "A client is attached to session a" eq "$(t list-clients -F '#{session_nam
   { echo "     cannot attach a test client (needs util-linux or BSD script); stopping" >&2; exit 1; }
 
 t run-shell "$root/party.tmux"
-check "party.tmux: binds 4 keys (popup, toggle, next, border drag)" eq "$(t list-keys | grep -c 'party.py')" "4"
+check "party.tmux: binds 5 keys (popup, toggle, next, report, border drag)" eq "$(t list-keys | grep -c 'party.py')" "5"
 check "party.tmux: leaves allow-passthrough off globally (other panes cannot bypass tmux)" eq "$(t show -gv allow-passthrough)" "off"
 
 t run-shell "python3 $party --toggle"
@@ -108,6 +108,7 @@ bmain=$(t list-panes -t b:0 -F '#{pane_id} #{@party_sidebar}' | grep -v ' 1$' | 
 t set-option -p -t "$bmain" @workmux_pane_status "💬"
 sleep 5
 check "Bell: hidden window b:0 gets the bell flag when its member starts waiting" eq "$(t display -p -t b:0 '#{window_bell_flag}')" "1"
+check "@party_reports counts the waiting member (for the status line)" test "$(t show -gqv @party_reports)" -ge 1
 
 # Closing the main pane of a hidden window (its sidebar is not running) still closes the window
 before=$(windows)
@@ -132,6 +133,42 @@ seq2=$(seqno)
 echo "     $(sidebars) sidebars, $(running) running, $((seq2 - seq1)) collections in 10 s"
 check "Performance: 3 to 6 collections in 10 s (about one per 2 s)" test "$(ge $((seq2 - seq1)) 3 && le $((seq2 - seq1)) 6 && echo y)" = y
 check "Memory: with $(sidebars) sidebars, at most 2 processes run" le "$(running)" 2
+
+# Quest report: opens as a pane (floating on tmux 3.8+, else a split); passthrough on for that pane only
+host=$(t list-panes -a -F '#{pane_id} #{@party_sidebar}' | grep -v ' 1$' | head -1 | cut -d' ' -f1)
+t run-shell -t "$host" "python3 $party --open-report"
+sleep 2
+report=$(t list-panes -a -F '#{pane_id} #{@party_report}' | grep ' 1$' | cut -d' ' -f1)
+check "Report: --open-report opens one pane marked @party_report" eq "$(echo "$report" | grep -c '%')" "1"
+check "Report: allow-passthrough is on in the report pane" eq "$(t display -p -t "$report" '#{allow-passthrough}')" "on"
+check "Report: allow-passthrough stays off globally" eq "$(t show -gv allow-passthrough)" "off"
+check "Report: the main pane's allow-passthrough is still off" eq "$(t display -p -t "$host" '#{allow-passthrough}')" "off"
+t kill-pane -t "$report"
+
+# Agent collaboration: summon a fake agy (its report is read off the screen), ask it one line, wait for the reply
+fake="$tmp/fake"
+mkdir -p "$fake/real"
+cat >"$fake/real/agy" <<'PY'
+#!/usr/bin/env python3
+import time
+print("ready", flush=True)
+input()
+print("\nparty-test-reply-42", flush=True)
+time.sleep(120)
+PY
+# The python child is what agent_kind recognises ("python3 .../agy"); the wrapper must not exec it.
+printf '#!/usr/bin/env bash\npython3 "%s/real/agy"\necho done\n' "$fake" >"$fake/agy"
+chmod +x "$fake/agy" "$fake/real/agy"
+# tmux 3.8 gives a split-window pane the PATH of the client that sent the command, not the global one; set both
+t set-environment -g PATH "$fake:$PATH"
+as_host() { env PATH="$fake:$PATH" TMUX="$(t display -p '#{socket_path},#{pid},0')" TMUX_PANE="$host" python3 "$party" "$@"; }
+member=$(as_host --summon agy --timeout 30)
+check "Summon: --summon agy prints the new pane id" test -n "$member"
+sent=$(as_host --ask "$member" "hello")
+check "Ask: --ask prints the time it sent" test -n "$sent"
+check "Ask then report: --report-text --wait --after returns the agent's reply" \
+  eq "$(as_host --report-text "$member" --wait --after "$sent" --timeout 30)" "party-test-reply-42"
+t kill-pane -t "$member" 2>/dev/null
 
 # Pressing q in a sidebar hides all sidebars (including itself)
 t send-keys -t "$(t list-panes -a -F '#{pane_id} #{@party_sidebar} #{pane_dead}' | grep ' 1 0$' | head -1 | cut -d' ' -f1)" q

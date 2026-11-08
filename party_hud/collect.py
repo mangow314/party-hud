@@ -3,9 +3,12 @@
 import fcntl
 import glob
 import json
+import math
 import os
+import re
 import subprocess
 import time
+import unicodedata
 import zlib
 from datetime import datetime, timedelta
 
@@ -20,6 +23,7 @@ from .common import (
     printable,
     spread,
     tmux,
+    tmux_run,
 )
 
 CLAUDE_STATUS = {"busy": "working", "waiting": "waiting"}
@@ -37,9 +41,12 @@ TMUX_FIELDS = [
     "window_id",
     "window_panes",
     "@party_sidebar",
+    "@party_report",
     "pane_pid",
     "pane_dead",
     "pane_tty",
+    "@party_lead",
+    "@xv",
 ]
 # wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
@@ -131,28 +138,55 @@ def child_cmdlines(pid, depth=3):
 CODEX_SESSIONS = os.path.expanduser("~/.codex/sessions")
 
 
-def codex_rollout(pane_pid, cwd=""):
-    """The pane's codex rollout file, or None: the one a process in the pane holds open, else newest_rollout."""
-    todo, codex_pid = [str(pane_pid)] if pane_pid else [], None
+def proc_tree(pane_pid):
+    """The pane process and its descendants (4 levels), breadth first."""
+    todo = [str(pane_pid)] if pane_pid else []
     for _ in range(4):
-        kids = []
-        for pid in todo:
-            if codex_pid is None and any("codex" in a for a in proc_args(pid) or []):
-                codex_pid = pid
-            for fd in glob.glob(
-                f"/proc/{pid}/fd/*"
-            ):  # open files are visible on Linux only; elsewhere the fallback below is used
-                try:
-                    target = os.readlink(fd)
-                except OSError:
-                    continue
-                if target.startswith(CODEX_SESSIONS) and target.endswith(".jsonl"):
-                    return target
-            kids += proc_children(pid)
-        todo = kids
-    # Newer codex builds write the rollout from a background app-server, not from a process in the pane: use the newest rollout written after this codex started whose cwd is the pane's
+        yield from todo
+        todo = [k for pid in todo for k in proc_children(pid)]
+
+
+def is_codex_proc(args):
+    if not args:
+        return False
+    name = os.path.basename(args[0])
+    if name in ("node", "bun", "deno") and len(args) > 1:
+        return os.path.basename(args[1]) in ("codex", "codex.js")
+    return name == "codex"
+
+
+def find_codex(pane_pid):
+    return next((pid for pid in proc_tree(pane_pid) if is_codex_proc(proc_args(pid))), None)
+
+
+def codex_rollout(pane_pid, cwd="", panes=()):
+    """The pane's codex rollout file, or None: the one a process in the pane holds open, else the rollout paired with it.
+    `panes` (tmux panes) lets codex processes in the same cwd each take a different rollout."""
+    codex_pid = None
+    for pid in proc_tree(pane_pid):
+        if codex_pid is None and is_codex_proc(proc_args(pid)):
+            codex_pid = pid
+        for fd in glob.glob(
+            f"/proc/{pid}/fd/*"
+        ):  # open files are visible on Linux only; elsewhere the fallback below is used
+            try:
+                target = os.readlink(fd)
+            except OSError:
+                continue
+            if target.startswith(CODEX_SESSIONS) and target.endswith(".jsonl"):
+                return target
+    # Newer codex builds write the rollout from a background app-server, not from a process in the pane: use the rollout written after this codex started whose cwd is the pane's
     start = proc_start(codex_pid) if codex_pid else None
-    return newest_rollout(cwd, start) if start and cwd else None
+    if not (start and cwd):
+        return None
+    peers = [
+        proc_start(peer)
+        for p in panes
+        if p.get("pane_current_path") == cwd and str(p.get("pane_pid")) != str(pane_pid)
+        if (peer := find_codex(p.get("pane_pid", "")))
+    ]
+    peers = [t for t in peers if t is not None]
+    return paired_rollout(cwd, start, peers) if peers else newest_rollout(cwd, start)
 
 
 def proc_start(pid):
@@ -170,28 +204,54 @@ def proc_start(pid):
     return btime + ticks / os.sysconf("SC_CLK_TCK")
 
 
-_rollout_cwd = {}  # session_meta.cwd is the first line and never changes
+_rollout_meta = {}  # session_meta is the first line and never changes
 
 
-def newest_rollout(cwd, since, root=CODEX_SESSIONS):
-    """Newest rollout modified after `since` whose session_meta.cwd is cwd, or None.
+def rollouts_since(cwd, since, root=CODEX_SESSIONS):
+    """[(session start or None, mtime, path)] of rollouts modified after `since` whose session_meta.cwd is cwd.
     Only the date folders (YYYY/MM/DD) from `since` to today are searched."""
-    best, day = None, datetime.fromtimestamp(since).date()
+    out, day = [], datetime.fromtimestamp(since).date()
     while day <= datetime.now().date():
         for path in glob.glob(os.path.join(root, f"{day:%Y}", f"{day:%m}", f"{day:%d}", "rollout-*.jsonl")):
             try:
                 mtime = os.path.getmtime(path)
                 if mtime < since:
                     continue
-                if path not in _rollout_cwd:
+                if path not in _rollout_meta:
                     with open(path) as f:
-                        _rollout_cwd[path] = json.loads(f.readline()).get("payload", {}).get("cwd")
+                        payload = json.loads(f.readline()).get("payload", {})
+                    try:
+                        began = _epoch(payload.get("timestamp"))
+                    except (ValueError, AttributeError, TypeError):
+                        began = None
+                    _rollout_meta[path] = (payload.get("cwd"), began)
             except (OSError, ValueError, AttributeError):
                 continue
-            if _rollout_cwd[path] == cwd and (best is None or mtime > best[0]):
-                best = (mtime, path)
+            if _rollout_meta[path][0] == cwd:
+                out.append((_rollout_meta[path][1], mtime, path))
         day += timedelta(days=1)
-    return best[1] if best else None
+    return out
+
+
+def newest_rollout(cwd, since, root=CODEX_SESSIONS):
+    """Newest rollout modified after `since` whose session_meta.cwd is cwd, or None."""
+    return max(((m, p) for _, m, p in rollouts_since(cwd, since, root)), default=(0, None))[1]
+
+
+def paired_rollout(cwd, start, peer_starts, root=CODEX_SESSIONS):
+    """Codex processes in one cwd, ordered by start time, take rollouts ordered by session_meta.timestamp one to one;
+    a rollout taken by an earlier process is not reused. The rollout for the process started at `start`, or None."""
+    starts = sorted([start, *peer_starts])
+    rolls = sorted((t, p) for t, _, p in rollouts_since(cwd, starts[0] - 1, root) if t is not None)
+    taken = set()
+    for s in starts:
+        hit = next(((t, p) for t, p in rolls if p not in taken and t >= s - 1), None)
+        if hit is None:
+            return None
+        taken.add(hit[1])
+        if s == start:
+            return hit[1]
+    return None
 
 
 def codex_usage(path):
@@ -211,6 +271,29 @@ def codex_usage(path):
             return info["last_token_usage"]["total_tokens"], info["model_context_window"]
         except (ValueError, KeyError, TypeError):
             continue
+    return None
+
+
+def codex_report(path):
+    """Last finished turn of a rollout -> {"text", "start", "end"} (epoch seconds, start may be None), or None."""
+    try:
+        with open(path, "rb") as f:
+            f.seek(0, os.SEEK_END)
+            f.seek(max(0, f.tell() - 256 * 1024))
+            lines = f.read().splitlines()
+    except OSError:
+        return None
+    for raw in reversed(lines):
+        if b'"task_complete"' not in raw:
+            continue
+        try:
+            p = json.loads(raw)["payload"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if p.get("type") != "task_complete":
+            continue
+        text = (p.get("last_agent_message") or "").strip()
+        return {"text": text, "start": p.get("started_at"), "end": p.get("completed_at")} if text else None
     return None
 
 
@@ -253,7 +336,7 @@ def agent_kind(cmd, pane_pid, cmdlines=child_cmdlines):
         if not args:
             continue
         names = [os.path.basename(args[0])]
-        if len(args) > 1 and (names[0] in ("node", "bun", "deno") or names[0].startswith("python")):
+        if len(args) > 1 and (names[0] in ("node", "bun", "deno") or names[0].lower().startswith("python")):
             names.append(os.path.basename(args[1]))
         hit = next((AGENT_CMDS[n] for n in names if n in AGENT_CMDS), None)
         if hit:
@@ -293,7 +376,7 @@ _cache_memo = {}
 
 
 def read_claude_sessions():
-    """~/.claude/sessions/<pid>.json -> {pane_id: {sid, name, status}}, live processes only."""
+    """~/.claude/sessions/<pid>.json -> {pane_id: {pid, sid, name, status}}, live processes only."""
     out = {}
     for path in glob.glob(os.path.join(CLAUDE_SESSIONS, "*.json")):
         try:
@@ -305,6 +388,7 @@ def read_claude_sessions():
         if not pid or "%" not in where or not proc_alive(pid):
             continue
         out["%" + where.rsplit("%", 1)[1]] = {
+            "pid": str(pid),
             "sid": d.get("sessionId", ""),
             "name": printable(d.get("name") or ""),
             "status": d.get("status", ""),
@@ -395,6 +479,280 @@ def _scan_usage(lines):
     return last, ttl, used
 
 
+def _epoch(ts):
+    # Python 3.10 fromisoformat does not accept a trailing Z
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
+
+
+def claude_report(path, sidechain=False):
+    """Final answer of the last answered turn -> {"text", "start", "end"} (epoch seconds, start may be None), or None.
+    The answer is the text after the turn's last tool call. A prompt nobody answered (a `!` command, /cost) is skipped.
+    A subagent's own log is all sidechain records: pass sidechain=True to read it."""
+    texts, end, collecting, replied = [], None, True, False
+    try:
+        with open(path, "rb") as f:
+            pos, carry = f.seek(0, os.SEEK_END), b""
+            while pos:
+                start = max(0, pos - 256 * 1024)
+                f.seek(start)
+                lines = (f.read(pos - start) + carry).split(b"\n")
+                carry = lines.pop(0) if start else b""
+                pos = start
+                for raw in reversed(lines):
+                    try:
+                        rec = json.loads(raw)
+                        content = rec["message"]["content"]
+                    except (ValueError, KeyError, TypeError):
+                        continue
+                    if (rec.get("isSidechain") and not sidechain) or rec.get("isMeta"):
+                        continue
+                    blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+                    blocks = [b for b in blocks if isinstance(b, dict)]
+                    kinds = {b.get("type") for b in blocks}
+                    if rec.get("type") == "assistant":
+                        replied = True
+                        if "tool_use" in kinds:
+                            if not texts:
+                                # Claude Code 2.1.x subagents deliver their report via a SubagentHandback tool call
+                                handed = sidechain and next(
+                                    (
+                                        (b.get("input") or {}).get("message")
+                                        for b in blocks
+                                        if b.get("type") == "tool_use" and b.get("name") == "SubagentHandback"
+                                    ),
+                                    None,
+                                )
+                                if not isinstance(handed, str) or not handed.strip():
+                                    return None
+                                texts.append(handed.strip())
+                                end = _epoch(rec.get("timestamp"))
+                            collecting = False
+                        elif collecting:
+                            said = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+                            if said:
+                                texts.insert(0, said)
+                                end = end or _epoch(rec.get("timestamp"))
+                    elif rec.get("type") == "user":
+                        if "tool_result" in kinds:
+                            if not texts and not sidechain:
+                                return None
+                            collecting = False
+                        elif replied:
+                            if not texts:
+                                return None
+                            return {"text": "\n\n".join(texts), "start": _epoch(rec.get("timestamp")), "end": end}
+    except OSError:
+        return None
+    return {"text": "\n\n".join(texts), "start": None, "end": end} if texts else None
+
+
+def finished_subagents(transcript):
+    """Subagents with `finished: true` in their meta -> [{"type", "desc", "text"}] (text is "" when the log has no final answer)."""
+    out = []
+    for meta in sorted(glob.glob(os.path.join(transcript[: -len(".jsonl")], "subagents", "*.meta.json"))):
+        try:
+            with open(meta) as f:
+                d = json.load(f)
+            if not d.get("finished"):
+                continue
+            rep = claude_report(meta[: -len(".meta.json")] + ".jsonl", sidechain=True)
+            out.append(
+                {
+                    "type": d.get("agentType", "agent"),
+                    "desc": d.get("description", ""),
+                    "text": rep["text"] if rep else "",
+                }
+            )
+        except (OSError, ValueError, AttributeError):
+            continue
+    return out
+
+
+BORDER_START = "\u256d\u2570\u250c\u2514\u2500"
+BOX_CHARS = BORDER_START + "\u2502\u256e\u256f\u2510\u2518\u2503"
+
+
+PROMPT_MARKS = ("> ", "\u276f ")
+NOISE_MARKS = "\u26a0\u23bf"
+THOUGHT_MARKS = ("\u25b8 ", "\u25c6 ")
+BULLET = re.compile(r"(?:[\u2022*-]|\d+\.)\s")
+GROK_TIME = re.compile(r"\s{2,}\d{1,2}:\d{2} [AP]M$")
+
+
+def join_wrapped(prev, nxt):
+    if prev.endswith("-"):
+        return prev + nxt
+    a, b = prev[-1], nxt[0]
+
+    def alnum(c):
+        return c.isascii() and c.isalnum()
+
+    def fullwidth_punct(c):
+        return unicodedata.category(c).startswith("P") and unicodedata.east_asian_width(c) in "FW"
+
+    if (alnum(a) and not fullwidth_punct(b)) or (alnum(b) and not fullwidth_punct(a)):
+        return prev + " " + nxt
+    return prev + nxt
+
+
+def unwrap(para):
+    """agy and grok wrap their own lines (indented); bullets start a new line, anything else continues the previous one."""
+    indent = min(len(ln) - len(ln.lstrip()) for ln in para)
+    out = []
+    for ln in (ln[indent:] for ln in para):
+        if out and not BULLET.match(ln):
+            out[-1] = join_wrapped(out[-1], ln)
+        else:
+            out.append(ln)
+    return "\n".join(out)
+
+
+def screen_report(pane):
+    """Whole last reply of the screen, without the input box and status bar below it (agy, grok write no log).
+    The bottom block is cut from the lowest border line (a line starting with a box-drawing corner or rule) up through the lines directly above it that also start with a box-drawing character, or up to the previous plain rule.
+    The reply starts after the last prompt line (agy "> ", grok "\u276f "); grok replies are indented as far as the prompt and its notices less."""
+    lines = [
+        GROK_TIME.sub("", ln.replace("\u2588", "").rstrip())
+        for ln in tmux("capture-pane", "-p", "-J", "-S", "-200", "-t", pane).split("\n")
+    ]
+    border = [i for i, ln in enumerate(lines) if ln.strip() and ln.lstrip()[0] in BORDER_START]
+    if border:
+        top = border[-1]
+        if lines[top].lstrip()[:1] == "\u2500" and len(border) > 1 and "" not in lines[border[-2] : top]:
+            top = border[-2]
+        while top > 0 and lines[top - 1].strip() and lines[top - 1].lstrip()[0] in BOX_CHARS:
+            top -= 1
+        lines = lines[:top]
+    prompts = [i for i, ln in enumerate(lines) if ln.lstrip().startswith(PROMPT_MARKS)]
+    if prompts:
+        start = prompts[-1]
+        indent = len(lines[start]) - len(lines[start].lstrip())
+        while start < len(lines) and lines[start]:
+            start += 1
+        lines = [ln for ln in lines[start:] if not ln or len(ln) - len(ln.lstrip()) >= indent]
+    worked = [i for i, ln in enumerate(lines) if ln.lstrip().startswith("Worked for ")]
+    if worked:
+        lines = lines[: worked[-1]]
+    lines = [ln for ln in lines if not ln.lstrip().startswith(THOUGHT_MARKS)]
+    paras, cur = [], []
+    for ln in lines + [""]:
+        if ln:
+            cur.append(ln)
+        elif cur:
+            if cur[0].lstrip()[0] not in NOISE_MARKS:
+                paras.append(unwrap(cur))
+            cur = []
+    if not prompts:
+        paras = paras[-1:]
+    return {"text": "\n\n".join(paras), "start": None, "end": None} if paras else None
+
+
+def report_for(a):
+    """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Claude Code and Codex write one; agy and grok are read off the screen."""
+    if a["kind"] == "claude":
+        rep = claude_report(a["transcript"]) if a.get("transcript") else None
+        return dict(rep, subagents=finished_subagents(a["transcript"])) if rep else None
+    if a["kind"] == "codex":
+        panes = read_tmux()
+        p = next((p for p in panes if p["pane_id"] == a["pane"]), None)
+        path = codex_rollout(p.get("pane_pid", ""), p.get("pane_current_path", ""), panes) if p else None
+        return codex_report(path) if path else None
+    if a["kind"] in ("agy", "grok"):
+        return screen_report(a["pane"])
+    return None
+
+
+def subagent_unanswered(a):
+    """True when a finished subagent's log is newer than the main report's end: the main conversation has not answered it yet."""
+    if a["kind"] != "claude" or not a.get("transcript"):
+        return False
+    rep = claude_report(a["transcript"])
+    if not rep or not rep["end"]:
+        return False
+    for meta in glob.glob(os.path.join(a["transcript"][: -len(".jsonl")], "subagents", "*.meta.json")):
+        try:
+            with open(meta) as f:
+                if not json.load(f).get("finished"):
+                    continue
+            if os.path.getmtime(meta[: -len(".meta.json")] + ".jsonl") > rep["end"]:
+                return True
+        except (OSError, ValueError, AttributeError):
+            continue
+    return False
+
+
+def wait_channel(pane):
+    return "party-" + pane.lstrip("%")
+
+
+def report_text(pane, wait=False, timeout=600, after=None):
+    """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent.
+    While the member works, sleep in tmux wait-for (woken by the collector) for up to 2 s, then read the snapshot again.
+    With after (epoch seconds, from --ask) it also keeps waiting until the snapshot is newer than after + SNAP_MAX_AGE
+    and, for Claude and Codex, the report ends after after."""
+    if not pane.startswith("%") or not pane[1:].isdigit():
+        return 2, "", f"not a pane id: {pane}\n"
+    if not math.isfinite(timeout):
+        return 2, "", f"bad timeout: {timeout}\n"
+    if after is not None and (not wait or not math.isfinite(after)):
+        return 2, "", "--after needs --wait and a finite epoch\n"
+    rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
+    if rc != 0:
+        return 2, "", err or f"no such pane: {pane}\n"
+    deadline = time.monotonic() + timeout
+    while True:
+        snap = get_snapshot()
+        a = next((a for t in snap["towns"] for a in t["agents"] if a["pane"] == pane), None)
+        if a is None:
+            rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
+            if rc != 0:
+                return 2, "", err or f"no such pane: {pane}\n"
+            return 4, "", f"not a known agent: {pane}\n"
+        busy = wait and (a["status"] == "working" or a.get("summons") or subagent_unanswered(a))
+        rep = None if busy else report_for(a)
+        if after is not None and not busy:
+            busy = snap["t"] <= after + SNAP_MAX_AGE or (
+                a["kind"] in ("claude", "codex") and (not rep or not rep["end"] or rep["end"] <= after)
+            )
+        if not busy:
+            return 0, (str(rep["text"]) + "\n") if rep else "", "" if rep else f"no report for {pane}\n"
+        left = deadline - time.monotonic()
+        if left <= 0:
+            return 3, "", f"timed out waiting for {pane}\n"
+        rc, _, err = tmux_run(["wait-for", wait_channel(pane)], timeout=min(SNAP_MAX_AGE, left))
+        if rc not in (0, None):
+            return 2, "", err
+
+
+def group_under_leads(agents, owners):
+    """Put each summoned member right after its lead and mark it with a["lead"] (the lead's pane); one level only.
+    @party_lead names the lead; an xv pane goes under the only Claude of its window, else stays an ordinary member."""
+    if not any(lead or xv for lead, xv, _ in owners.values()):
+        return agents
+    panes = {a["pane"]: a for a in agents}
+    claudes = {}
+    for a in agents:
+        if a["kind"] == "claude" and not owners.get(a["pane"], ("", False, ""))[1]:
+            claudes.setdefault(a["window"], []).append(a["pane"])
+    lead_of = {}
+    for a in agents:
+        lead, xv, window = owners.get(a["pane"], ("", False, ""))
+        if not lead and xv and len(claudes.get(window, [])) == 1:
+            lead = claudes[window][0]
+        if lead in panes and lead != a["pane"]:
+            lead_of[a["pane"]] = lead
+    lead_of = {k: v for k, v in lead_of.items() if v not in lead_of}
+    out = []
+    for a in agents:
+        if a["pane"] not in lead_of:
+            out.append(a)
+            for b in agents:
+                if lead_of.get(b["pane"]) == a["pane"]:
+                    b["lead"] = a["pane"]
+                    out.append(b)
+    return out
+
+
 def collect(fixture=None, now=None):
     """Snapshot: {"t": time, "towns": squads with their members, "panes": {pane_id: window info}}."""
     now = now or time.time()
@@ -417,28 +775,31 @@ def collect(fixture=None, now=None):
         get_cmdlines, get_changed = child_cmdlines, screen_changed
 
         def get_codex(pane, pid, cwd):
-            path = codex_rollout(pid, cwd)
+            path = codex_rollout(pid, cwd, panes)
             return codex_usage(path) if path else None
 
         panes = read_tmux()
-        sessions = read_claude_sessions()
+        pane_pids = {p["pane_id"]: p["pane_pid"] for p in panes}
+        sessions = {k: v for k, v in read_claude_sessions().items() if v["pid"] in proc_tree(pane_pids.get(k))}
         get_party, get_cache, get_transcript, get_summons = read_party, cache_info, transcript_for, summons_for
 
-    towns, meta, here = {}, {}, None
+    towns, meta, here, owners = {}, {}, None, {}
     for p in panes:
         attached = p["session_attached"] not in ("", "0")
         if here is None and attached and p["window_active"] == "1":
             here = {"session": p["session_name"], "window": p.get("window_id", "")}
+        aux = p.get("@party_sidebar") == "1" or p.get("@party_report") == "1"
         meta[p["pane_id"]] = {
             "visible": p["window_active"] == "1" and attached,
             "window": p.get("window_id", ""),
             "session": p["session_name"],
             "window_panes": int(p.get("window_panes") or 0),
-            "sidebar": p.get("@party_sidebar") == "1",
+            "sidebar": aux,
             "dead": p.get("pane_dead") == "1",
             "tty": p.get("pane_tty", ""),
         }
-        if p.get("@party_sidebar") == "1":
+        owners[p["pane_id"]] = (p.get("@party_lead", ""), p.get("@xv") == "1", p.get("window_id", ""))
+        if aux:
             continue
         t = towns.setdefault(p["session_name"], {"name": p["session_name"], "attached": attached, "agents": []})
         icon = p.get("@workmux_pane_status", "")
@@ -494,6 +855,7 @@ def collect(fixture=None, now=None):
                 "fresh": fresh,
                 "model": printable(info.get("model", "")),
                 "summons": get_summons(tx, now) if tx else [],
+                "transcript": tx,
                 "focus": p["window_active"] == "1" and p["pane_active"] == "1" and t["attached"],
             }
         )
@@ -506,6 +868,7 @@ def collect(fixture=None, now=None):
                 a["status"] = "working"
     for t in towns.values():
         t["agents"].sort(key=lambda a: STATUS_ORDER.index(a["status"]))
+        t["agents"] = group_under_leads(t["agents"], owners)
         cls = spread([a["id"] for a in t["agents"]], len(CLASSES))
         for a in t["agents"]:
             a["cls"] = cls[a["id"]]
@@ -544,6 +907,13 @@ def bell_panes(prev, agents, panes):
         p for p, s in cur.items() if s in alert and prev.get(p) not in alert and not panes.get(p, {}).get("visible")
     ]
     return ring, cur
+
+
+def status_changed(prev, cur):
+    """Members whose status differs from last round's (prev None = first round, none)."""
+    if prev is None:
+        return []
+    return [p for p, s in cur.items() if p in prev and prev[p] != s]
 
 
 def lonely_sidebars(panes):
@@ -614,6 +984,11 @@ def get_snapshot(fixture=None):
                     os.close(fd_tty)
             except (OSError, KeyError):
                 pass
+        for pane in status_changed(prev, cur):
+            tmux("wait-for", "-S", wait_channel(pane))
+        unread = sum(s in ("waiting", "done") for s in cur.values())
+        if prev is None or unread != sum(s in ("waiting", "done") for s in prev.values()):
+            tmux("set-option", "-g", "@party_reports", str(unread))
         with open(f"{bell_path}.{os.getpid()}", "w") as f:
             json.dump(cur, f)
         os.replace(f"{bell_path}.{os.getpid()}", bell_path)

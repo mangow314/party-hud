@@ -124,6 +124,15 @@ def tmux(*args):
     return subprocess.run(["tmux", *args], capture_output=True, text=True, check=False).stdout
 
 
+def tmux_run(args, timeout=None):
+    """(returncode, stdout, stderr) of a tmux call; subprocess.run ends the child at the timeout and the rc is None."""
+    try:
+        r = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout, check=False)
+    except subprocess.TimeoutExpired:
+        return None, "", ""
+    return r.returncode, r.stdout, r.stderr
+
+
 def capture(pane):
     return tmux("capture-pane", "-p", "-t", pane).splitlines()
 

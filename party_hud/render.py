@@ -1,7 +1,9 @@
 """Draw the squad list and member cards from a snapshot (pure functions; ANSI strings)."""
 
+import re
+
 from .art import ART_MIN_WIDTH, CREST_CELLS, PORTRAIT_CELLS, crest_ids, image_row, portrait_id
-from .common import BUILDINGS, CLASS_NAMES, RESET, STATUS_TAG, SUMMON_ICON, C, bg, class_icon, clip, cw, fg
+from .common import BUILDINGS, CLASS_NAMES, RESET, STATUS_TAG, SUMMON_ICON, C, bg, class_icon, clip, cw, fg, printable
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _tick = 0
@@ -180,6 +182,7 @@ def status_rows(a, width, sel=True):
 HINTS = {
     "popup": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "quit")],
     "sidebar": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "hide")],
+    "report": [("⏎", "go"), ("n", "next"), ("q", "close")],
 }
 
 
@@ -203,6 +206,173 @@ def peek_rows(lines, width, height):
         text = clip(l.expandtabs(4), width)
         rows.append(fg("fg") + text + RESET + " " * (width - cw(text)))
     return rows
+
+
+REPORT_TITLE = {"done": "Quest complete", "waiting": "Waiting for you"}
+
+
+def fmt_took(sec):
+    sec = max(0, round(sec))
+    if sec >= 3600:
+        return f"{sec // 3600}h {sec % 3600 // 60:02d}m"
+    return f"{sec // 60}m {sec % 60:02d}s" if sec >= 60 else f"{sec}s"
+
+
+def wrap(text, width):
+    """Text -> rows of at most width columns, breaking anywhere (CJK has no spaces to break at)."""
+    rows = []
+    for line in text.expandtabs(4).split("\n"):
+        row, used = "", 0
+        for ch in printable(line):
+            if used + cw(ch) > width:
+                rows.append(row)
+                row, used = "", 0
+            row += ch
+            used += cw(ch)
+        rows.append(row)
+    return rows
+
+
+MD_INLINE = re.compile(
+    r"`([^`]+)`|\*\*(.+?)\*\*|(?<!!)\[([^\]]+)\]\(([^)\s]+)\)|\*(?!\s)(.+?)(?<!\s)\*|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)"
+)
+MD_HEADING = re.compile(r"#{1,6}\s+(.*)")
+MD_RULE = re.compile(r"(-{3,}|\*{3,}|_{3,})\s*")
+MD_ITEM = re.compile(r"(?:[-*]|\d+\.)\s+")
+MD_RAW = re.compile(r"\s+(?:[-*]|\d+\.)\s|\s*(?:\||>|<)")
+
+
+def md_inline(text, style=""):
+    """Inline Markdown -> [(char, sgr)] cells."""
+    cells, pos = [], 0
+    for m in MD_INLINE.finditer(text):
+        cells += [(ch, style) for ch in text[pos : m.start()]]
+        code, bold, label, url, em, em2 = m.groups()
+        if code is not None:
+            cells += [(ch, style + fg("amber")) for ch in code]
+        elif bold is not None:
+            cells += md_inline(bold, style + "\033[1m")
+        elif label is not None:
+            cells += md_inline(label, style + fg("blue") + "\033[4m")
+            cells += [(ch, style + fg("dim")) for ch in f" ({url})"]
+        else:
+            cells += md_inline(em or em2, style + "\033[3m")
+        pos = m.end()
+    return cells + [(ch, style) for ch in text[pos:]]
+
+
+def md_rows(cells, width, indent=0):
+    """Cells -> rows of at most width columns, continuation rows indented; each styled run ends with RESET."""
+    lines, row, used, room = [], [], 0, width
+    for cell in cells:
+        w = cw(cell[0])
+        if w > width - indent:
+            continue
+        if used + w > room:
+            lines.append(row)
+            row, used, room = [], 0, width - indent
+        row.append(cell)
+        used += w
+    lines.append(row)
+    rows = []
+    for n, row in enumerate(lines):
+        out, prev = " " * indent if n else "", ""
+        for ch, st in row:
+            if st != prev:
+                out += (RESET if prev else "") + st
+                prev = st
+            out += ch
+        rows.append(out + (RESET if prev else ""))
+    return rows
+
+
+def render_markdown(text, width):
+    """Markdown subset -> rows of at most width columns with SGR styles. Nested lists, tables, images, HTML and quotes stay raw."""
+    rows, code = [], False
+    for line in printable_lines(text):
+        if line.startswith("```"):
+            code = not code
+        elif code:
+            rows += md_rows([(ch, fg("green")) for ch in line], width)
+        elif m := MD_HEADING.fullmatch(line):
+            rows += md_rows(md_inline(m[1], fg("gold", True)), width)
+        elif MD_RULE.fullmatch(line):
+            rows.append(fg("dim") + "─" * width + RESET)
+        elif MD_RAW.match(line) or line.lstrip().startswith("!["):
+            rows += md_rows([(ch, "") for ch in line], width)
+        elif m := MD_ITEM.match(line):
+            mark = "•" if m[0][0] in "-*" else m[0].split()[0]
+            body = md_inline(line[m.end() :])
+            rows += md_rows([(ch, "") for ch in mark + " "] + body, width, cw(mark) + 1)
+        else:
+            rows += md_rows(md_inline(line), width)
+    return rows
+
+
+def printable_lines(text):
+    return [printable(line) for line in text.replace("\r", "").expandtabs(4).split("\n")]
+
+
+def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
+    """Report pane text: who, how long, HP, then the whole report as Markdown, or the pane's last lines (peek) when there is no report.
+    With art the portrait stands left of the first three rows."""
+    width = max(28, width)
+    facts = []
+    if report and report["start"] and report["end"]:
+        facts.append(f"took {fmt_took(report['end'] - report['start'])}")
+    if a.get("hp_left") is not None:
+        facts.append(f"HP {fmt_tokens(a['hp_left'])}" + (f"/{fmt_tokens(a['hp_max'])}" if a.get("hp_max") else ""))
+    elif a.get("hp") is not None:
+        facts.append(f"HP {a['hp']}%")
+    if total > 1:
+        facts.append(f"report {pos}/{total}")
+    summons = a.get("summons", [])
+    title = REPORT_TITLE.get(a["status"], "Report") if report else "Last output"
+    if report and summons:
+        title = f"還有 {len(summons)} 個分支任務進行中"
+    pid = portrait_id(a)
+    text_w = width - PORTRAIT_CELLS[0] - 1 if art else width
+    head = [
+        (f"{STATUS_TAG[a['status']][0] or '·'} {title}", fg(STATUS_TAG[a["status"]][2], True)),
+        (f"{class_icon(a)} {a['name']}  {a['kind']} · {squad}", fg("fg", True)),
+        ("  ".join(facts), fg("dim")),
+    ]
+    rows = []
+    for r, (text, style) in enumerate(head):
+        line = style + clip(text, text_w) + RESET
+        rows.append(f"{image_row(pid, r, PORTRAIT_CELLS[0])} {line}" if art else line)
+    rows.append("")
+    if report:
+        rows += render_markdown(report["text"], width)
+    else:
+        lines = [l.rstrip() for l in peek]
+        while lines and not lines[-1]:
+            lines.pop()
+        rows += [fg("dim") + r + RESET for l in lines for r in wrap(l, width)] or [fg("dim") + "no report yet" + RESET]
+    for s in summons:
+        rows += [
+            "",
+            fg("gold", True)
+            + clip(f"{SUMMON_ICON} {s['desc'] or s['type']}", width - 7)
+            + RESET
+            + " "
+            + fg("dim")
+            + "進行中"
+            + RESET,
+        ]
+    for s in (report or {}).get("subagents", []):
+        rows += ["", fg("gold", True) + clip(f"{SUMMON_ICON} {s['desc'] or s['type']}", width) + RESET]
+        rows += render_markdown(s["text"], width) if s["text"] else []
+    return "\n".join(rows + ["", hint_line("report", width)])
+
+
+def render_no_report(width, height):
+    width = max(28, width)
+    text = clip("Nobody is waiting or done.", width - 4)
+    out = box("Quest reports", [f" {fg('dim')}{text}{RESET}{' ' * (width - 4 - cw(text))} "], width)
+    out += [""] * (height - 1 - len(out))
+    out.append(f" {fg('gold', True)}q{RESET} {fg('dim')}close{RESET}")
+    return "\n".join(out)
 
 
 def box(title, rows, width, color="line", double=False, title_color="gold"):
@@ -272,14 +442,20 @@ def art_rows(a, width, sel):
 
 def card(a, width, sel, art=False):
     """One member card. Selected: gold double frame and ❯ (☞ has ambiguous width and breaks some terminals)."""
+    pad = "  " if a.get("lead") else ""
+    width -= len(pad)
     if art:
         rows = art_rows(a, width - 2, sel)
     else:
         rows = status_rows(a, width - 2, sel)
     if sel:
         rows[0] = fg("gold", True) + "❯" + RESET + rows[0][1:]
-        return box(a.get("kind", "claude"), rows, width, "gold", double=True)
-    return box(a.get("kind", "claude"), rows, width, "warn" if a["status"] == "waiting" else "line", title_color="dim")
+        lines = box(a.get("kind", "claude"), rows, width, "gold", double=True)
+    else:
+        lines = box(
+            a.get("kind", "claude"), rows, width, "warn" if a["status"] == "waiting" else "line", title_color="dim"
+        )
+    return [pad + l for l in lines]
 
 
 def render(

@@ -21,10 +21,11 @@ A module imports only modules listed above it, so there are no import cycles.
  after-new-window / new-session hook ->  --ensure   add a sidebar to a new window
  window-resized hook ----------------->  --reflow   put the sidebar width back
  session / window changed, attach --->  --nudge    restart this window's sidebar if it was stopped, redraw now
- after-kill-pane hook --------------->  --tidy     close windows left with only a sidebar
+ after-kill-pane hook --------------->  --tidy     close windows left with only a sidebar (a report pane counts as one)
  sidebar pane ------------------------>  --sidebar  the long-running UI, one per window
  prefix P ---------------------------->  --watch    the same UI in a popup
  prefix a ---------------------------->  --next     jump to the next waiting / done member and exit
+ prefix R, sidebar r ----------------->  --open-report  open a report pane: floating (tmux 3.8+) or split, running --report
 ```
 
 ## One collector, many readers
@@ -57,7 +58,7 @@ Each Python sidebar takes about 25 MB, so one per window adds up (24 windows: ab
 4. Work that used to happen in every window's own sidebar moved:
    - bells: the process that collects the snapshot writes a BEL to the pane of a hidden member that just started
      waiting or finished, so tmux flags that window;
-   - windows left with only a sidebar are closed by the `--tidy` hook (after `kill-pane`) and by the collector
+   - windows left with only a sidebar (or a report pane) are closed by the `--tidy` hook (after `kill-pane`) and by the collector
      (when the main program exits by itself).
 
 The 2-second delay keeps quick back-and-forth switching from restarting processes.
@@ -72,7 +73,7 @@ All in `$XDG_RUNTIME_DIR/party-hud/` (or `~/.cache/party-hud/`). Deleting the fo
 | `<pane>.json` | statusline integration output (see [integrations](integrations.md)) |
 | `activity.json` | CRC32 of each non-Claude pane's screen and when it last changed |
 | `unseen.json` | members that finished while you were not looking ("done" until you look) |
-| `bells.json` | each member's status at the last collection, to ring only on a change |
+| `bells.json` | each member's status at the last collection, to ring only on a change, and to set the tmux option `@party_reports` (members waiting or done) only when that number changes |
 | `collections` | how many times data was collected (used by the tests and `bench/live.sh`) |
 | `cursor.json` | shared cursor, so every sidebar highlights the same member |
 | `error.log` | tracebacks; a sidebar that hits an error logs it and retries next second |
@@ -84,7 +85,8 @@ with Unicode placeholders:
 
 1. When a sidebar has been visible for a second, it sends the 16 PNGs once (wrapped in tmux passthrough), each with
    an id. `allow-passthrough` is a pane option; `mark_sidebar` sets it on the sidebar pane only, so other panes keep
-   tmux's default and cannot reach the outer terminal. The popup has no pane and gets images only when the user set it
+   tmux's default and cannot reach the outer terminal. `mark_report` does the same for the quest report pane (`@party_report`), which draws the
+   member's portrait. The `--watch` popup has no pane and gets images only when the user set it
    globally. The wait matters: while tmux redraws a client (after a split, a session switch or an attach) it drops
    passthrough without counting it, and an image that loses one chunk stays black.
 2. Each image cell is drawn as the character U+10EEEE, colored with the image id, plus two combining

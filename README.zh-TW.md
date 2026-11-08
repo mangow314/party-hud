@@ -92,15 +92,73 @@ adjust-underline-thickness = 3
 | `prefix C-t` | 在所有 window 開／關側欄 |
 | `prefix P` | popup 版 |
 | `prefix a` | 不開任何東西，直接跳到下一個等你或做完的隊員 |
+| `prefix R` | 任務回報：看等你或做完的隊員最後交出的報告 |
 | `j`／`k` | 同一隊的下一位／上一位（到頭尾就停） |
 | `J`／`K` | 下一隊／上一隊 |
 | `1`–`9` | 這隊第 N 位 |
 | `Enter` | 切到那位隊員的 pane |
 | `n` | 下一個等你的，沒有的話下一個做完的 |
 | `v` | 看那位隊員最後幾行輸出 |
+| `r` | 在側欄裡：用 pane 開選中隊員的任務回報 |
 | `Esc`／`q` | 回到原本的 pane／收起全部側欄 |
 
 拖側欄邊框可以調寬度，所有側欄會一起記住新寬度，最窄 30 欄。
+
+### 任務回報
+
+隊員做完或停下來等你時，`prefix R` 會開一個 pane，顯示它最後交出的報告：標題寫 `Quest complete`，旁邊是隊員頭像（Ghostty、Kitty），下面是隊員名稱、花了多久（從你送出指令到它回完）、剩下的 HP，再下面是報告本文，Markdown 會上色。tmux 3.8 以上是浮在視窗上的 pane；更舊的 tmux 則把目前視窗切成兩半。
+
+- Claude Code 的報告是最後一輪回覆裡、最後一次工具呼叫之後的文字；Codex 是最後一次完成的回覆。
+- 沒有報告時改顯示 pane 最後幾行（`Last output`）：agy、Grok 一律如此；在等你核准或回答問題的 Claude 通常也是，問題就在那幾行裡。
+- 報告比 pane 高時，pane 會開在 tmux copy-mode 並停在第一行，用 copy-mode 的按鍵捲動或複製；先按 `q` 離開 copy-mode，`n`、`Enter`、`q` 才有作用。放得下的報告直接顯示。
+- 在浮動的報告 pane 上再切分出 pane，關掉那個 pane 後報告 pane 不會長回原大小；按 `q` 再按 `prefix R` 重開即可。
+- `n` 看下一份，`Enter` 切到那位隊員的 pane，`q`／`Esc` 關閉這個 pane。
+- 看完報告不會清掉「做完」的標記，切到那個 pane 才會。
+- Claude Code 隊員還有 subagent 在跑時，同樣有報告頁。標題從 `Quest complete` 改成 `還有 N 個分支任務進行中`（N 是進行中的
+  subagent 數），報告下方逐一列出進行中的 subagent，附名稱與 `進行中`。
+- 已完成的 subagent 也列在報告下方，附上它最後交回的報告（Markdown 會上色）。
+
+想在狀態列看到有幾份報告，collector 會把「等你或做完的隊員數」寫進 tmux 變數 `@party_reports`：
+
+```tmux
+set -ag status-right '#{?#{@party_reports}, 報告 #{@party_reports},}'
+```
+
+### 從指令讀報告
+
+```sh
+python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE [--wait] [--timeout SEC]
+```
+
+`PANE` 是 tmux pane id，例如 `%12`。不加 `--wait`，立刻印出該隊員目前的報告。加 `--wait`，隊員還在工作、還有 subagent
+在跑、或有已完成的 subagent 主對話尚未回應時，會等這些狀況結束再印。`--timeout` 是最多等幾秒（預設 600）。
+
+| 退出碼 | 意思 |
+|---|---|
+| 0 | 已印出報告。已知 agent 但沒有報告時也是 0：stdout 為空，stderr 寫 `no report for PANE` |
+| 2 | 參數錯誤（不是 pane id、逾時值不合法）或 pane 不存在 |
+| 3 | 等待時 `--timeout` 用完 |
+| 4 | pane 存在，但不是已知 agent |
+
+### Claude Code 的協作 skill
+
+`--summon AGENT` 開一個跑 `claude`、`codex`、`agy` 或 `grok` 的 pane，等它可以輸入後印出 pane id。`--ask PANE TEXT`
+把文字貼進 agent 的 pane、按 Enter，並印出送出的時間。搭配上面的 `--report-text PANE --wait --after EPOCH`，一個 agent 就能把工作交給另一個並等回覆：
+
+```sh
+m=$(python3 ~/.tmux/plugins/party-hud/party.py --summon agy)
+t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "你的問題")
+python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
+```
+
+`--summon` 退出碼：0 就緒、2 參數錯誤或 tmux 失敗、3 逾時（可加 `--cwd DIR`、`--window`、`--timeout SEC`）。`--ask`：0 已送出、2 pane 錯誤或不存在、4 不是 agent。
+側欄仍然只讀；這些指令只在被呼叫時才開 pane 或送按鍵。
+
+`skills/party-crew/SKILL.md` 教 Claude Code 何時呼叫它們。連結一次即可：
+
+```sh
+ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
+```
 
 ## 選項
 
@@ -111,10 +169,11 @@ adjust-underline-thickness = 3
 | `@party_key_toggle` | `C-t` | 開／關側欄的鍵 |
 | `@party_key_popup` | `P` | popup 的鍵 |
 | `@party_key_next` | `a` | 「跳到下一個等你的」的鍵 |
+| `@party_key_report` | `R` | 任務回報的鍵 |
 | `@party_art` | `auto` | `on`／`off` 強制開／關圖片；`auto` 在 Ghostty、Kitty 自動開 |
 | `@party_sidebar_width` | `34` | 側欄寬度（欄） |
 
-圖片靠 tmux 的 `allow-passthrough` 送到終端機。party-hud 只對自己的側欄 pane 開這個選項，其他 pane 裡的程式仍然不能把控制序列直接送到你的終端機。popup 不是 pane，要在 `~/.tmux.conf` 自己全域設 `allow-passthrough on` 才會有圖片（這樣每個 pane 都能繞過 tmux）；沒設就用文字版。
+圖片靠 tmux 的 `allow-passthrough` 送到終端機。party-hud 只對自己的側欄 pane 開這個選項，其他 pane 裡的程式仍然不能把控制序列直接送到你的終端機。`prefix P` 的 popup 不是 pane，要在 `~/.tmux.conf` 自己全域設 `allow-passthrough on` 才會有圖片（這樣每個 pane 都能繞過 tmux）；沒設就用文字版。
 
 ## 怎麼認出隊員
 
