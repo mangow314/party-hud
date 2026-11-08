@@ -699,6 +699,8 @@ ok(ak("node", "8") is None and ak("bash") is None and ak("tmux") is None, "Plain
 fake.update({"9": [["codex", "exec", "--json", "hi"]], "10": [["/usr/bin/python3.13", "/opt/agy"]], "11": [["nvim", "codex"]]})
 ok(ak("python3", "9") == "codex" and ak("bash", "10") == "agy" and ak("bash", "11") is None,
    "Wrappers: an agent among any pane's child processes counts (xv runs codex under python3); a file named codex does not")
+fake["12"] = [["/Library/Frameworks/Python.framework/Versions/3.13/Resources/Python.app/Contents/MacOS/Python", "/tmp/agy"]]
+ok(ak("bash", "12") == "agy", "Wrappers: macOS framework Python shows up in ps as .../MacOS/Python and still counts")
 # Without /proc (macOS): one `ps` call gives children, command lines and start times
 ps_out = ("  100     1 Wed Nov  4 11:46:42 2026 -zsh\n"
           "  200   100 Wed Nov  4 11:50:00 2026 node /opt/homebrew/bin/codex --yolo\n"

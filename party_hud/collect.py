@@ -336,7 +336,7 @@ def agent_kind(cmd, pane_pid, cmdlines=child_cmdlines):
         if not args:
             continue
         names = [os.path.basename(args[0])]
-        if len(args) > 1 and (names[0] in ("node", "bun", "deno") or names[0].startswith("python")):
+        if len(args) > 1 and (names[0] in ("node", "bun", "deno") or names[0].lower().startswith("python")):
             names.append(os.path.basename(args[1]))
         hit = next((AGENT_CMDS[n] for n in names if n in AGENT_CMDS), None)
         if hit:
