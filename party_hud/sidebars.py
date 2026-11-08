@@ -9,7 +9,7 @@ import time
 import zlib
 
 from .art import ART_MIN_WIDTH
-from .collect import AGENT_CMDS, FIELD_SEP, agent_kind, lonely_sidebars
+from .collect import AGENT_CMDS, FIELD_SEP, agent_kind, get_snapshot, lonely_sidebars
 from .common import CURSOR, PARTY_DIR, ROOT, tmux, tmux_run
 
 SIDEBAR_WIDTH = 34
@@ -119,7 +119,8 @@ SUMMON_POLL = 1.0
 
 def summon(agent, cwd, window, timeout):
     """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments or tmux failure, 3 timeout.
-    Ready = the pane's agent is recognised and two collections in a row see the same screen (CRC32)."""
+    Ready = the pane's agent is recognised, two polls in a row see the same screen (CRC32), and the snapshot lists the pane
+    (so --ask and --report-text, which read the snapshot, accept it right away)."""
     if agent not in AGENT_CMDS:
         return 2, "", f"unknown agent: {agent} (one of {', '.join(AGENT_CMDS)})\n"
     caller = os.environ.get("TMUX_PANE", "")
@@ -147,7 +148,11 @@ def summon(agent, cwd, window, timeout):
         digest = None
         if agent_kind(cmd, pid):
             digest = zlib.crc32(tmux("capture-pane", "-p", "-t", pane).encode())
-        if digest is not None and digest == last:
+        if (
+            digest is not None
+            and digest == last
+            and any(a["pane"] == pane for t in get_snapshot()["towns"] for a in t["agents"])
+        ):
             return 0, pane + "\n", ""
         last = digest
         left = deadline - time.monotonic()

@@ -1001,6 +1001,8 @@ def fake_run(args, timeout=None):
 sidebars.tmux_run = fake_run
 sidebars.tmux = lambda *a: calls.append(a) or ("screen" if a[0] == "capture-pane" else "")
 sidebars.time.sleep = lambda s: None
+listed = [True]
+sidebars.get_snapshot = lambda: {"towns": [{"agents": [{"pane": "%9"}] if listed[0] else []}]}
 sep = collect.FIELD_SEP
 ready = [f"claude{sep}123\n"]
 os.environ["TMUX_PANE"] = "%1"
@@ -1024,6 +1026,10 @@ time.monotonic = lambda: t[0]
 sidebars.time.sleep = lambda s: t.__setitem__(0, t[0] + s)
 rc, out, err = sidebars.summon("claude", tmp, False, 3)
 ok(rc == 3 and out == "" and "%9" in err, "summon: timeout -> 3, pane id on stderr")
+shows[:] = ready; listed[0] = False; t[0] = 0.0
+rc, out, err = sidebars.summon("claude", tmp, False, 3)
+ok(rc == 3 and "%9" in err, "summon: not ready until the snapshot lists the pane (ask and report-text read the snapshot)")
+listed[0] = True
 agent = lambda pane, kind="claude", window="@1": {"pane": pane, "kind": kind, "window": window, "status": "idle"}
 a, b, c = agent("%1"), agent("%2", "codex"), agent("%3", "claude", "@2")
 got = collect.group_under_leads([a, c, b], {"%1": ("", False, "@1"), "%2": ("%1", False, "@1"), "%3": ("", False, "@2")})
