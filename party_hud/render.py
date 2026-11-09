@@ -245,8 +245,8 @@ HELP = {
 }
 
 
-def help_screen(mode, width, height):
-    """Rows of the key help of a mode, exactly height rows of width cells: a framed list, blank rows, the hint on the last row."""
+def help_box(mode, width, height):
+    """(framed rows, left column, top row, box width) of the centered key help box."""
     width = max(28, width)
     keys = max(cw(k) for k, _ in HELP[mode]) + 1
     title = f"Keys · {mode}"
@@ -258,12 +258,66 @@ def help_screen(mode, width, height):
         pad = inner - 3 - keys - cw(text)
         rows.append(f" {fg('gold', True)}{key}{RESET}{' ' * (keys - cw(key))} {fg('dim')}{text}{RESET}{' ' * pad} ")
     framed = box(title, rows, boxw)
-    left = (width - boxw) // 2
-    top = max(0, (height - 1 - len(framed)) // 2)
+    return framed, (width - boxw) // 2, max(0, (height - 1 - len(framed)) // 2), boxw
+
+
+def help_screen(mode, width, height):
+    """Rows of the key help of a mode, exactly height rows of width cells: a framed list, blank rows, the hint on the last row."""
+    width = max(28, width)
+    framed, left, top, boxw = help_box(mode, width, height)
     out = [" " * width] * top + [" " * left + r + " " * (width - left - boxw) for r in framed]
     out = out[: height - 1]
     hint = hint_line("help", width)
     return out + [" " * width] * (height - 1 - len(out)) + [hint + " " * (width - cw(ESCAPE.sub("", hint)))]
+
+
+SGR = re.compile(r"\x1b\[[0-9;:]*m")
+
+
+def dim_row(row):
+    """The row in faint text: SGR 2 again after every SGR, so colors (a Kitty placeholder's image id) stay."""
+    return "\x1b[2m" + SGR.sub(lambda m: m.group(0) + "\x1b[2m", row) + RESET
+
+
+def cols_of(row, start, end):
+    """Columns [start, end) of a row as exactly end - start cells: SGR state carried in, a wide character cut in half becomes spaces, a combining mark follows its base."""
+    carried, out, col, used, kept, i = "", "", 0, 0, False, 0
+    while i < len(row):
+        m = SGR.match(row, i)
+        if m:
+            if col < start:
+                carried += m.group(0)
+            elif col < end:
+                out += m.group(0)
+            i = m.end()
+            continue
+        ch = row[i]
+        i += 1
+        w = cw(ch)
+        if w == 0:
+            out += ch if kept else ""
+            continue
+        lo, hi = max(col, start), min(col + w, end)
+        if hi > lo:
+            full = hi - lo == w
+            out += ch if full else " " * (hi - lo)
+            used += hi - lo
+            kept = full
+        else:
+            kept = False
+        col += w
+    return carried + out + " " * (end - start - used)
+
+
+def help_overlay(rows, mode, width, height):
+    """Exactly height rows: the page rows in faint text with the key help box laid over the middle; left and right of the box the page text stays."""
+    framed, left, top, boxw = help_box(mode, width, height)
+    width = max(28, width)
+    out = [dim_row(r) for r in rows[:height]] + [""] * (height - len(rows))
+    for k, r in enumerate(framed[: height - top]):
+        base = out[top + k]
+        out[top + k] = cols_of(base, 0, left) + RESET + r + RESET + cols_of(base, left + boxw, width)
+    return out
 
 
 def hint_line(mode, width):
@@ -548,20 +602,24 @@ def is_final(report):
 
 
 def live_rows(report, width, wide, now):
-    """Page of a member still working: status row with the time so far, the "現在" block (newest tool call, tail of the newest text), then the previous round's report."""
+    """Page of a member still working: status row with the time so far, the "Now" block (newest tool call, tail of the newest text), then the previous round's report."""
     gold = fg("gold", True)
-    status = "進行中" + (f" · 已 {fmt_took(now - report['start'])}" if now is not None and report.get("start") else "")
-    rows = [gold + clip(status, width) + RESET, "", gold + "現在" + RESET]
+    status = "Working" + (f" · {fmt_took(now - report['start'])}" if now is not None and report.get("start") else "")
+    rows = [gold + clip(status, width) + RESET, "", gold + "Now" + RESET]
     if report.get("tool"):
         rows.append(fg("fg", True) + clip(report["tool"], width) + RESET)
     said = [r for r in wrap_lines(report.get("said") or "", width) if r.strip()]
     rows += [fg("dim") + r + RESET for r in said[-LIVE_SAID_ROWS:]]
     if not report.get("tool") and not said:
         rows.append(fg("dim") + "…" + RESET)
-    rows += ["", fg("line") + "─" * width + RESET, gold + "上一輪報告" + RESET, ""]
+    rows += ["", fg("line") + "─" * width + RESET, gold + "Previous report" + RESET, ""]
     prev = report.get("prev")
     rows += render_markdown(prev["text"], width, wide) if prev else [fg("dim") + "no earlier report" + RESET]
     return rows
+
+
+def running_title(n):
+    return f"{n} subagent{'s' * (n != 1)} still running"
 
 
 def wrap_lines(text, width):
@@ -589,7 +647,7 @@ def report_rows(report, peek, summons, width, wide=None, now=None):
             + RESET
             + " "
             + fg("dim")
-            + "進行中"
+            + "running"
             + RESET,
         ]
     for s in (report or {}).get("subagents", []):
@@ -751,7 +809,7 @@ def report_split_parts(a, squad, report, peek, width, pos, total, banner, portra
     bid = banner_id(a["status"], is_final(report), bool(summons), *banner[2:])
     right = ["", *(image_row(bid, r, min(banner[0], rw)) for r in range(banner[1]))]
     if is_final(report) and summons:
-        title = f"{STATUS_TAG[a['status']][0] or '·'} 還有 {len(summons)} 個分支任務進行中"
+        title = f"{STATUS_TAG[a['status']][0] or '·'} {running_title(len(summons))}"
         right.append(fg(STATUS_TAG[a["status"]][2], True) + clip(title, min(banner[0], rw)) + RESET)
     bw = min(banner[0], rw)
     right += ["", *report_rows(report, peek, summons, bw, rw, now)]
@@ -850,7 +908,7 @@ def report_parts(
     summons = a.get("summons", [])
     title = REPORT_TITLE.get(a["status"], "Report") if is_final(report) else "Working" if report else "Last output"
     if is_final(report) and summons:
-        title = f"還有 {len(summons)} 個分支任務進行中"
+        title = running_title(len(summons))
     pid = portrait_id(a)
     text_w = width - PORTRAIT_CELLS[0] - 1 if art else width
     show_title = not art or bool(is_final(report) and summons)

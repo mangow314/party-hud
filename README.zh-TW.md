@@ -119,17 +119,21 @@ adjust-underline-thickness = 3
 - 每換一頁（開啟後第一頁、`n`／`N`）有約 0.4 秒的開場動畫：橫幅和左欄直接出現，報告本文分幾步露出。任何鍵盤或滑鼠輸入都會立刻跳過動畫，並照常處理。`set -g @party_anim off` 可關閉。
 - Claude Code 的報告是最後一輪回覆裡、最後一次工具呼叫之後的文字；Codex 是最後一次完成的回覆。
 - 沒有報告時改顯示 pane 最後幾行（`Last output`）：agy、Grok 一律如此；在等你核准或回答問題的 Claude 通常也是，問題就在那幾行裡，顏色保留 pane 原本的樣子。等你的隊員一律用 `Waiting` 橫幅（有報告或還有 subagent 在跑也一樣）；其他沒有報告的用 `Last output`。
-- 還在工作的 Claude Code 或 Codex 隊員顯示「進行中」頁：一列狀態（`進行中 · 已 12m 03s`，從你最後輸入的提問算起）、「現在」區塊（最新一次工具呼叫與最新文字的最後幾列），再接上一輪的報告。頁面開著時約每 1.5 秒重讀一次，隊員做完或等你時自動換成正式報告。左欄顯示這輪的 `ASKED`、`FILES`、`WHERE`，以 `RUNNING` 標籤（值是已跑多久）取代 `TOOK`。
+- 橫幅依隊員狀態而定：`Quest Complete`（做完、沒有東西還在跑）、`Waiting for You`（等你回答）、`Report`（閒置隊員的完整報告，或任何還有 subagent 在跑的隊員的報告）、`Last Output`（還沒有完整報告）。
 
-  <img src="docs/img/report-working.svg" width="780" alt="工作中隊員的進行中頁：一列狀態與已跑時間、「現在」區塊（最新工具呼叫與文字）、上一輪的報告；左欄有 RUNNING 標籤">
+  <img src="docs/img/banners.svg" width="480" alt="四種報告橫幅由上到下排列，每張下方一行說明何時出現：Quest Complete、Waiting for You、Report、Last Output">
+
+- 還在工作的 Claude Code 或 Codex 隊員顯示「進行中」頁（畫面上的字是英文）：一列狀態（`Working · 12m 03s`，從你最後輸入的提問算起）、`Now` 區塊（最新一次工具呼叫與最新文字的最後幾列），再接上一輪的報告。頁面開著時約每 1.5 秒重讀一次，隊員做完或等你時自動換成正式報告。左欄顯示這輪的 `ASKED`、`FILES`、`WHERE`，以 `RUNNING` 標籤（值是已跑多久）取代 `TOOK`。
+
+  <img src="docs/img/report-working.svg" width="780" alt="工作中隊員的進行中頁：一列狀態與已跑時間、`Now` 區塊（最新工具呼叫與文字）、`Previous report` 與上一輪的報告；左欄有 RUNNING 標籤">
 
 - 分欄頁面的左欄固定不動，只有右欄（橫幅和本文）捲動；窄 pane 則整頁一起捲。用 `j`／`k`、方向鍵或滾輪捲一列，`PgUp`／`PgDn` 捲一頁，`g`／`G` 跳到頂／底。放得下的報告不會動。要複製文字請按住 `Shift` 拖曳（交給終端機選取）。
 - 縮放 pane 時報告立刻以新尺寸就地重畫（算得出來就畫，不另外延遲），不清整個畫面；圖片等縮放停下片刻後才跟上。
 - 在浮動的報告 pane 上再切分出 pane，關掉那個 pane 後報告 pane 不會長回原大小；按 `q` 再按 `prefix R` 重開即可。
 - `n` 看下一份，`N` 看上一份，`Enter` 切到那位隊員的 pane，`q`／`Esc` 關閉這個 pane，`?` 列出所有按鍵（再按 `?`／`Esc`／`q` 回到原本位置）。
 - 看完報告不會清掉「做完」的標記，切到那個 pane 才會。
-- Claude Code 隊員還有 subagent 在跑時，同樣有報告頁。標題從 `Quest complete` 改成 `還有 N 個分支任務進行中`（N 是進行中的
-  subagent 數），報告下方逐一列出進行中的 subagent，附名稱與 `進行中`。
+- Claude Code 隊員還有 subagent 在跑時，同樣有報告頁。標題從 `Quest complete` 改成 `N subagents still running`（N 是進行中的
+  subagent 數，只有一個時是 `1 subagent still running`），報告下方逐一列出進行中的 subagent，附名稱與 `running`。
 - 這一輪（你最後一次送出之後）完成的 subagent 也列在報告下方，附上它最後交回的報告（Markdown 會上色）。
 
 想在狀態列看到有幾份報告，collector 會把「等你或做完的隊員數」寫進 tmux 變數 `@party_reports`：
