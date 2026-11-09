@@ -154,7 +154,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE [--wait] [--timeou
 | 3 | 等待時 `--timeout` 用完 |
 | 4 | pane 存在，但不是已知 agent |
 
-### Claude Code 的協作 skill
+### 協作指令
 
 `--summon AGENT` 開一個跑 `claude`、`codex`、`agy` 或 `grok` 的 pane，等它可以輸入後印出 pane id。`--ask PANE TEXT`
 把文字貼進 agent 的 pane、按 Enter，並印出送出的時間。搭配上面的 `--report-text PANE --wait --after EPOCH`，一個 agent 就能把工作交給另一個並等回覆：
@@ -172,11 +172,25 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t
 （`question.md`、`reply.md`、`meta.json`），事後可查。`--summon` 會刪掉 14 天沒動的 session 目錄。存檔失敗時，`--ask`、
 `--report-text`、`--summon` 做完事後以 5 退出，原因印在 stderr。
 
-`skills/party-crew/SKILL.md` 教 Claude Code 何時呼叫它們。連結一次即可：
+### Claude Code skill（party-crew）
+
+`skills/party-crew/SKILL.md` 是一份很短的 Claude Code skill，教 Claude 何時、怎麼用 `--summon`、`--ask`、`--report-text`。裝好後，跟 Claude 說「找 codex 給這個 diff 第二意見」，它會自己開 pane、送出問題、讀回答案。任務相符時 Claude 會自動載入，也可以打 `/party-crew` 叫它。
+
+連結一次即可（TPM 的安裝路徑；用 clone 的話換成你的 checkout 路徑）：
 
 ```sh
-ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
+ln -s ~/.tmux/plugins/party-hud/skills/party-crew ~/.claude/skills/party-crew
 ```
+
+Claude Code 的 Bash 沙箱開著時，這些指令連不到 tmux socket（`Error connecting to /tmp/tmux-1000/default (Operation not permitted)`）。要讓它們能跑，在 `~/.claude/settings.json` 的 `sandbox.excludedCommands` 加上 party.py：
+
+```json
+"excludedCommands": ["python3 ~/.tmux/plugins/party-hud/party.py *"]
+```
+
+- 符合的指令在沙箱外執行，沒有檔案與網路限制，只加這一條。
+- 比對的是指令文字：整行要每一段都符合，含 `$(...)`、重導向或 `cd` 的整行仍留在沙箱內。所以 Claude 要把每一步分開呼叫，從輸出讀 pane id 與時間，不能寫成上面那種 `m=$(...)` 的寫法。
+- `sandbox.network.allowAllUnixSockets` 也能解，但會放行所有 Unix socket，不建議。
 
 ## 選項
 

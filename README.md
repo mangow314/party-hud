@@ -158,7 +158,7 @@ yet, it waits until that stops and then prints. `--timeout` is the most seconds 
 | 3 | `--timeout` ran out while waiting |
 | 4 | The pane exists but is not a known agent |
 
-### Crew skill for Claude Code
+### Crew commands
 
 `--summon AGENT` opens a pane running `claude`, `codex`, `agy` or `grok` and prints its pane id once it takes input.
 `--ask PANE TEXT` pastes text into an agent's pane, presses Enter, and prints the time it was sent. Together with `--report-text PANE
@@ -178,11 +178,25 @@ Every round is saved for later reference under `~/.local/state/party-hud/crew/` 
 (`question.md`, `reply.md`, `meta.json`). `--summon` removes sessions untouched for 14 days. If saving fails, `--ask`,
 `--report-text` and `--summon` exit 5 after doing their job and say why on stderr.
 
-`skills/party-crew/SKILL.md` teaches Claude Code when to call them. Link it once:
+### Claude Code skill (party-crew)
+
+`skills/party-crew/SKILL.md` is a short Claude Code skill that tells Claude when and how to use `--summon`, `--ask` and `--report-text`. With it, you can tell Claude "ask codex for a second opinion on this diff" and it opens the pane, sends the question and reads the answer back. Claude loads it when the task fits, or you can call it with `/party-crew`.
+
+Link it once (TPM install path; with a clone, use your checkout path):
 
 ```sh
-ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
+ln -s ~/.tmux/plugins/party-hud/skills/party-crew ~/.claude/skills/party-crew
 ```
+
+With Claude Code's Bash sandbox on, these commands cannot reach the tmux socket (`Error connecting to /tmp/tmux-1000/default (Operation not permitted)`). To let them run, add party.py to `sandbox.excludedCommands` in `~/.claude/settings.json`:
+
+```json
+"excludedCommands": ["python3 ~/.tmux/plugins/party-hud/party.py *"]
+```
+
+- Matching commands run outside the sandbox, with no file or network limits, so add only this one.
+- The match is on the command text, and every part of the line has to match: a line with `$(...)`, a redirect or `cd` stays in the sandbox. So Claude has to run each step as its own call and read the pane id and time from the output, not use the `m=$(...)` form above.
+- `sandbox.network.allowAllUnixSockets` also works, but it opens every Unix socket; not recommended.
 
 ## Options
 
