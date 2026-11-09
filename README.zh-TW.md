@@ -179,6 +179,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t
 連結一次即可（TPM 的安裝路徑；用 clone 的話換成你的 checkout 路徑）：
 
 ```sh
+mkdir -p ~/.claude/skills
 ln -s ~/.tmux/plugins/party-hud/skills/party-crew ~/.claude/skills/party-crew
 ```
 

@@ -32,15 +32,21 @@ The HUD itself only reads. These subcommands open a pane or send keys only when 
 - Waits while the agent is working or has subagents running, and until a report newer than EPOCH exists, then prints it. `--after` requires `--wait`. `--timeout` default 600.
 - Without `--after` it prints the current report (add `--wait` to let the agent finish first).
 - Exit: 0 printed (a known agent with no report: empty stdout, stderr `no report for PANE`), 2 bad arguments or missing pane, 3 timeout, 4 not a known agent.
+- Only claude and codex reports carry a time. For agy and grok, `--after` only waits for a snapshot newer than EPOCH in which the agent is not working, so it can print the pane's lines from before the agent started. Prefer codex or claude when you need this round's answer.
 
 ## Example
 
+Run each step as its own command and copy the value it prints into the next one:
+
 ```sh
-P=~/.tmux/plugins/party-hud/party.py
-m=$(python3 $P --summon agy) || exit
-t=$(python3 $P --ask "$m" "Review src/foo.py for race conditions and report findings") || exit
-python3 $P --report-text "$m" --wait --after "$t"
+python3 ~/.tmux/plugins/party-hud/party.py --summon codex --read-only
+# prints %12
+python3 ~/.tmux/plugins/party-hud/party.py --ask %12 'Review src/foo.py for race conditions and report findings'
+# prints 1762680000.5
+python3 ~/.tmux/plugins/party-hud/party.py --report-text %12 --wait --after 1762680000.5
 ```
+
+Claude Code's Bash sandbox blocks the tmux socket (`Error connecting to /tmp/tmux-…/default (Operation not permitted)`). The user can allow these commands with `sandbox.excludedCommands`, which matches the command text: the line has to start with `python3` and the path as listed (no shell variable for the path), every command in the line has to match, and a line with `$(...)`, a redirect or `cd` stays in the sandbox. So run one step per call, as above. Put the question in single quotes so the shell does not expand backticks or `$` in it. If you still get the error, report it to the user instead of working around it.
 
 Every round is saved under `${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/<start time UTC>-<pane id>/round-NNN/` (`question.md`, `reply.md`, `meta.json`); `--summon` deletes sessions older than 14 days. Exit 5 from `--summon`, `--ask` or `--report-text` means the action was done but saving the round failed (see stderr).
 

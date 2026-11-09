@@ -185,6 +185,7 @@ Every round is saved for later reference under `~/.local/state/party-hud/crew/` 
 Link it once (TPM install path; with a clone, use your checkout path):
 
 ```sh
+mkdir -p ~/.claude/skills
 ln -s ~/.tmux/plugins/party-hud/skills/party-crew ~/.claude/skills/party-crew
 ```
 
