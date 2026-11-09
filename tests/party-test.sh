@@ -1056,6 +1056,11 @@ ok(st1 == st2 == "done" and st3 == "idle" and st4 == "idle", "Unseen done: busy 
 ok(mu("idle", True, s0)[0] == "idle" and mu("sleep", False, s1)[0] == "done" and mu("working", False, s1)[0] == "working",
    "Watched pane finishing goes straight to idle; asleep keeps done; busy again clears done")
 ok(mu("idle", False, {})[0] == "idle", "Idle member that was never busy is not marked done")
+ts = [{"agents": [{"pane": "%60", "status": "idle", "focus": True}, {"pane": "%61", "status": "idle", "focus": False, "lead": "%60"},
+                  {"pane": "%62", "status": "idle", "focus": False}]}]
+collect.mark_unseen(ts, {"%61": {"status": "working", "unseen": False}, "%62": {"status": "working", "unseen": False}})
+ok([a["pane"] for a in ts[0]["agents"]] == ["%62", "%60", "%61"] and ts[0]["agents"][2]["status"] == "done",
+   "Unseen done: a summoned member that finishes stays right under its lead; other done members move up")
 low = {"hp": 8, "hp_left": 16000, "hp_max": 200000, "sp": None, "fresh": False}
 red, dim = "\x1b[1;38;2;208;96;90m", "\x1b[1;38;2;138;143;168m"
 render._tick = 0; on = render.stat_rows(low, 22)[0]

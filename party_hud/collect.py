@@ -1203,7 +1203,8 @@ def mark_unseen(towns, state):
             out[a["pane"]] = {"status": raw, "unseen": unseen}
             if unseen:
                 a["status"] = "done"
-        t["agents"].sort(key=lambda a: STATUS_ORDER.index(a["status"]))
+        order = {a["pane"]: STATUS_ORDER.index(a["status"]) for a in t["agents"]}
+        t["agents"].sort(key=lambda a: order[a.get("lead") or a["pane"]])
     return out
 
 
