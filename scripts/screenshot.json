@@ -177,5 +177,60 @@
    160000,
    400000
   ]
+ },
+ "reports": {
+  "done": {
+   "pane": "%1",
+   "pos": 1,
+   "total": 2,
+   "agent": {
+    "status": "done",
+    "summons": []
+   },
+   "report": {
+    "text": "# Session middleware migration\n\nThe session middleware now reads and writes tokens through the new token store. All 128 tests pass.\n\n## What changed\n- Session lookups go through `TokenStore.get()`\n- Tokens expire after 30 minutes without use\n- The old cookie format stays readable for one release\n\n## Test results\n| Suite | Passed | Failed |\n|-------|--------|--------|\n| unit  | 96     | 0      |\n| api   | 32     | 0      |\n\n## Before you deploy\nRun the token migration once:\n\n```bash\nnpm run migrate:tokens -- --dry-run\nnpm run migrate:tokens\n```\n",
+    "start": 9500,
+    "end": 9950,
+    "task": {
+     "ask": "Move session middleware to the new token store",
+     "files": [
+      "/home/mango/work/webapp/src/auth/session.ts",
+      "/home/mango/work/webapp/src/auth/store.ts"
+     ],
+     "cmds": 14,
+     "agents": 2,
+     "dir": "~/work/webapp",
+     "branch": "auth-refactor",
+     "cwd": "/home/mango/work/webapp"
+    }
+   }
+  },
+  "working": {
+   "pane": "%1",
+   "pos": 1,
+   "total": 2,
+   "report": {
+    "live": true,
+    "start": 9700,
+    "end": null,
+    "tool": "edit src/auth/middleware.ts",
+    "said": "The session tests pass. Now switching the middleware over to the token store, then I will run the api suite.",
+    "prev": {
+     "text": "# Token store\n\nAdded `TokenStore` with `get`, `set` and `revoke`. Sessions are not switched over yet.\n\n- Tokens are kept for 30 minutes\n- `revoke` also clears the cookie\n"
+    },
+    "task": {
+     "ask": "Move session middleware to the new token store",
+     "files": [
+      "/home/mango/work/webapp/src/auth/session.ts",
+      "/home/mango/work/webapp/src/auth/store.ts"
+     ],
+     "cmds": 14,
+     "agents": 2,
+     "dir": "~/work/webapp",
+     "branch": "auth-refactor",
+     "cwd": "/home/mango/work/webapp"
+    }
+   }
+  }
  }
 }

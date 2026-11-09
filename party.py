@@ -12,13 +12,17 @@ Modes (started by tmux; see party.tmux):
   party.py --report-text PANE [--wait [--after EPOCH]] [--timeout SEC]  print a member's last report; --wait until it stops working;
                               --after EPOCH (the time --ask printed) also waits for a report that ends after it
   party.py --ask PANE TEXT    type TEXT into an agent's pane and press Enter (several lines: one paste); print the time sent
-  party.py --summon AGENT [--cwd DIR] [--window] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id
+  party.py --summon AGENT [--cwd DIR] [--window] [--read-only] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id;
+                              --read-only starts it in an enforced read-only sandbox (codex only)
   party.py --ensure WID       add a sidebar to a window (hook)
   party.py --reflow WID       put the sidebar width back (hook)
   party.py --nudge [WID]      restart a stopped sidebar and redraw now (hook)
   party.py --tidy             close windows left with only a sidebar (hook)
   party.py --remember-width   keep the width you dragged a sidebar to (mouse binding)
   party.py --fixture F        read fake data from a JSON file instead of tmux (tests)
+
+--ask, --report-text and --summon save each round under ${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/ (kept 14 days);
+exit 5 means the action was done but the save failed (details on stderr).
 
 Design: docs/architecture.md. What is read for each agent: docs/integrations.md.
 """
@@ -29,22 +33,36 @@ import subprocess
 import sys
 import time
 
-from party_hud.collect import get_snapshot, report_text
+from party_hud.collect import FIELD_SEP, get_snapshot, report_text
 from party_hud.common import tmux_run
 from party_hud.render import render
-from party_hud.sidebars import ensure, nudge, open_report_pane, reflow, remember_width, summon, tidy, toggle
+from party_hud.sidebars import (
+    crew_asked,
+    crew_replied,
+    crew_summoned,
+    ensure,
+    nudge,
+    open_report_pane,
+    reflow,
+    remember_width,
+    summon,
+    tidy,
+    toggle,
+)
 from party_hud.ui import jump_next, run_report, run_ui
 
 
 def ask(pane, text):
-    """(rc, stdout, stderr) for party.py --ask. rc: 0 sent (stdout: the time just before sending), 2 bad or missing pane or tmux failure, 4 not an agent.
+    """(rc, stdout, stderr) for party.py --ask. rc: 0 sent (stdout: the time just before sending), 2 bad or missing pane or tmux failure, 4 not an agent, 5 sent but not saved.
     The text goes in as one bracketed paste, then Enter: codex takes an Enter right after typed keys as a newline."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
-    rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
+    rc, out, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}" + FIELD_SEP + "#{pane_current_path}"])
     if rc != 0:
         return 2, "", err or f"no such pane: {pane}\n"
-    if not any(a["pane"] == pane for t in get_snapshot()["towns"] for a in t["agents"]):
+    cwd = out.rstrip("\n").partition(FIELD_SEP)[2]
+    agent = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
+    if agent is None:
         return 4, "", f"not a known agent: {pane}\n"
     sent = time.time()
     r = subprocess.run(
@@ -57,11 +75,16 @@ def ask(pane, text):
         rc, _, err = tmux_run(["send-keys", "-t", pane, "Enter"])
     if rc != 0:
         return 2, "", err or f"tmux could not send to {pane}\n"
-    return 0, f"{sent}\n", ""
+    err = crew_asked(pane, text, sent, agent["kind"], cwd)
+    return (5 if err else 0), f"{sent}\n", err
 
 
 def main():
-    ap = argparse.ArgumentParser(description="tmux party sidebar: sessions as squads, agents as members")
+    ap = argparse.ArgumentParser(
+        description="tmux party sidebar: sessions as squads, agents as members",
+        epilog="--ask, --report-text and --summon save each round under ${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/ "
+        "(kept 14 days). Exit code 5: the action was done but saving failed (see stderr).",
+    )
     ap.add_argument("--watch", action="store_true")
     ap.add_argument("--sidebar", action="store_true")
     ap.add_argument("--toggle", action="store_true")
@@ -79,6 +102,7 @@ def main():
     ap.add_argument("--summon", metavar="AGENT")
     ap.add_argument("--cwd", metavar="DIR")
     ap.add_argument("--window", action="store_true")
+    ap.add_argument("--read-only", action="store_true", help="with --summon: enforced read-only sandbox, codex only")
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--timeout", type=float)
     ap.add_argument("--width", type=int)
@@ -106,6 +130,9 @@ def main():
         rc, out, err = report_text(
             args.report_text, args.wait, 600 if args.timeout is None else args.timeout, args.after
         )
+        if rc == 0 and out:
+            save_err = crew_replied(args.report_text, out, rc)
+            rc, err = (5, err + save_err) if save_err else (rc, err)
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)
@@ -115,7 +142,12 @@ def main():
         sys.stderr.write(err)
         sys.exit(rc)
     elif args.summon is not None:
-        rc, out, err = summon(args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout)
+        rc, out, err = summon(
+            args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout, args.read_only
+        )
+        if rc == 0:
+            save_err = crew_summoned(out.strip())
+            rc, err = (5, err + save_err) if save_err else (rc, err)
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)

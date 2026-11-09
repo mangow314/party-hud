@@ -8,7 +8,7 @@ library only):
 | `common.py` | colors, status names, classes, text width, tmux calls, the shared cursor and error log |
 | `art.py` | loads `art/`, sends images (Kitty graphics protocol), draws placeholders |
 | `collect.py` | reads tmux, agent session files, transcripts and rollouts; the shared snapshot and its lock |
-| `render.py` | draws the squad list and cards from a snapshot (pure functions) |
+| `render.py` | draws the squad list and cards from a snapshot (pure functions). The Squads frame gets the rows left after the selected card (or the first one), the border and the hint row; when the squads do not fit it keeps the viewed squad and as many neighbours as fit, with `▲ n more` / `▼ n more` rows (n counts squads, a folded `+N empty` run counts N) |
 | `sidebars.py` | opens, closes, restarts and resizes sidebar panes; installs the hooks |
 | `ui.py` | the sidebar / popup loop: input, cursor, redraws |
 
@@ -97,6 +97,17 @@ with Unicode placeholders:
 `art_supported` decides whether to use images: the `@party_art` option, otherwise the outer terminal name
 (`client_termname`) contains `ghostty` or `kitty`. Other terminals get the text version, which has the same
 information without pictures.
+
+The report pane runs on the alternate screen, so tmux has no old content to reflow while the pane is dragged. SIGWINCH wakes
+its loop through a pipe (`signal.set_wakeup_fd`); the page is redrawn in place at most once per `RESIZE_INTERVAL`, counted from the start of the render (a redraw costs
+about 55 ms for a 300-row report, so the measured rate there is about 17 per second). Images are resent under the same id only after
+`RESIZE_SETTLE` without a new signal, since each banner resend is tens of KB through passthrough.
+
+The split page's left column scrolls with nothing, so `report_parts` (fixed) cuts it to the pane height when it is taller: rows are cut from the bottom (the order is portrait and name, TOOK, ASKED, FILES, WHERE, page number, so lists go first), a dim `…` row (no arrow: the column does not scroll) stands above the hint, and the hint stays on the last content row. A portrait that the cut would split is dropped whole. This runs in `report_parts`, once per page and per resize, never per scroll step.
+
+A fresh page (the first one, `n`, `N`; not a resize, a live re-read or a scroll) opens with `report_frames`: the banner, head and left column are in every frame and the right column's paragraphs appear in at most 5 steps over `ANIM_TOTAL` (0.4 s), counting only paragraphs that start in the visible rows. `report_parts` runs once per page, and a step is one slice plus one write. The wait between steps is the loop's own `select`, so input or SIGWINCH ends the animation without being read, and the main loop handles it as before. The image wait `REPORT_ART_SETTLE` (0.3 s, shorter than the sidebar's 1 s `ART_SETTLE`, chosen by trying it in Ghostty) counts from the first frame, so the animation does not delay the images. `@party_anim off` (read once when the pane opens) turns it off.
+
+The report pane remembers each image id it has sent with its cells (`sent`, kept across pages). On a fresh page an id already sent at the same cells is not deleted or resent, so banner and portrait do not blink when `n` or `N` changes page; one sent at other cells is resent under the same id without a delete; one never sent is deleted and then sent after `REPORT_ART_SETTLE`. The first frame of a fresh page also carries the deletes for the ids never sent (`report_first_deletes`), so a stale image under the same id in the terminal is gone before the placeholders show. The sidebar portrait is never deleted, since it shares its id with the sidebar. When the pane ends normally it deletes every image it sent (again except the sidebar portrait) in the same write that leaves the alternate screen, so the next report page finds no older image under its ids to show; a pane that is killed cleans up nothing.
 
 ## HP / SP bars
 

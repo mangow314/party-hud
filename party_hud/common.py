@@ -15,6 +15,7 @@ C = {
     "dim": (138, 143, 168),
     "gold": (226, 178, 74),
     "amber": (224, 122, 58),
+    "code": (140, 207, 224),
     "blue": (127, 167, 232),
     "green": (143, 191, 106),
     "warn": (240, 160, 80),
@@ -133,8 +134,8 @@ def tmux_run(args, timeout=None):
     return r.returncode, r.stdout, r.stderr
 
 
-def capture(pane):
-    return tmux("capture-pane", "-p", "-t", pane).splitlines()
+def capture(pane, color=False):
+    return tmux("capture-pane", "-p", *(["-e"] if color else []), "-t", pane).splitlines()
 
 
 CURSOR = os.path.join(PARTY_DIR, "cursor.json")

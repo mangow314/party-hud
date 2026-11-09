@@ -1,8 +1,8 @@
-"""Turn raw/portrait-<class>.png into the framed portraits in art/ (192x216).
+"""Turn raw/portrait-<class>.png into the framed portraits in art/ (192x216 and 384x432 RGBA, both with a gold octagon frame and glow; the small one is simplified for the sidebar).
 
 Steps: crop to 8:9, cut the character out of the plain dark background (flood fill from the edges),
 paint a new background (radial glow, light rays, bokeh, four-point stars, one color per class),
-add a soft halo behind the character and a silver frame.
+add a soft halo behind the character and a gold frame.
 """
 
 import math
@@ -17,8 +17,14 @@ RAW = os.path.join(HERE, "raw")
 OUT = os.path.join(HERE, "..", "..", "art")
 OUT_W, OUT_H = 192, 216
 DARK = (14, 16, 28)
-# Silver frame: the selected card already uses a gold border, so a gold frame would blend in
-SILVER_HI, SILVER, SILVER_LO = (236, 240, 248), (176, 184, 200), (92, 100, 120)
+BIG_SCALE = 2
+GOLD_HI, GOLD, GOLD_MID, GOLD_LO = (255, 236, 170), (240, 200, 105), (214, 156, 64), (170, 110, 44)
+GOLD_LINE = (42, 26, 8)
+FRAME_BANDS = (GOLD_LINE, GOLD_LO, GOLD_MID, GOLD, GOLD_HI, GOLD, GOLD_MID, GOLD_LINE)
+BAND, GLOW_MARGIN, FRAME_CUT = 12, 60, 230
+SMALL_BANDS = (GOLD_LINE, GOLD, GOLD_HI, GOLD_MID)
+SMALL_MARGIN, SMALL_CUT, SMALL_GEM = 6, 120, 52
+STAR = (255, 250, 225)
 COLORS = {  # class: (background color, glow color)
     "swordsman": ((150, 40, 48), (255, 170, 120)),
     "merchant": ((150, 110, 30), (255, 226, 140)),
@@ -118,35 +124,115 @@ def gacha_bg(size, base, glow, seed):
     return Image.composite(Image.new("RGB", size, (255, 255, 245)), img, stars.filter(ImageFilter.GaussianBlur(0.8)))
 
 
-def frame(im):
-    """Silver bevel frame (5 lines, brightest in the middle), a dark inner line and small corner diamonds."""
-    d = ImageDraw.Draw(im)
+def octagon(t, w, h, cut):
+    k = cut + 0.414 * t
+    return [(k, t), (w - k, t), (w - t, k), (w - t, h - k), (w - k, h - t), (k, h - t), (t, h - k), (t, k)]
+
+
+def gem(d, cx, cy, r, col):
+    for rr, fill, line, lw in (
+        (r, GOLD_MID, GOLD_LINE, 8),
+        (r * 0.75, GOLD_HI, GOLD_LO, 4),
+        (r * 0.56, col, GOLD_LINE, 4),
+    ):
+        d.polygon([(cx, cy - rr), (cx + rr, cy), (cx, cy + rr), (cx - rr, cy)], fill=fill, outline=line, width=lw)
+    g = r * 0.56
+    d.ellipse([cx - g * 0.5, cy - g * 0.72, cx - g * 0.05, cy - g * 0.27], fill=(255, 255, 255))
+
+
+def rivet(d, cx, cy, r):
+    d.ellipse([cx - r, cy - r, cx + r, cy + r], fill=GOLD, outline=GOLD_LINE, width=8)
+    g = r * 0.62
+    d.ellipse([cx - g, cy - g, cx + g, cy + g], fill=GOLD_LO, outline=GOLD_LINE, width=4)
+    d.ellipse([cx - g * 0.6, cy - g * 0.65, cx - g * 0.1, cy - g * 0.15], fill=GOLD_HI)
+
+
+def star(d, cx, cy, r):
+    s = r * 0.26
+    d.polygon(
+        [
+            (cx, cy - r),
+            (cx + s, cy - s),
+            (cx + r, cy),
+            (cx + s, cy + s),
+            (cx, cy + r),
+            (cx - s, cy + s),
+            (cx - r, cy),
+            (cx - s, cy - s),
+        ],
+        fill=STAR,
+    )
+
+
+def gold_frame(im, glow, small=False):
+    """RGBA gold frame on the 4x work canvas: a transparent margin of GLOW_MARGIN holds a translucent class-colored glow and
+    four-point stars; inside it a cut-corner octagon with 8 bevel bands of 12 px (3 output px), corner gems and rivets.
+    small: the sidebar version (about 55 screen px wide) with 4 bands, a thin margin, bigger corner cuts, no rivets or stars."""
     w, h = im.size
-    ss = w // OUT_W
-    for k, col in enumerate((SILVER_LO, SILVER, SILVER_HI, SILVER, SILVER_LO)):
-        d.rectangle([k * ss, k * ss, w - 1 - k * ss, h - 1 - k * ss], outline=col, width=ss)
-    d.rectangle([5 * ss, 5 * ss, w - 1 - 5 * ss, h - 1 - 5 * ss], outline=DARK, width=ss)
-    r = 7 * ss
-    for cx, cy in ((0, 0), (w, 0), (0, h), (w, h)):
-        cx, cy = min(max(cx, r), w - r), min(max(cy, r), h - r)
-        d.polygon([(cx, cy - r), (cx + r, cy), (cx, cy + r), (cx - r, cy)], fill=SILVER_HI, outline=SILVER_LO)
-    return im
+    m = SMALL_MARGIN if small else GLOW_MARGIN
+    cut = SMALL_CUT if small else FRAME_CUT
+    bands = SMALL_BANDS if small else FRAME_BANDS
+
+    def shape(t):
+        return octagon(t + m, w, h, cut)
+
+    halo = Image.new("L", im.size, 0)
+    ImageDraw.Draw(halo).polygon(shape(-6 if small else -22), fill=255)
+    out = Image.new("RGBA", im.size, (*glow, 0))
+    out.putalpha(halo.filter(ImageFilter.GaussianBlur(6 if small else 30)).point(lambda v: int(v * 0.95)))
+    frame_img = Image.new("RGBA", im.size, (0, 0, 0, 0))
+    d = ImageDraw.Draw(frame_img)
+    for i, col in enumerate(bands):
+        d.polygon(shape(i * BAND), fill=col)
+    win = Image.new("L", im.size, 0)
+    ImageDraw.Draw(win).polygon(shape(len(bands) * BAND), fill=255)
+    frame_img.paste(im, (0, 0), win)
+    d = ImageDraw.Draw(frame_img)
+    gc, gr = (66, SMALL_GEM) if small else (150, 78)
+    for cx, cy in ((gc + m, gc + m), (w - gc - m, gc + m), (gc + m, h - gc - m), (w - gc - m, h - gc - m)):
+        gem(d, cx, cy, gr, glow)
+    if small:
+        out.alpha_composite(frame_img)
+        return out
+    for x in (w * 0.33, w * 0.67):
+        for y in (50 + m, h - 50 - m):
+            rivet(d, x, y, 28)
+    for y in (h * 0.33, h * 0.5, h * 0.67):
+        for x in (50 + m, w - 50 - m):
+            rivet(d, x, y, 28)
+    out.alpha_composite(frame_img)
+    d = ImageDraw.Draw(out)
+    for x, y, r in (
+        (m + 40, m + 40, 96),
+        (w - m - 90, m + 200, 80),
+        (m + 20, h - m - 260, 72),
+        (w - m - 40, h - m - 40, 96),
+    ):
+        star(d, x, y, r)
+    return out
 
 
-def portrait(cls):
+def portrait(cls, big=False):
     base, glow = COLORS[cls]
+    k = BIG_SCALE if big else 1
     im = crop89(Image.open(os.path.join(RAW, f"portrait-{cls}.png")).convert("RGB"))
-    big = im.resize((OUT_W * 4, OUT_H * 4), Image.Resampling.LANCZOS)
-    mask = cutout(big)
-    bg = gacha_bg(big.size, base, glow, seed=sum(map(ord, cls)))
-    halo = mask.filter(ImageFilter.MaxFilter(9)).filter(ImageFilter.GaussianBlur(10))  # soft rim light
-    bg = Image.composite(Image.new("RGB", big.size, glow), bg, halo.point(lambda v: int(v * 0.35)))
-    out = frame(Image.composite(big, bg, mask))
-    return out.resize((OUT_W, OUT_H), Image.Resampling.LANCZOS)
+    work = im.resize((OUT_W * k * 4, OUT_H * k * 4), Image.Resampling.LANCZOS)
+    mask = cutout(work)
+    bg = gacha_bg(work.size, base, glow, seed=sum(map(ord, cls)))
+    halo = mask.filter(ImageFilter.MaxFilter(8 * k + 1)).filter(ImageFilter.GaussianBlur(10 * k))  # soft rim light
+    bg = Image.composite(Image.new("RGB", work.size, glow), bg, halo.point(lambda v: int(v * 0.35)))
+    comp = Image.composite(work, bg, mask)
+    out = gold_frame(comp, glow, small=not big)
+    return out.resize((OUT_W * k, OUT_H * k), Image.Resampling.LANCZOS)
 
 
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     for cls in COLORS:
-        portrait(cls).quantize(256).save(os.path.join(OUT, f"portrait-{cls}.png"), optimize=True)
+        # Reduced to 256 colors for size but stored as RGBA truecolor (PNG type 6), not a palette
+        small = portrait(cls).quantize(256, method=Image.Quantize.FASTOCTREE).convert("RGBA")
+        small.save(os.path.join(OUT, f"portrait-{cls}.png"), optimize=True)
         print(f"portrait-{cls}.png")
+        big = portrait(cls, big=True).quantize(256, method=Image.Quantize.FASTOCTREE).convert("RGBA")
+        big.save(os.path.join(OUT, f"portrait-big-{cls}.png"), optimize=True)
+        print(f"portrait-big-{cls}.png")

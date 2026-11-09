@@ -6,7 +6,7 @@
 每個 tmux session 是一個**小隊**，裡面跑的 agent（Claude Code、Codex、agy、Grok）是**隊員**：
 有頭像、狀態、**HP**（剩餘 context）和 **SP**（prompt cache 還剩幾分鐘）。
 
-<img src="docs/img/window.png" width="780" alt="一個 tmux window：左邊是 party-hud 側欄，有四個小隊和三張隊員卡；右邊的 pane 有 agent 在工作">
+<img src="docs/img/window.svg" width="780" alt="一個 tmux window：左邊是 party-hud 側欄，有四個小隊和三張隊員卡；右邊的 pane 有 agent 在工作">
 
 - **一眼看出誰在等你**：
   - 有人等你回應，小隊變橘色。
@@ -17,7 +17,9 @@
 - **直接跳過去**：`n` 跳到下一個等你的隊員，沒有等你的就跳到做完的。`Enter` 切到那個隊員的 pane。
 - **知道什麼時候該 compact**：
   - HP 是剩餘的 context（`620k/1M`），剩不到 10% 會閃爍。
-  - SP 是快取倒數（`59/60m`）。歸零後，下一句話會重新讀入整段 context。
+  - SP 是快取倒數（`59/60m`）。歸零後，下一句話會重新讀入整段 context。沒有快取資料的隊員不顯示 SP 列。
+  - 側欄很窄時先截斷名字，HP 數值（剩餘/上限）保持完整。連續的空小隊收成一列 `+N empty`（游標所在的小隊一律顯示）。小隊太多時 Squads 框會縮小並以目前檢視的小隊為中心，上下以 `▲ n more` / `▼ n more` 表示被藏起來的數量，選取的卡片永遠看得到。
+- **看得到變化**：隊員變成做完或等你時，卡片框線慢速閃約 4 秒，Squads 列表中該 Squad 的名稱也會跟著閃，在別的 Squad 也看得到；HP 或 SP 大幅變化（5 以上）時，數字旁會顯示變化量約 10 秒：HP 以百分點表示（`+40%`），SP 以分鐘表示（`-12`）。`set -g @party_anim off` 可關閉。
 - **很省資源**：
   - 不管開幾個側欄，只有一個行程負責收集資料，最多每 2 秒一次。其他側欄只讀共用的快照檔。每個側欄每秒醒來一次，畫面有變才重畫。
   - 只有看得到的側欄會留著行程（每個約 25 MB）；看不到的會停掉，切到那個 window 時再重新啟動。
@@ -29,7 +31,7 @@
 
 ## 怎麼看隊員卡
 
-<img src="docs/img/card.png" width="590" alt="一張隊員卡，編號標出：agent 種類、頭像、職業圖示與名稱、狀態、HP、模型、SP、子代理">
+<img src="docs/img/card.svg" width="590" alt="一張隊員卡，編號標出：agent 種類、頭像、職業圖示與名稱、狀態、HP、模型、SP、子代理">
 
 | 編號 | 意思 |
 |---|---|
@@ -92,7 +94,7 @@ adjust-underline-thickness = 3
 | `prefix C-t` | 在所有 window 開／關側欄 |
 | `prefix P` | popup 版 |
 | `prefix a` | 不開任何東西，直接跳到下一個等你或做完的隊員 |
-| `prefix R` | 任務回報：看等你或做完的隊員最後交出的報告 |
+| `prefix R` | 任務回報：先看等你或做完的，沒有的話看目前視窗的隊員；`n` 輪到所有隊員 |
 | `j`／`k` | 同一隊的下一位／上一位（到頭尾就停） |
 | `J`／`K` | 下一隊／上一隊 |
 | `1`–`9` | 這隊第 N 位 |
@@ -101,18 +103,30 @@ adjust-underline-thickness = 3
 | `v` | 看那位隊員最後幾行輸出 |
 | `r` | 在側欄裡：用 pane 開選中隊員的任務回報 |
 | `Esc`／`q` | 回到原本的 pane／收起全部側欄 |
+| `?` | 開／關按鍵說明（任務回報裡也能用）；說明開著時 `Esc`／`q` 只關說明 |
+
+<img src="docs/img/help.svg" width="780" alt="任務回報頁的按鍵說明：置中的框裡列出每個按鍵和用途，後面的報告頁變暗">
 
 拖側欄邊框可以調寬度，所有側欄會一起記住新寬度，最窄 30 欄。
 
 ### 任務回報
 
-隊員做完或停下來等你時，`prefix R` 會開一個 pane，顯示它最後交出的報告：標題寫 `Quest complete`，旁邊是隊員頭像（Ghostty、Kitty），下面是隊員名稱、花了多久（從你送出指令到它回完）、剩下的 HP，再下面是報告本文，Markdown 會上色。tmux 3.8 以上是浮在視窗上的 pane；更舊的 tmux 則把目前視窗切成兩半。
+<img src="docs/img/report.svg" width="780" alt="寬 pane 裡已完成隊員的任務回報頁：上方 Quest Complete 橫幅，左邊粗線框有頭像、名稱、TOOK、WAITED、ASKED、FILES、WHERE；右邊是 Markdown 報告，有標題、條列、小表格和程式碼區塊">
 
+`prefix R` 會開一個 pane，先顯示做完或等你的隊員最後交出的報告；沒有的話顯示目前視窗的隊員（閒置的看最後一份報告，工作中的看進行中頁），按 `n` 輪到所有隊員。Ghostty、Kitty 上，頁面最上方是一張像素橫幅（最高 10 列，窄版最寬 80 欄，標題畫在圖裡），橫幅下面是隊員頭像；其他終端機則是一行文字標題。接著是隊員名稱、花了多久（從你送出指令到它回完）、剩下的 HP，再下面是報告本文，Markdown 會上色（表格放得下就排成對齊的欄位，放不下就改成逐列「欄名：內容」）。tmux 3.8 以上是浮在視窗上的 pane；更舊的 tmux 則把目前視窗切成兩半。
+
+- pane 寬 100 欄以上（且有圖）時，頁面分成左右兩欄：左邊粗線框裡是金框大頭像（約與橫幅同高、置中、頂端與橫幅對齊）、名稱、狀態標籤（`✓ Complete` 或 `! Waiting`）、`kind · squad`、`TOOK` 和 `WAITED`（標籤靠左、值靠右；等你時 `WAITED` 那列有橙色底帶和 `!`）、`ASKED`（這輪你親手輸入的提問，最多 3 列；貼上的內容只在你沒另外打字時顯示；slash 指令顯示 `/name args`，通知等系統訊息不算）、`FILES`（每個檔前有 `•`；這輪改過的檔，相對 pane 目錄，太長從左截斷，最多 6 列、超過寫 `+N more`；其後一列 `14 cmds · 3 agents`，為 0 的項目省略；subagent 改的檔不計入）、`WHERE`（完整路徑（家目錄寫成 `~`）與 git 分支），框一路延伸到 pane 左下角，按鍵提示在框內最後一列。小標題是像素圖標籤（寶石、光暈、各自分色：`TOOK` 青、`WAITED` 橙、`ASKED` 金、`FILES` 與 `WORK` 綠、`WHERE` 紫；沒有圖時改用同色粗體文字），框線顏色依狀態：完成金、等你橙、有報告藍、進行中藍紫。右邊是橫幅（最高 10 列，寬度撐滿右欄；pane 極寬時最扁到 8:1，右邊留空）和報告本文；本文與橫幅同寬換行，程式碼區塊和 `Last output` 不受限。
+- 每換一頁（開啟後第一頁、`n`／`N`）有約 0.4 秒的開場動畫：橫幅和左欄直接出現，報告本文分幾步露出。任何鍵盤或滑鼠輸入都會立刻跳過動畫，並照常處理。`set -g @party_anim off` 可關閉。
 - Claude Code 的報告是最後一輪回覆裡、最後一次工具呼叫之後的文字；Codex 是最後一次完成的回覆。
-- 沒有報告時改顯示 pane 最後幾行（`Last output`）：agy、Grok 一律如此；在等你核准或回答問題的 Claude 通常也是，問題就在那幾行裡。
-- 報告比 pane 高時，pane 會開在 tmux copy-mode 並停在第一行，用 copy-mode 的按鍵捲動或複製；先按 `q` 離開 copy-mode，`n`、`Enter`、`q` 才有作用。放得下的報告直接顯示。
+- 沒有報告時改顯示 pane 最後幾行（`Last output`）：agy、Grok 一律如此；在等你核准或回答問題的 Claude 通常也是，問題就在那幾行裡，顏色保留 pane 原本的樣子。等你的隊員一律用 `Waiting` 橫幅（有報告或還有 subagent 在跑也一樣）；其他沒有報告的用 `Last output`。
+- 還在工作的 Claude Code 或 Codex 隊員顯示「進行中」頁：一列狀態（`進行中 · 已 12m 03s`，從你最後輸入的提問算起）、「現在」區塊（最新一次工具呼叫與最新文字的最後幾列），再接上一輪的報告。頁面開著時約每 1.5 秒重讀一次，隊員做完或等你時自動換成正式報告。左欄顯示這輪的 `ASKED`、`FILES`、`WHERE`，以 `RUNNING` 標籤（值是已跑多久）取代 `TOOK`。
+
+  <img src="docs/img/report-working.svg" width="780" alt="工作中隊員的進行中頁：一列狀態與已跑時間、「現在」區塊（最新工具呼叫與文字）、上一輪的報告；左欄有 RUNNING 標籤">
+
+- 分欄頁面的左欄固定不動，只有右欄（橫幅和本文）捲動；窄 pane 則整頁一起捲。用 `j`／`k`、方向鍵或滾輪捲一列，`PgUp`／`PgDn` 捲一頁，`g`／`G` 跳到頂／底。放得下的報告不會動。要複製文字請按住 `Shift` 拖曳（交給終端機選取）。
+- 縮放 pane 時報告立刻以新尺寸就地重畫（算得出來就畫，不另外延遲），不清整個畫面；圖片等縮放停下片刻後才跟上。
 - 在浮動的報告 pane 上再切分出 pane，關掉那個 pane 後報告 pane 不會長回原大小；按 `q` 再按 `prefix R` 重開即可。
-- `n` 看下一份，`Enter` 切到那位隊員的 pane，`q`／`Esc` 關閉這個 pane。
+- `n` 看下一份，`N` 看上一份，`Enter` 切到那位隊員的 pane，`q`／`Esc` 關閉這個 pane，`?` 列出所有按鍵（再按 `?`／`Esc`／`q` 回到原本位置）。
 - 看完報告不會清掉「做完」的標記，切到那個 pane 才會。
 - Claude Code 隊員還有 subagent 在跑時，同樣有報告頁。標題從 `Quest complete` 改成 `還有 N 個分支任務進行中`（N 是進行中的
   subagent 數），報告下方逐一列出進行中的 subagent，附名稱與 `進行中`。
@@ -151,8 +165,12 @@ t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "你的問題")
 python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
 ```
 
-`--summon` 退出碼：0 就緒、2 參數錯誤或 tmux 失敗、3 逾時（可加 `--cwd DIR`、`--window`、`--timeout SEC`）。`--ask`：0 已送出、2 pane 錯誤或不存在、4 不是 agent。
+`--summon` 退出碼：0 就緒、2 參數錯誤或 tmux 失敗、3 逾時（可加 `--cwd DIR`、`--window`、`--timeout SEC`）。`--summon codex --read-only` 以 codex 的強制唯讀沙箱（`-s read-only`）啟動；其他 agent 沒有這種模式，會以 2 退出。`--ask`：0 已送出、2 pane 錯誤或不存在、4 不是 agent。
 側欄仍然只讀；這些指令只在被呼叫時才開 pane 或送按鍵。
+
+每一輪問答都會存到 `~/.local/state/party-hud/crew/`（有設 `XDG_STATE_HOME` 時改用 `$XDG_STATE_HOME/party-hud/crew/`）下的 `<開始時間 UTC>-<pane id>/round-NNN/`
+（`question.md`、`reply.md`、`meta.json`），事後可查。`--summon` 會刪掉 14 天沒動的 session 目錄。存檔失敗時，`--ask`、
+`--report-text`、`--summon` 做完事後以 5 退出，原因印在 stderr。
 
 `skills/party-crew/SKILL.md` 教 Claude Code 何時呼叫它們。連結一次即可：
 
@@ -171,6 +189,7 @@ ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
 | `@party_key_next` | `a` | 「跳到下一個等你的」的鍵 |
 | `@party_key_report` | `R` | 任務回報的鍵 |
 | `@party_art` | `auto` | `on`／`off` 強制開／關圖片；`auto` 在 Ghostty、Kitty 自動開 |
+| `@party_anim` | `on` | 設為 `off` 關閉報告頁的開場動畫，以及側欄的卡片閃爍和 HP／SP 的 `+N`／`-N` 標籤 |
 | `@party_sidebar_width` | `34` | 側欄寬度（欄） |
 
 圖片靠 tmux 的 `allow-passthrough` 送到終端機。party-hud 只對自己的側欄 pane 開這個選項，其他 pane 裡的程式仍然不能把控制序列直接送到你的終端機。`prefix P` 的 popup 不是 pane，要在 `~/.tmux.conf` 自己全域設 `allow-passthrough on` 才會有圖片（這樣每個 pane 都能繞過 tmux）；沒設就用文字版。
@@ -180,8 +199,8 @@ ln -s "$PWD/skills/party-crew" ~/.claude/skills/party-crew
 | Agent | 狀態 | HP | SP |
 |---|---|---|---|
 | Claude Code | `~/.claude/sessions/*.json`（busy／idle） | statusline 整合，或從 transcript 推估 | 從 transcript 讀快取 TTL |
-| Codex | 畫面有沒有變化 | `~/.codex/sessions` 的 rollout 紀錄檔 | 拿不到（`--`） |
-| agy、Grok | 畫面有沒有變化 | `--` | `--` |
+| Codex | 畫面有沒有變化 | `~/.codex/sessions` 的 rollout 紀錄檔 | 不顯示 |
+| agy、Grok | 畫面有沒有變化 | `--` | 不顯示 |
 
 pane 的指令是上面這些 agent，或它的子行程裡有這些 agent（例如跑在 `node` 或包裝腳本底下），就算隊員。
 Claude Code 自己回報在等你時，隊員會顯示等你，不用另外設定。

@@ -11,6 +11,7 @@ import time
 import unicodedata
 import zlib
 from datetime import datetime, timedelta
+from typing import Any
 
 from .common import (
     CLASSES,
@@ -50,6 +51,7 @@ TMUX_FIELDS = [
 ]
 # wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
+READ_ONLY_CMDS = {"codex": "codex -s read-only"}
 
 
 HAVE_PROC = os.path.isdir("/proc/self")
@@ -274,16 +276,23 @@ def codex_usage(path):
     return None
 
 
-def codex_report(path):
-    """Last finished turn of a rollout -> {"text", "start", "end"} (epoch seconds, start may be None), or None."""
+def _tail_lines(path, size=256 * 1024):
     try:
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 256 * 1024))
-            lines = f.read().splitlines()
+            f.seek(max(0, f.tell() - size))
+            return f.read().splitlines()
     except OSError:
-        return None
-    for raw in reversed(lines):
+        return []
+
+
+def codex_report(path):
+    """Last finished turn of a rollout -> {"text", "start", "end"} (epoch seconds, start may be None), or None."""
+    return _codex_answer(reversed(_tail_lines(path)))
+
+
+def _codex_answer(lines):
+    for raw in lines:
         if b'"task_complete"' not in raw:
             continue
         try:
@@ -295,6 +304,119 @@ def codex_report(path):
         text = (p.get("last_agent_message") or "").strip()
         return {"text": text, "start": p.get("started_at"), "end": p.get("completed_at")} if text else None
     return None
+
+
+def codex_task(path):
+    """Last finished turn of a rollout -> {"ask", "files", "cmds", "agents"}, or None when its task_started lies before the tail that is read. Codex runs edits through commands, so files and agents stay 0."""
+    lines = _tail_lines(path)
+    turn = None
+    for raw in reversed(lines):
+        if b'"task_complete"' not in raw:
+            continue
+        try:
+            p = json.loads(raw)["payload"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if p.get("type") == "task_complete":
+            turn = p.get("turn_id")
+            break
+    ask, cmds, started = None, 0, False
+    for raw in lines:
+        if turn is None or (b'"item_completed"' not in raw and b'"task_started"' not in raw):
+            continue
+        try:
+            p = json.loads(raw)["payload"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if p.get("turn_id") != turn:
+            continue
+        if p.get("type") == "task_started":
+            started = True
+            continue
+        item = p.get("item") or {}
+        if not started:
+            continue
+        if item.get("type") == "UserMessage" and ask is None:
+            parts = [
+                c.get("text", "") for c in item.get("content") or [] if isinstance(c, dict) and c.get("type") == "text"
+            ]
+            ask = "\n".join(parts).strip() or None
+        elif item.get("type") == "CommandExecution":
+            cmds += 1
+    return {"ask": ask, "files": 0, "cmds": cmds, "agents": 0} if started else None
+
+
+def codex_live(path):
+    """The turn in progress -> {"live": True, "task", "start", "end": None, "tool", "said", "prev"}, or None when the newest turn event is not a task_started.
+    Same shape as claude_live: start = task_started's started_at, tool = newest tool call as one row, said = newest agent message, prev = codex_report-shaped answer of the turn before (or None).
+    Only the last LIVE_TAIL bytes are read; a turn that began before that has no ask or start."""
+    lines = _tail_lines(path, LIVE_TAIL)
+    if not lines:
+        return None
+    turn, first = None, 0
+    for i in range(len(lines) - 1, -1, -1):
+        raw = lines[i]
+        if b'"task_complete"' not in raw and b'"task_started"' not in raw:
+            continue
+        try:
+            p = json.loads(raw)["payload"]
+        except (ValueError, KeyError, TypeError):
+            continue
+        if p.get("type") == "task_complete":
+            return None
+        if p.get("type") == "task_started":
+            turn, first = p, i
+            break
+    ask, cmds, tool, said = None, 0, None, None
+    for raw in lines[first:]:
+        try:
+            rec = json.loads(raw)
+            p = rec["payload"]
+            item = p.get("item") or {}
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if rec.get("type") == "response_item" and p.get("type") in (
+            "function_call",
+            "custom_tool_call",
+            "local_shell_call",
+        ):
+            tool = tool_row(p)
+        elif item.get("type") == "UserMessage" and ask is None and turn:
+            ask = "\n".join(_codex_text(item)).strip() or None
+        elif item.get("type") == "CommandExecution" and turn:
+            cmds += 1
+        elif item.get("type") == "AgentMessage":
+            said = "\n".join(_codex_text(item)).strip() or said
+    prev = _codex_answer(reversed(lines[:first]))
+    start = turn.get("started_at") if turn else None
+    task = {"ask": ask, "files": 0, "cmds": cmds, "agents": 0} if turn else {}
+    return {"live": True, "task": task, "start": start, "end": None, "tool": tool, "said": said, "prev": prev}
+
+
+def _codex_text(item):
+    return [
+        c.get("text", "")
+        for c in item.get("content") or []
+        if isinstance(c, dict) and str(c.get("type")).lower() == "text"
+    ]
+
+
+def tool_row(call):
+    """One printable row for a Codex tool call: its name and the first line of its input."""
+    raw = call.get("input") or call.get("arguments") or call.get("action") or ""
+    if isinstance(raw, str):
+        try:
+            raw = json.loads(raw)
+        except ValueError:
+            pass
+    if isinstance(raw, dict):
+        raw = raw.get("cmd") or raw.get("command") or raw.get("query") or ""
+    if isinstance(raw, list):
+        raw = raw[-1] if raw else ""
+    arg = next((ln.strip() for ln in str(raw).split("\n") if ln.strip()), "")[:300]
+    return printable(
+        f"{call.get('name') or call.get('type')}: {arg}" if arg else str(call.get("name") or call.get("type"))
+    )
 
 
 ACTIVE_WINDOW = 4.0  # screen changed this recently = working (spinners and timers keep changing)
@@ -484,66 +606,229 @@ def _epoch(ts):
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
 
 
+def _records_backwards(f, limit=None):
+    """Parsed (record, content) of a JSONL transcript from the end, at most limit bytes of it when given; lines that are not records are skipped."""
+    pos, carry = f.seek(0, os.SEEK_END), b""
+    floor = max(0, pos - limit) if limit else 0
+    while pos > floor:
+        start = max(floor, pos - 256 * 1024)
+        f.seek(start)
+        lines = (f.read(pos - start) + carry).split(b"\n")
+        carry = lines.pop(0) if start else b""
+        pos = start
+        for raw in reversed(lines):
+            try:
+                rec = json.loads(raw)
+                yield rec, rec["message"]["content"]
+            except (ValueError, KeyError, TypeError):
+                continue
+
+
 def claude_report(path, sidechain=False):
     """Final answer of the last answered turn -> {"text", "start", "end"} (epoch seconds, start may be None), or None.
     The answer is the text after the turn's last tool call. A prompt nobody answered (a `!` command, /cost) is skipped.
     A subagent's own log is all sidechain records: pass sidechain=True to read it."""
-    texts, end, collecting, replied = [], None, True, False
     try:
         with open(path, "rb") as f:
-            pos, carry = f.seek(0, os.SEEK_END), b""
-            while pos:
-                start = max(0, pos - 256 * 1024)
-                f.seek(start)
-                lines = (f.read(pos - start) + carry).split(b"\n")
-                carry = lines.pop(0) if start else b""
-                pos = start
-                for raw in reversed(lines):
-                    try:
-                        rec = json.loads(raw)
-                        content = rec["message"]["content"]
-                    except (ValueError, KeyError, TypeError):
-                        continue
-                    if (rec.get("isSidechain") and not sidechain) or rec.get("isMeta"):
-                        continue
-                    blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
-                    blocks = [b for b in blocks if isinstance(b, dict)]
-                    kinds = {b.get("type") for b in blocks}
-                    if rec.get("type") == "assistant":
-                        replied = True
-                        if "tool_use" in kinds:
-                            if not texts:
-                                # Claude Code 2.1.x subagents deliver their report via a SubagentHandback tool call
-                                handed = sidechain and next(
-                                    (
-                                        (b.get("input") or {}).get("message")
-                                        for b in blocks
-                                        if b.get("type") == "tool_use" and b.get("name") == "SubagentHandback"
-                                    ),
-                                    None,
-                                )
-                                if not isinstance(handed, str) or not handed.strip():
-                                    return None
-                                texts.append(handed.strip())
-                                end = _epoch(rec.get("timestamp"))
-                            collecting = False
-                        elif collecting:
-                            said = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
-                            if said:
-                                texts.insert(0, said)
-                                end = end or _epoch(rec.get("timestamp"))
-                    elif rec.get("type") == "user":
-                        if "tool_result" in kinds:
-                            if not texts and not sidechain:
-                                return None
-                            collecting = False
-                        elif replied:
-                            if not texts:
-                                return None
-                            return {"text": "\n\n".join(texts), "start": _epoch(rec.get("timestamp")), "end": end}
+            return _claude_answer(_records_backwards(f), sidechain)
     except OSError:
         return None
+
+
+def _claude_answer(records, sidechain=False):
+    texts, end, collecting, replied = [], None, True, False
+    for rec, content in records:
+        if (rec.get("isSidechain") and not sidechain) or rec.get("isMeta"):
+            continue
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+        blocks = [b for b in blocks if isinstance(b, dict)]
+        kinds = {b.get("type") for b in blocks}
+        if rec.get("type") == "assistant":
+            replied = True
+            if "tool_use" in kinds:
+                if not texts:
+                    # Claude Code 2.1.x subagents deliver their report via a SubagentHandback tool call
+                    handed = sidechain and next(
+                        (
+                            (b.get("input") or {}).get("message")
+                            for b in blocks
+                            if b.get("type") == "tool_use" and b.get("name") == "SubagentHandback"
+                        ),
+                        None,
+                    )
+                    if not isinstance(handed, str) or not handed.strip():
+                        return None
+                    texts.append(handed.strip())
+                    end = _epoch(rec.get("timestamp"))
+                collecting = False
+            elif collecting:
+                said = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip()
+                if said:
+                    texts.insert(0, said)
+                    end = end or _epoch(rec.get("timestamp"))
+        elif rec.get("type") == "user":
+            if "tool_result" in kinds:
+                if not texts and not sidechain:
+                    return None
+                collecting = False
+            elif replied:
+                if not texts:
+                    return None
+                return {"text": "\n\n".join(texts), "start": _epoch(rec.get("timestamp")), "end": end}
     return {"text": "\n\n".join(texts), "start": None, "end": end} if texts else None
+
+
+FILE_TOOLS = ("Edit", "Write", "MultiEdit", "NotebookEdit")
+INJECTED_PREFIXES = (
+    "<task-notification>",
+    "<local-command-",
+    "<bash-input>",
+    "<bash-stdout>",
+    "<bash-stderr>",
+    "[Request interrupted",
+)
+SYSTEM_REMINDER = re.compile(r"<system-reminder>.*?</system-reminder>", re.DOTALL)
+COMMAND_TAG = re.compile(r"<command-(name|args)>(.*?)</command-\1>", re.DOTALL)
+# Claude Code wraps pasted text as <pasted_content id="x">...</pasted_content id="x">
+PASTED_BLOCK = re.compile(r'<pasted_content id="([^"]*)">(.*?)</pasted_content id="\1">', re.DOTALL)
+PASTED_OPEN = re.compile(r"<pasted_content\b[^>]*>[ \t]*\n?")
+
+
+def claude_typed(rec, text):
+    """The text the user typed in a type-user record, or None when Claude Code injected it (task notification, peer or plugin message, hook output, ! command, interrupt marker, compact summary) or nothing is left after removing system reminders.
+    A slash command comes back as "/name args"."""
+    origin = rec.get("origin")
+    if (isinstance(origin, dict) and origin.get("kind") != "human") or rec.get("isCompactSummary"):
+        return None
+    text = SYSTEM_REMINDER.sub("", text).strip()
+    if text.startswith(INJECTED_PREFIXES):
+        return None
+    tags = {k: v.strip() for k, v in COMMAND_TAG.findall(text)}
+    if "name" in tags:
+        return " ".join(t for t in (tags["name"], tags.get("args")) if t)
+    parts = PASTED_BLOCK.split(text)
+    outside = [PASTED_OPEN.sub("", p).strip() for p in parts[::3]]
+    typed = "\n".join(p for p in outside if p)
+    text = typed or "\n".join(p for p in (p.strip() for p in parts[2::3]) if p)
+    return text or None
+
+
+def tool_summary(name, args):
+    """One printable row for a tool call: "Edit path" for file tools, "Name: main argument" otherwise."""
+    if name in FILE_TOOLS or name == "Read":
+        arg = args.get("file_path") or args.get("notebook_path")
+    else:
+        arg = next(
+            (args[k] for k in ("command", "description", "pattern", "url", "query", "prompt") if args.get(k)), None
+        )
+    arg = printable(arg.strip().split("\n")[0][:300]) if isinstance(arg, str) else ""
+    sep = " " if name in FILE_TOOLS or name == "Read" else ": "
+    return printable(f"{name}{sep}{arg}") if arg else printable(str(name))
+
+
+def _claude_turn(records, live=False):
+    """Walk records (newest first) back to the user's last typed prompt and stop there; records stays positioned just before it.
+    -> ({"ask", "files", "cmds", "agents"}, start, tool, said): start = the prompt's epoch seconds, tool = summary of the newest tool call, said = the newest assistant text.
+    Without live a prompt counts only once something answered it."""
+    steps, cmds, agents, replied = [], 0, 0, False
+    ask = start = tool = said = None
+    for rec, content in records:
+        if rec.get("isSidechain") or rec.get("isMeta"):
+            continue
+        blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+        blocks = [b for b in blocks if isinstance(b, dict)]
+        if rec.get("type") == "assistant":
+            replied = True
+            edited = []
+            for b in blocks:
+                if b.get("type") != "tool_use":
+                    continue
+                name, args = b.get("name"), b.get("input") or {}
+                if name in FILE_TOOLS and (args.get("file_path") or args.get("notebook_path")):
+                    edited.append(args.get("file_path") or args.get("notebook_path"))
+                elif name == "Bash":
+                    cmds += 1
+                elif name in ("Agent", "Task"):
+                    agents += 1
+            steps.append(edited)
+            if live:
+                calls = [b for b in blocks if b.get("type") == "tool_use"]
+                if tool is None and calls:
+                    tool = tool_summary(calls[-1].get("name"), calls[-1].get("input") or {})
+                if said is None:
+                    said = "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text").strip() or None
+        elif (
+            rec.get("type") == "user" and (replied or live) and not any(b.get("type") == "tool_result" for b in blocks)
+        ):
+            ask = claude_typed(rec, "\n".join(b.get("text", "") for b in blocks if b.get("type") == "text"))
+            if ask:
+                start = _epoch(rec.get("timestamp"))
+                break
+    files = list(dict.fromkeys(p for edited in reversed(steps) for p in edited))
+    return {"ask": ask, "files": files, "cmds": cmds, "agents": agents}, start, tool, said
+
+
+def claude_task(path):
+    """Turn of the last answer, from the user's last typed prompt on -> {"ask", "files", "cmds", "agents"}: the prompt's text and what its tool calls did (files = distinct file_path of edit tools, in the order first edited)."""
+    try:
+        with open(path, "rb") as f:
+            return _claude_turn(_records_backwards(f))[0]
+    except OSError:
+        return {"ask": None, "files": [], "cmds": 0, "agents": 0}
+
+
+LIVE_TAIL = 1024 * 1024  # a working turn can be long: look further back than the 256 KB of a finished one
+
+
+def claude_live(path):
+    """The turn in progress -> {"live": True, "task", "start", "end": None, "tool", "said", "prev"}, or None when the log is unreadable.
+    start = when the prompt was typed (epoch seconds), tool = newest tool call as one row, said = newest assistant text, prev = claude_report-shaped answer of the turn before (or None).
+    Only the last LIVE_TAIL bytes are read, so a turn longer than that has no ask, start or prev."""
+    try:
+        with open(path, "rb") as f:
+            records = _records_backwards(f, LIVE_TAIL)
+            task, start, tool, said = _claude_turn(records, live=True)
+            prev = _claude_answer(records) if task["ask"] else None
+            if not task["ask"]:
+                task = {}
+    except OSError:
+        return None
+    return {"live": True, "task": task, "start": start, "end": None, "tool": tool, "said": said, "prev": prev}
+
+
+def home_path(path):
+    path = path.rstrip("/")
+    home = os.path.expanduser("~").rstrip("/")
+    if home and (path == home or path.startswith(home + "/")):
+        return "~" + path[len(home) :]
+    return path
+
+
+def git_branch(path):
+    """Branch name (short sha when detached) of the repo containing path, read from .git/HEAD files only; None outside a repo."""
+    d = os.path.abspath(path)
+    while True:
+        dot = os.path.join(d, ".git")
+        if os.path.exists(dot):
+            break
+        if os.path.dirname(d) == d:
+            return None
+        d = os.path.dirname(d)
+    try:
+        if os.path.isfile(dot):
+            with open(dot) as f:
+                line = f.read().strip()
+            if not line.startswith("gitdir:"):
+                return None
+            dot = os.path.join(d, line[len("gitdir:") :].strip())
+        with open(os.path.join(dot, "HEAD")) as f:
+            head = f.read().strip()
+    except OSError:
+        return None
+    head = printable(head)
+    if head.startswith("ref: "):
+        return head[len("ref: refs/heads/") :] or None if head.startswith("ref: refs/heads/") else None
+    return head[:7] or None
 
 
 def finished_subagents(transcript, since=None):
@@ -651,19 +936,38 @@ def screen_report(pane):
     return {"text": "\n\n".join(paras), "start": None, "end": None} if paras else None
 
 
-def report_for(a):
-    """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Claude Code and Codex write one; agy and grok are read off the screen."""
+def report_for(a) -> dict[str, Any] | None:
+    """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Claude Code and Codex write one; agy and grok are read off the screen.
+    Claude Code and Codex reports also carry "task": {"ask", "files" (list of paths; Codex has none), "cmds", "agents", "dir", "branch", "cwd"} for the left column.
+    A Claude Code or Codex member whose status is "working" gets the turn in progress instead (claude_live shape, "live": True, "prev" = the report above or None), when its log shows one."""
+    rep, path, cwd = None, None, ""
+    working = a.get("status") == "working"
     if a["kind"] == "claude":
-        rep = claude_report(a["transcript"]) if a.get("transcript") else None
-        return dict(rep, subagents=finished_subagents(a["transcript"], rep["start"])) if rep else None
-    if a["kind"] == "codex":
+        if working and a.get("transcript"):
+            rep = claude_live(a["transcript"])
+        if not rep:
+            rep = claude_report(a["transcript"]) if a.get("transcript") else None
+            if rep:
+                rep = dict(
+                    rep, subagents=finished_subagents(a["transcript"], rep["start"]), task=claude_task(a["transcript"])
+                )
+        cwd = a.get("cwd", "")
+    elif a["kind"] == "codex":
         panes = read_tmux()
         p = next((p for p in panes if p["pane_id"] == a["pane"]), None)
-        path = codex_rollout(p.get("pane_pid", ""), p.get("pane_current_path", ""), panes) if p else None
-        return codex_report(path) if path else None
-    if a["kind"] in ("agy", "grok"):
+        cwd = p.get("pane_current_path", "") if p else ""
+        path = codex_rollout(p.get("pane_pid", ""), cwd, panes) if p else None
+        if working and path:
+            rep = codex_live(path)
+        if not rep:
+            rep = codex_report(path) if path else None
+            if rep:
+                rep["task"] = codex_task(path) or {}
+    elif a["kind"] in ("agy", "grok"):
         return screen_report(a["pane"])
-    return None
+    if rep:
+        rep["task"] = dict(rep["task"], dir=home_path(cwd) or None, branch=git_branch(cwd) if cwd else None, cwd=cwd)
+    return rep
 
 
 def subagent_unanswered(a):
@@ -714,6 +1018,8 @@ def report_text(pane, wait=False, timeout=600, after=None):
             return 4, "", f"not a known agent: {pane}\n"
         busy = wait and (a["status"] == "working" or a.get("summons") or subagent_unanswered(a))
         rep = None if busy else report_for(a)
+        if rep and rep.get("live"):
+            rep = rep["prev"]
         if after is not None and not busy:
             busy = snap["t"] <= after + SNAP_MAX_AGE or (
                 a["kind"] in ("claude", "codex") and (not rep or not rep["end"] or rep["end"] <= after)
@@ -860,6 +1166,7 @@ def collect(fixture=None, now=None):
                 "model": printable(info.get("model", "")),
                 "summons": get_summons(tx, now) if tx else [],
                 "transcript": tx,
+                "cwd": p.get("pane_current_path", ""),
                 "focus": p["window_active"] == "1" and p["pane_active"] == "1" and t["attached"],
             }
         )

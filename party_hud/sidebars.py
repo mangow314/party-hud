@@ -1,15 +1,18 @@
 """Sidebar panes: open, close, restart, hooks, widths."""
 
+import json
 import math
 import os
 import re
 import shlex
+import shutil
 import sys
 import time
 import zlib
+from datetime import datetime, timezone
 
 from .art import ART_MIN_WIDTH
-from .collect import AGENT_CMDS, FIELD_SEP, agent_kind, get_snapshot, lonely_sidebars
+from .collect import AGENT_CMDS, FIELD_SEP, READ_ONLY_CMDS, agent_kind, get_snapshot, lonely_sidebars
 from .common import CURSOR, PARTY_DIR, ROOT, tmux, tmux_run
 
 SIDEBAR_WIDTH = 34
@@ -56,7 +59,7 @@ def mark_sidebar(pane):
 
 
 def mark_report(pane):
-    """Mark a pane as the quest report. allow-passthrough, on this pane only, lets the portrait reach the outer terminal.
+    """Mark a pane as the quest report. allow-passthrough, on this pane only, lets the images reach the outer terminal.
     No remain-on-exit: the pane closes when the report ends."""
     tmux(
         "set-option",
@@ -117,12 +120,14 @@ def open_report_pane(target, pane):
 SUMMON_POLL = 1.0
 
 
-def summon(agent, cwd, window, timeout):
+def summon(agent, cwd, window, timeout, read_only=False):
     """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments or tmux failure, 3 timeout.
     Ready = the pane's agent is recognised, two polls in a row see the same screen (CRC32), and the snapshot lists the pane
     (so --ask and --report-text, which read the snapshot, accept it right away)."""
     if agent not in AGENT_CMDS:
         return 2, "", f"unknown agent: {agent} (one of {', '.join(AGENT_CMDS)})\n"
+    if read_only and agent not in READ_ONLY_CMDS:
+        return 2, "", f"{agent} has no enforced read-only mode (only: {', '.join(READ_ONLY_CMDS)})\n"
     caller = os.environ.get("TMUX_PANE", "")
     if not caller:
         return 2, "", "not inside tmux ($TMUX_PANE is not set)\n"
@@ -132,7 +137,9 @@ def summon(agent, cwd, window, timeout):
     if not os.path.isdir(cwd):
         return 2, "", f"not a directory: {cwd}\n"
     where = ["new-window"] if window else ["split-window", "-t", caller]
-    rc, out, err = tmux_run([*where, "-P", "-F", "#{pane_id}", "-c", cwd, AGENT_CMDS[agent]])
+    rc, out, err = tmux_run(
+        [*where, "-P", "-F", "#{pane_id}", "-c", cwd, (READ_ONLY_CMDS if read_only else AGENT_CMDS)[agent]]
+    )
     pane = out.strip()
     if rc != 0 or not pane:
         return 2, "", err or "tmux could not open the pane\n"
@@ -159,6 +166,107 @@ def summon(agent, cwd, window, timeout):
         if left <= 0:
             return 3, "", f"timed out waiting for {pane}\n"
         time.sleep(min(SUMMON_POLL, left))
+
+
+CREW_KEEP_DAYS = 14
+
+
+def _utc(t):
+    return datetime.fromtimestamp(t, timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+
+
+def _crew_root():
+    return os.path.join(os.environ.get("XDG_STATE_HOME") or os.path.expanduser("~/.local/state"), "party-hud", "crew")
+
+
+def _crew_session(pane, now):
+    root = _crew_root()
+    os.makedirs(root, exist_ok=True)
+    mine = sorted(
+        d for d in os.listdir(root) if d.partition("-")[2] == pane[1:] and os.path.isdir(os.path.join(root, d))
+    )
+    if mine:
+        return os.path.join(root, mine[-1])
+    return _crew_new_session(pane, now)
+
+
+def _crew_new_session(pane, now):
+    path = os.path.join(_crew_root(), f"{_utc(now)}-{pane[1:]}")
+    os.makedirs(path, exist_ok=True)
+    return path
+
+
+def _crew_rounds(session):
+    return sorted(d for d in os.listdir(session) if re.fullmatch(r"round-\d{3,}", d))
+
+
+def _crew_write(path, text):
+    with open(path, "w", encoding="utf-8") as f:
+        f.write(text)
+
+
+def _crew_run(fn, *args):
+    """ "" when saved, else the message for stderr."""
+    try:
+        fn(*args)
+    except OSError as e:
+        return f"could not save to {_crew_root()}: {e}\n"
+    return ""
+
+
+def _crew_summoned(pane):
+    root = _crew_root()
+    cutoff = time.time() - CREW_KEEP_DAYS * 86400
+    if os.path.isdir(root):
+        for d in os.listdir(root):
+            path = os.path.join(root, d)
+            if os.path.isdir(path) and not os.path.islink(path) and os.path.getmtime(path) < cutoff:
+                shutil.rmtree(path)
+    _crew_new_session(pane, time.time())
+
+
+def _crew_asked(pane, text, sent, agent, cwd):
+    session = _crew_session(pane, sent)
+    rounds = _crew_rounds(session)
+    path = os.path.join(session, f"round-{int(rounds[-1][6:]) + 1 if rounds else 1:03d}")
+    os.mkdir(path)
+    _crew_write(os.path.join(path, "question.md"), text)
+    meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd}
+    _crew_write(os.path.join(path, "meta.json"), json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+
+
+def _crew_replied(pane, reply, rc):
+    now = time.time()
+    session = _crew_session(pane, now)
+    rounds = _crew_rounds(session)
+    if rounds:
+        path = os.path.join(session, rounds[-1])
+    else:
+        path = os.path.join(session, "round-001")
+        os.mkdir(path)
+    try:
+        with open(os.path.join(path, "meta.json"), encoding="utf-8") as f:
+            meta = json.load(f)
+    except FileNotFoundError:
+        meta = {"pane": pane}
+    meta.update(replied_at=_utc(now), rc=rc)
+    _crew_write(os.path.join(path, "reply.md"), reply)
+    _crew_write(os.path.join(path, "meta.json"), json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
+
+
+def crew_summoned(pane):
+    """Start the pane's session directory and drop sessions older than CREW_KEEP_DAYS. Returns "" or an error message."""
+    return _crew_run(_crew_summoned, pane)
+
+
+def crew_asked(pane, text, sent, agent, cwd):
+    """Save a sent question as the next round. Returns "" or an error message."""
+    return _crew_run(_crew_asked, pane, text, sent, agent, cwd)
+
+
+def crew_replied(pane, reply, rc):
+    """Save a fetched reply into the pane's latest round. Returns "" or an error message."""
+    return _crew_run(_crew_replied, pane, reply, rc)
 
 
 def install_hooks():
