@@ -190,5 +190,53 @@
   "steps": 4,
   "sampler": "euler",
   "cfg": 1.0
+ },
+ {
+  "name": "banner-hill",
+  "text": "no text, no letters, no logo, no watermark, no border, wide panoramic banner. Pixel art: four tiny pixel heroes celebrating on a grassy hilltop on the right third of the frame, open sky and valley on the left at golden hour, raised swords and staffs, sparkles, sweeping valley below, dramatic sky, depth of field.",
+  "seed": 11,
+  "width": 1280,
+  "height": 320,
+  "batch": 1,
+  "pick": 0,
+  "steps": 4,
+  "sampler": "euler",
+  "cfg": 1.0
+ },
+ {
+  "name": "banner-camp",
+  "text": "no text, no letters, no logo, no watermark, no border, wide panoramic banner. Pixel art: four tiny pixel heroes sitting around a small campfire on the right third of the frame at dusk, resting and looking toward the viewer as if waiting, open twilight sky and quiet meadow on the left, purple and orange sky, fireflies, depth of field.",
+  "seed": 11,
+  "width": 1280,
+  "height": 320,
+  "batch": 1,
+  "pick": 0,
+  "steps": 4,
+  "sampler": "euler",
+  "cfg": 1.0
+ },
+ {
+  "name": "banner-map",
+  "text": "no text, no letters, no logo, no watermark, no border, wide panoramic banner. Pixel art: four tiny pixel heroes gathered around a wooden table with an unrolled map and scrolls under a hanging lantern on the right third of the frame, inside a cozy tavern, warm candlelight, dim wooden interior fading into shadow on the left, depth of field.",
+  "seed": 11,
+  "width": 1280,
+  "height": 320,
+  "batch": 1,
+  "pick": 0,
+  "steps": 4,
+  "sampler": "euler",
+  "cfg": 1.0
+ },
+ {
+  "name": "banner-scout",
+  "text": "no text, no letters, no logo, no watermark, no border, wide panoramic banner. Pixel art: a single tiny pixel scout crouching on a rocky ridge on the right third of the frame at night, peering through a spyglass, starry night sky and moonlit valley on the left, cool blue tones, depth of field.",
+  "seed": 11,
+  "width": 1280,
+  "height": 320,
+  "batch": 1,
+  "pick": 0,
+  "steps": 4,
+  "sampler": "euler",
+  "cfg": 1.0
  }
 ]

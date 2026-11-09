@@ -4,6 +4,10 @@ Run it inside the tmux pane you want to test; it only measures, it does not pick
 
   python3 bench/anim.py --mode redraw --fps 8 --term-pid <pid>
   python3 bench/anim.py --mode kitty  --fps 8 --term-pid <pid>
+  python3 bench/anim.py --mode event  --fps 10 --term-pid <pid>
+
+event: text-only card, HP tween (1 s, --fps frames) then 3 border flashes (1 s), repeated every 4 s and idle in between.
+The report adds this process's own CPU (stand-in for party.py) and bytes written to stdout per second.
 
 Find <pid> with: ps -o pid,pcpu,comm -p "$(pgrep -d, ghostty)"
 Take the Ghostty with the highest %CPU, the one drawing this window.
@@ -16,6 +20,7 @@ import os
 import subprocess
 import sys
 import time
+from collections import deque
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(HERE, ".."))
@@ -23,6 +28,11 @@ from party_hud.art import image_row, kitty_image
 
 BASE_ID = 0x7A0000
 COLS, ROWS = 8, 4
+CARD_W = 33
+EVENT_PERIOD = 4.0
+BAR_W = 19
+FLASHES = 3
+HP_MAX = 20
 IS_LINUX = os.path.isdir("/proc/self")
 
 
@@ -64,6 +74,40 @@ def draw_placeholders(img_id):
     return "\x1b[H" + "\r\n".join(image_row(img_id, r, COLS) for r in range(ROWS)) + "\r\n"
 
 
+def card_frame(hp, flash):
+    border = "\x1b[7m" if flash else ""
+    reset = "\x1b[0m" if flash else ""
+    filled = round(hp / HP_MAX * BAR_W)
+    rows = ["+" + "-" * (CARD_W - 2) + "+"]
+    rows.append("|" + f" HP {hp:>2}/{HP_MAX} [{'#' * filled}{'.' * (BAR_W - filled)}]".ljust(CARD_W - 2) + "|")
+    rows.append(rows[0])
+    return "\x1b[H" + "\r\n".join(border + r + reset for r in rows) + "\r\n"
+
+
+def event_schedule(old, new, fps):
+    """(offset seconds, frame text) for one event: HP tween over 1 s at fps, then FLASHES border flashes over 1 s."""
+    n = max(1, round(fps))
+    steps = [(k / n, card_frame(round(old + (new - old) * k / n), False)) for k in range(1, n)]
+    half = 1.0 / (2 * FLASHES)
+    for k in range(FLASHES):
+        steps.append((1 + 2 * k * half, card_frame(new, True)))
+        steps.append((1 + (2 * k + 1) * half, card_frame(new, False)))
+    return steps
+
+
+class CountingOut:
+    def __init__(self, out):
+        self.out = out
+        self.bytes = 0
+
+    def write(self, text):
+        self.bytes += len(text.encode())
+        return self.out.write(text)
+
+    def flush(self):
+        self.out.flush()
+
+
 def cpu_seconds(pid):
     with open(f"/proc/{pid}/stat") as f:
         rest = f.read().rsplit(")", 1)[1].split()
@@ -100,7 +144,7 @@ def tmux_server_pid():
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--mode", choices=("redraw", "kitty"), required=True)
+    ap.add_argument("--mode", choices=("redraw", "kitty", "event"), required=True)
     ap.add_argument("--fps", type=float, required=True)
     ap.add_argument("--seconds", type=float, default=60)
     ap.add_argument("--frames", nargs="*", help="PNG files to cycle (default: art/*.png)")
@@ -109,11 +153,13 @@ def main():
 
     server_pid = tmux_server_pid()
     subprocess.run(["tmux", "set-option", "-p", "allow-passthrough", "on"], check=True)
-    frames = load_frames(args.frames)
+    frames = [] if args.mode == "event" else load_frames(args.frames)
     gap_ms = max(1, round(1000 / args.fps))
 
-    out = sys.stdout
-    if args.mode == "redraw":
+    out = CountingOut(sys.stdout)
+    if args.mode == "event":
+        out.write(card_frame(HP_MAX, False))
+    elif args.mode == "redraw":
         for k, data in enumerate(frames):
             out.write(kitty_image(BASE_ID + k, data, COLS, ROWS))
     else:
@@ -128,15 +174,34 @@ def main():
     if args.term_pid:
         meters["term"] = Meter(args.term_pid)
 
+    out.bytes = 0
+    cpu0 = time.process_time()
     t0 = time.monotonic()
     next_sample = t0 + 1
     tick = 0
+    hp = HP_MAX
+    next_event = t0 + 1
+    pending = deque()
+    last = None
     while (now := time.monotonic()) - t0 < args.seconds:
         if args.mode == "redraw":
             out.write(draw_placeholders(BASE_ID + tick % len(frames)))
             out.flush()
             tick += 1
             delay = t0 + tick / args.fps - time.monotonic()
+        elif args.mode == "event":
+            if now >= next_event:
+                new = HP_MAX - 8 if hp == HP_MAX else HP_MAX
+                pending.extend((next_event + dt, text) for dt, text in event_schedule(hp, new, args.fps))
+                hp = new
+                next_event += EVENT_PERIOD
+            while pending and pending[0][0] <= now:
+                text = pending.popleft()[1]
+                if text != last:
+                    out.write(text)
+                    out.flush()
+                    last = text
+            delay = min(pending[0][0] if pending else next_event, next_sample, t0 + args.seconds) - now
         else:
             delay = min(next_sample, t0 + args.seconds) - now
         if now >= next_sample:
@@ -146,10 +211,14 @@ def main():
         if delay > 0:
             time.sleep(delay)
     elapsed = time.monotonic() - t0
+    self_cpu = (time.process_time() - cpu0) / elapsed * 100
+    bytes_per_s = out.bytes / elapsed
 
     tmux_cpu = meters["tmux"].average(elapsed)
     term_cpu = f"{meters['term'].average(elapsed):.1f}" if "term" in meters else "n/a"
-    print(f"\nmode={args.mode} fps={args.fps:g} seconds={args.seconds:g} tmux_cpu={tmux_cpu:.1f}% term_cpu={term_cpu}%")
+    print(
+        f"\nmode={args.mode} fps={args.fps:g} seconds={args.seconds:g} tmux_cpu={tmux_cpu:.1f}% term_cpu={term_cpu}% self_cpu={self_cpu:.1f}% bytes/s={bytes_per_s:.0f}"
+    )
 
 
 if __name__ == "__main__":

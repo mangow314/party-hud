@@ -69,4 +69,4 @@ New art must be CC0-compatible and must not imitate a specific existing game, ch
 python3 scripts/screenshot.py scripts/screenshot.json docs/img
 ```
 
-Writes `docs/img/window.png` and `docs/img/card.png` from the fixture (no tmux needed).
+Writes `docs/img/window.svg`, `card.svg`, `report.svg`, `report-working.svg` and `help.svg` from the fixture (no tmux needed; the report pages come from the `reports` key).

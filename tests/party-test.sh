@@ -12,6 +12,7 @@ tmp=$(mktemp -d)
 export PYTHONDONTWRITEBYTECODE=1 # don't leave __pycache__ in the repo when importing party.py
 trap 'rm -rf "$tmp"' EXIT
 export XDG_RUNTIME_DIR="$tmp/xdg" # state files of the tests, never the real ones
+export XDG_STATE_HOME="$tmp/state"
 
 fail=0
 check() { # check <description> <command...>: passes when the command exits 0
@@ -125,18 +126,40 @@ ok(snap["panes"]["%9"]["window_panes"] == 0 and "%9" not in [a["pane"] for a in 
 peek = strip(render.render(towns, 33, "%1", ["line1", "", "最後一行", "", ""], "popup"))
 ok("Peek · Frontend" in peek and "最後一行" in peek and "│ HP" not in peek, "v peek: pane output replaces the status box")
 hint = strip(render.render(towns, 34, "%1", None, "popup")).splitlines()[-1]
-ok("jk/JK nav" in hint and "q quit" in hint and not re.search(r"[一-鿿]", hint), "Popup key hints are in English")
+ok("? keys" in hint and "q close" in hint and not re.search(r"[一-鿿]", hint), "Popup key hints are in English")
 ok("q hide" in strip(render.render(towns, 34, "%1", None, "sidebar")).splitlines()[-1], "Sidebar key hints are in English")
 ok(any(common.bg("view") in l and "Server" in l for l in render.render(towns, 33, "%1", focus="squad", squad=1).splitlines()), "Selected squad row gets the warm-gold background")
 tall = strip(render.render(towns, 33, "%1", [f"L{i}" for i in range(100)], "popup", 40)).splitlines()
 ok(len(tall) == 40 and any("L99" in l for l in tall) and sum(l.startswith("│L") for l in tall) > 12, "v peek fills the remaining height")
-ok(len(tall) == 40 and "q quit" in tall[-1], "v peek: key hints stay on the last line; q still fits at width 33")
+ok(len(tall) == 40 and "q close" in tall[-1], "v peek: key hints stay on the last line; q still fits at width 33")
 low = strip(render.render(towns, 33, "%1", None, "sidebar", 40)).splitlines()
 ok(len(low) == 40 and "q hide" in low[-1], "Key hints pinned to the last line (blank gap when content is short)")
 empty = towns + [dict(towns[1], name="Empty", agents=[])]
 eq = strip(render.render(empty, 33, "%1", focus="squad", squad=2))
 ok(re.search(r"Empty +\(empty\) │", eq) and "no agents ⏎ open session" in eq and "╭─ claude" not in eq,
    "Squad without agents: row says (empty), plus one info card: no agents, Enter opens the session")
+import unicodedata
+wd = lambda l: sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in l)
+e3 = towns + [dict(towns[1], name=f"E{k}", agents=[]) for k in range(4)] + [towns[0]]
+for art_on in (False, True):
+    ec = strip(render.render(e3, 33, "%1", art=art_on)).splitlines()
+    ecur = strip(render.render(e3, 33, "%1", focus="squad", squad=3, art=art_on)).splitlines()
+    e1 = strip(render.render(e3[:3] + e3[-1:], 33, "%1", art=art_on)).splitlines()
+    ev = strip(render.render(e3[2:5] + e3[:1], 33, "%zz", art=art_on))
+    ok(sum("+4 empty" in l for l in ec) == 1 and not any("E0" in l or "(empty)" in l for l in ec) and all(wd(l) == 33 for l in ec if l[:1] in "╭│╰")
+       and sum("+1 empty" in l for l in ecur) == 0 and sum("+" in l and "empty" in l for l in ecur) == 1 and "+2 empty" in "".join(ecur)
+       and "".join(ecur).count("(empty)") == 2 and "E0" in "".join(ecur),
+       f"2+ consecutive empty squads collapse into one dim +N empty row; the squad under the cursor stays and splits the run, a lone one stays as a (empty) row (art={art_on})")
+    ok("+2 empty" in ev and "+3 empty" not in ev and "E0" in ev and "no agents" in ev,
+       f"The viewed squad is not folded even with no cursor on it, so its info card has a visible row (art={art_on})")
+    ok("E0" in "".join(e1) and "(empty)" in "".join(e1) and "+1 empty" not in "".join(e1),
+       f"A single empty squad is never folded into +1 empty (art={art_on})")
+noSP = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card({**agents[0], "sp": None, "fresh": False}, 33, True)]
+ok(len(noSP) == 4 and not any("SP" in l for l in noSP) and any("HP" in l for l in noSP) and all(wd(l) == 33 for l in noSP),
+   "No SP data: the card has no SP row (one row fewer), lines still exactly 33 wide")
+noSPa = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card({**agents[0], "sp": None, "fresh": False}, 33, False, True)]
+ok(len(noSPa) == render.PORTRAIT_CELLS[1] + 2 and not any("SP" in l for l in noSPa) and all(wd(l) == 33 for l in noSPa),
+   "Art card without SP: blank row pads the text so the card is as tall as the portrait, lines exactly 33 wide")
 rm3 = []
 st3 = strip(render.render(towns, 33, "%1", row_map=rm3)).splitlines()
 ok(all(rm3[i] == ("agent", "%2") for i, l in enumerate(st3) if "Thief" in l or "140k" in l), "Clicking a row of a member's status box selects that member")
@@ -146,7 +169,7 @@ rep = {"text": "## 結果\n完成了報告畫面\n" + "很長的一行中文" * 
 frame = render.render_report(done, "Studio", rep, [], 60)
 rf = strip(frame).splitlines()
 ok("Quest complete" in rf[0] and f"{done['name']}  claude · Studio" in rf[1] and "q close" in rf[-1] and "scroll" not in rf[-1],
-   "report: title, who and which squad, key hints on the last line (j / k are gone: copy-mode scrolls)")
+   "report: title, who and which squad, key hints on the last line (the report pane scrolls itself)")
 ok("took 12m 40s" in rf[2] and "HP 410k/1M" in rf[2], "report: time from prompt to answer, HP left")
 ok(all(common.cw(l) <= 60 for l in rf) and sum(common.cw(l) == 60 for l in rf) >= 1,
    "report: no row is wider than the width, CJK wraps by display width")
@@ -156,25 +179,175 @@ lf = strip(render.render_report(done, "Studio", long, [], 60)).splitlines()
 ok(all(f"L{n}" in lf for n in range(50)), "report: a report taller than any pane is printed in full, every line (no paging)")
 ar = render.render_report(done, "Studio", rep, [], 60, art=True).splitlines()
 pid = art.portrait_id(done)
-ok(all(ar[r].startswith(art.image_row(pid, r, art.PORTRAIT_CELLS[0])) for r in range(3)) and chr(0x10EEEE) not in frame
+ok(all(ar[10 + r].startswith(art.image_row(pid, r, art.PORTRAIT_CELLS[0])) for r in range(3)) and chr(0x10EEEE) not in frame
    and all(common.cw(strip(l)) <= 60 for l in ar),
-   "report: with art the portrait stands left of the first three rows; without art there are no placeholders")
+   "report: with art the portrait stands left of the first three rows below the banner; without art there are no placeholders")
+bn = art.banner_id("done", True, False)
+ok(ar[0] == art.image_row(bn, 0, 60) and ar[9] == art.image_row(bn, 9, 60) and ar[10].startswith(art.image_row(pid, 0, 6))
+   and "Quest complete" not in strip("\n".join(ar)) and "Quest complete" in strip(frame)
+   and [art.banner_id(s, r, m) - art.BANNER_ID for s, r, m in (("done", True, False), ("waiting", True, False), ("working", True, False), ("done", False, False), ("done", True, True), ("waiting", False, False), ("waiting", True, True))] == [0, 1, 2, 3, 2, 1, 1],
+   "report: with art the banner opens the page and the title row is gone; state picks the banner; without art the title stays")
 last = strip(render.render_report(dict(done, status="waiting"), "Studio", None, ["$ make", "ok", "", ""], 60))
 ok("Last output" in last and "$ make" in last and "took" not in last, "report: no report -> the pane's last lines")
 ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60)), "report: nothing at all -> says so")
+lv = {"live": True, "text": "", "start": 1000, "end": None, "tool": "Bash: rg -n 很長的指令" * 6, "said": "第一行\n" + "很長的一行中文" * 20 + "\nlast words",
+      "prev": {"text": "## 上輪\n舊報告", "start": 1, "end": 2}, "task": {"ask": "做事", "files": [], "cmds": 2, "agents": 0, "dir": "~/x", "branch": "main", "cwd": "/x"}}
+lf = strip(render.render_report(dict(done, status="working"), "Studio", lv, [], 60, now=1000 + 723)).splitlines()
+ok("進行中 · 已 12m 03s" in lf and "現在" in " ".join(lf) and "last words" in " ".join(lf) and "上一輪報告" in " ".join(lf) and "舊報告" in " ".join(lf),
+   "live report: status row with the time so far, 現在 block, then the previous round's report")
+ok(all(common.cw(l) <= 60 for l in lf), "live report: no row is wider than the width")
+colored = "\x1b[31mred\x1b[0m plain"
+ok(render.wrap_sgr(colored, 40) == ["\x1b[31mred\x1b[0m plain\x1b[0m"], "Last output: SGR escapes stay as they are")
+ok(render.wrap_sgr("a\x1b[2Jb\x1b[1;1Hc\x1b]0;title\x07d\x1b[?25l\x1b[38;5;1me", 40) == ["abcd\x1b[38;5;1me\x1b[0m"],
+   "Last output: non-SGR escapes (cursor, clear, OSC) are dropped")
+wr = render.wrap_sgr("\x1b[1;32m" + "你好ab" * 5 + "\x1b[0m tail", 9)
+ok(len(wr) > 2 and all(common.cw(strip(r)) <= 9 for r in wr) and all(r.endswith("\x1b[0m") for r in wr[:-1])
+   and all(r.startswith("\x1b[1;32m") for r in wr[:3]) and wr[-1].endswith(" tail\x1b[0m"),
+   "Last output: a long line wraps with the colour carried to every row, every row within the width (CJK = 2)")
 sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## 子結果\nsubagent said hi"}
 busy = dict(done, summons=[{"type": "executor", "desc": "Branch 還在跑" * 8}])
 bf = strip(render.render_report(busy, "Studio", dict(rep, subagents=[sub]), [], 60))
 ok("Quest complete" not in bf and "還有 1 個分支任務進行中" in bf.splitlines()[0] and "進行中" in bf.split("\n\n", 1)[1]
    and all(common.cw(l) <= 60 for l in bf.splitlines()),
    "report: a branch task still running -> title says so instead of Quest complete, task listed as 進行中, rows fit")
+bart = render.render_report(busy, "Studio", rep, [], 60, art=True, banner=(40, 5)).splitlines()
+ok(len(bart) > 5 and bart[0] == art.image_row(art.banner_id("done", True, True), 0, 40) and "還有 1 個分支任務進行中" in strip(bart[5])
+   and all(common.cw(strip(l)) <= 60 for l in bart),
+   "report: art plus a running branch task -> banner then the 還有 N 個分支任務進行中 line, rows fit")
+wide = render.render_report(done, "Studio", rep, [], 150, 2, 3, art=True, banner=(118, 15), portrait=(24, 14)).splitlines()
+wl = [strip(l) for l in wide]
+bot = next(i for i, l in enumerate(wl) if l.startswith("┗"))
+ok(all(common.cw(l) <= 150 for l in wl) and all(l[0] in "┏┃┗" for l in wl[: bot + 1]) and all(l.startswith(" " * 30) for l in wl[bot + 1 :])
+   and (lambda l: common.cw(l[: l.index("結果")]))(next(l for l in wl if "結果" in l)) == 32,
+   "report: width >= 100 with art -> every row opens with the side frame or blank, the right column starts at column 32")
+bodyw = dict(rep, text="很長的一行中文" * 30 + "\n```\n" + "x" * 150 + "\n```", subagents=[])
+bwl = [strip(l) for l in render.render_report(done, "Studio", bodyw, [], 150, art=True, banner=(60, 8), portrait=(24, 14)).splitlines()]
+prose = [l.rpartition("┃")[2][2:].rstrip() for l in bwl if "中文" in l]
+ok(len(prose) > 3 and all(common.cw(l) <= 60 for l in prose) and max(common.cw(l) for l in prose) >= 58,
+   "report: in the split page prose wraps at the banner width, not the whole right column")
+ok(max(len(l.rpartition("┃")[2][2:].rstrip()) for l in bwl if "xxx" in l) == 118,
+   "report: fenced code in the split page still fills the right column (118 wide)")
+nar = [strip(l) for l in render.render_report(done, "Studio", bodyw, [], 99, art=True, banner=(40, 5)).splitlines()]
+ok(max(common.cw(l) for l in nar if "中文" in l) >= 90, "report: narrow page (< 100) keeps the whole pane width for prose")
+side = render.report_side_rows(done, "Studio", rep, 2, 3, (24, 14))
+pid = art.portrait_id(done)
+ok(all(common.cw(strip(r)) == 30 for r in side) and strip(side[-1]).startswith("┗") and art.image_row(art.big_portrait_id(done), 13, 24) in side[14]
+   and any("TOOK" in r for r in side) and any("12m 40s" in r for r in side),
+   "report: side column rows are exactly 30 wide, 14 portrait rows, TOOK shown, frame closes at the content")
+task_l = {"ask": "q", "files": ["/w/a.py", "/w/b.py"], "cmds": 1, "agents": 0, "dir": "~/x", "branch": "main", "cwd": "/w"}
+side_t = render.report_side_rows(done, "Studio", dict(rep, task=task_l), 1, 1, (24, 14), now=860 + 3725)
+took_row = next(r for r in side if "TOOK" in strip(r))
+ok(strip(took_row).strip("┃ ").startswith("TOOK") and strip(took_row).strip("┃ ").endswith("12m 40s") and common.cw(strip(took_row)) == 30,
+   "report: side column puts the TOOK label left and its value right on one row")
+ok(took_row.count(common.fg("code", True) + "TOOK") == 1 and common.fg("fg", True) + "12m 40s" in took_row and common.fg("gold", True) + "TOOK" not in took_row
+   and all(common.fg(c, True) + n in "\n".join(side_t) for n, c in (("WAITED", "amber"), ("ASKED", "gold"), ("FILES", "green"), ("WHERE", "violet"))),
+   "report: without label images the headings are bold text in their own colors (TOOK cyan, WAITED orange, ASKED gold, FILES green, WHERE violet), not all gold")
+side_l = render.report_side_rows(done, "Studio", dict(rep, task=task_l), 1, 1, (24, 14), now=860 + 3725, labels=True)
+lab_row = lambda r, n: next(x for x in side_l if art.image_row(art.label_id(n), 0, art.LABEL_COLS[n]) in x)
+ok(all(common.cw(strip(lab_row(0, n))) == 30 and strip(lab_row(0, n)).count(chr(0x10EEEE)) == art.LABEL_COLS[n] for n in ("took", "waited", "asked", "files", "where"))
+   and "TOOK" not in strip("\n".join(side_l)) and strip(lab_row(0, "took")).strip("┃ ").endswith("12m 40s")
+   and not any(art.image_row(art.label_id(n), 0, art.LABEL_COLS[n]) in "\n".join(side_l) for n in ("work", "running")),
+   "report: with label images each heading row is its label placeholder (30 wide) with the value at the right; only the headings of this page")
+live_s = dict(rep, live=True, end=None, task=task_l)
+run_l = render.report_side_rows(dict(done, status="working"), "Studio", live_s, 1, 1, (24, 14), now=100 + 723, labels=True)
+run_t = [strip(r) for r in render.report_side_rows(dict(done, status="working"), "Studio", live_s, 1, 1, (24, 14), now=100 + 723)]
+ok(any(art.image_row(art.label_id("running"), 0, 11) in r and strip(r).strip("┃ ").endswith("12m 03s") and common.cw(strip(r)) == 30 for r in run_l)
+   and not any(art.image_row(art.label_id(n), 0, art.LABEL_COLS[n]) in r for r in run_l for n in ("took", "waited"))
+   and any(r.strip("┃ ").startswith("RUNNING") and r.strip("┃ ").endswith("12m 03s") for r in run_t) and not any("TOOK" in r for r in run_t),
+   "report: a working member's page has a RUNNING row with the time so far (label image or text) in place of TOOK")
+wait_l = render.report_side_rows(dict(done, status="waiting"), "Studio", rep, 1, 1, (24, 14), now=860 + 3725, labels=True)
+w_row = next(r for r in wait_l if art.image_row(art.label_id("waited"), 0, 10) in r)
+ok(strip(w_row).startswith("┃ !") and common.cw(strip(w_row)) == 30 and "48;2;" in w_row and not any("48;2;" in r for r in wait_l if r != w_row)
+   and not strip(next(r for r in side_l if art.image_row(art.label_id("waited"), 0, 10) in r)).startswith("┃ !"),
+   "report: a waiting member's WAITED row gets an orange band and a ! in front; a finished one does not")
+frames = {s_: render.report_side_rows(dict(done, status=s_), "Studio", rep, 1, 1, (24, 14))[0] for s_ in ("done", "waiting", "working", "idle")}
+ok([common.fg(c, True) in frames[s_] for s_, c in (("done", "gold"), ("waiting", "warn"), ("working", "sp"), ("idle", "blue"))] == [True] * 4
+   and common.fg("line") not in "".join(frames.values()),
+   "report: the side frame is gold when done, orange when waiting, blue-violet while working, blue for other reports")
+hv = render.report_side_rows(done, "Studio", rep, 1, 1, (24, 14))
+hb = common.fg("gold", True)
+ok(hv[0] == hb + "┏" + "━" * 28 + "┓" + common.RESET and hv[-1] == hb + "┗" + "━" * 28 + "┛" + common.RESET
+   and all(r.startswith(hb + "┃" + common.RESET) and r.endswith(hb + "┃" + common.RESET) for r in hv[1:-1]),
+   "report: the side frame is thick lines (┏━┓┃┗┛) in bold")
+ok(not any(c in "".join(render.card(agents[0], 33, False)) for c in "┏━┓┃┗┛") and not any(c in "".join(render.card(agents[0], 33, True)) for c in "┏━┓┃┗┛"),
+   "report: member cards keep their own frames, no thick lines")
+tag_done = next(r for r in side if "Complete" in strip(r))
+tag_wait = next(r for r in render.report_side_rows(dict(done, status="waiting"), "Studio", rep, 1, 1, (24, 14)) if "Waiting" in strip(r))
+ok("✓ Complete" in strip(tag_done) and common.fg("green") in tag_done and "! Waiting" in strip(tag_wait) and common.fg("warn") in tag_wait,
+   "report: side column shows a status tag in the status colour")
+hint_rows = [i for i, l in enumerate(wl) if "⏎ go" in l]
+ok(hint_rows == [bot - 1] and wl[bot - 1].startswith("┃") and "⏎ go" in wl[bot - 1][:30],
+   "report: split page puts the key hints on the frame's last row, and not in the right column")
+ok(wl[0].rstrip() == "┏" + "━" * 28 + "┓" and wide[1].endswith(art.image_row(art.banner_id("done", True, False), 0, 118)),
+   "report: the banner opens the right column on the row of the portrait top, one under the frame top")
+thin = dict(rep, text="一行")
+sw = [strip(l) for l in render.render_report(dict(done, hp=None, hp_left=None), "Studio", dict(thin, start=None), [], 150, art=True, banner=(118, 15), portrait=(24, 14)).splitlines()]
+lw = [strip(l) for l in render.render_report(done, "Studio", dict(rep, text="\n".join(f"L{n}" for n in range(60))), [], 150, art=True, banner=(118, 15), portrait=(24, 14)).splitlines()]
+ok("TOOK" not in "\n".join(sw) and "HP" not in "\n".join(sw)
+   and all(l.startswith(("┏", "┃", "┗", " " * 30)) for l in sw) and any("⏎ go" in l for l in sw) and sum(l.startswith("┗") for l in sw) == 1
+   and sum(l.startswith("┗") for l in lw) == 1 and lw[-1].startswith("┗") and "L59" in lw[-3],
+   "report: split page with no time or HP prints neither; a short and a long report both keep one closed frame")
+task = {"ask": "請幫我把報告頁左欄改成任務資訊\n" + "很長的提問" * 20, "files": ["/w/a.py", "/w/b.py", "/w/c.py", "/w/d.py", "/w/e.py"], "cmds": 12, "agents": 2, "dir": "~/projects/party-hud", "branch": "sdlc/game-feel", "cwd": "/w"}
+ti = [strip(r) for r in render.report_side_rows(dict(done, sp=(1800.0, 3600), fresh=False), "Studio", dict(rep, task=task), 1, 1, (24, 14), now=860 + 3725)]
+ti_text = "\n".join(ti)
+ok(not any(k in ti_text for k in ("HP", "SP", "410k", "60m")) and "ASKED" in ti_text and "請幫我把報告頁" in ti_text
+   and sum("很長的提問" in r for r in ti) == 1 and sum("…" in r for r in ti) == 1
+   and "12 cmds · 2 agents" in ti_text and "FILES" in ti_text and "a.py" in ti_text and "e.py" in ti_text and "~/projects/party-hud" in ti_text and " sdlc/game-feel" in ti_text and "⎇" not in ti_text
+   and any(r.strip("┃ ").startswith("WAITED") and r.strip("┃ ").endswith("1h 02m") for r in ti)
+   and all(common.cw(r) == 30 for r in ti),
+   "report: side column has no HP or SP; shows the prompt cut to 3 rows, work counts, directory, branch and the wait; all rows 30 wide")
+ti = [strip(r) for r in render.report_side_rows(dict(done, hp=None, hp_left=None), "Studio", dict(rep, task={"ask": None, "files": [], "cmds": 3, "agents": 0, "dir": None, "branch": None}), 1, 1, (24, 14))]
+bare = [strip(r) for r in render.report_side_rows(done, "Studio", dict(rep, task={"ask": None, "files": [], "cmds": 0, "agents": 0, "dir": None, "branch": None}), 1, 1, (24, 14))]
+ok(any("3 cmds" in r for r in ti) and not any("FILES" in r or "agents" in r for r in ti)
+   and not any(k in "\n".join(bare) for k in ("ASKED", "WORK", "WHERE", "WAITED")) and all(common.cw(r) == 30 for r in ti + bare)
+   and len(bare) == len([strip(r) for r in render.report_side_rows(done, "Studio", rep, 1, 1, (24, 14))]),
+   "report: side column omits what it could not get (zero counts, no prompt, no directory, no wait) and stays 30 wide")
+os.environ["HOME"] = "/home/me"
+ok([collect.home_path(p) for p in ("/home/me", "/home/me/projects/party-hud/", "/home/mex/a", "/srv/x")] == ["~", "~/projects/party-hud", "/home/mex/a", "/srv/x"],
+   "report: the home directory is written ~ in the WHERE path; other paths and look-alike prefixes stay")
+two = render.where_rows("~/projects/party-hud/subs", 24)
+ok(render.where_rows("~/projects/party-hud", 24) == ["~/projects/party-hud"] and two == ["~/projects/party-hud", "/subs"],
+   "report: WHERE path stays on one row when it fits, else breaks at a / into a second row")
+cut = render.where_rows("~/work/clients/acme/services/billing/api/internal/handlers", 24)
+ok(len(cut) == 2 and cut[0].startswith("…/") and cut[1].endswith("/handlers") and "~" not in cut[0] and all(common.cw(r) <= 24 for r in cut),
+   "report: WHERE path too long for two rows is cut from the left, starts with …/ and keeps the last segments")
+wr = [strip(r) for r in render.report_side_rows(done, "Studio", dict(rep, task={"ask": None, "files": [], "cmds": 0, "agents": 0, "dir": "~/work/clients/acme/services/billing/api/internal/handlers\x1b[31m", "branch": "x" * 40, "cwd": "/w"}), 1, 1, (24, 14))]
+ok(all(common.cw(r) == 30 for r in wr) and not any(re.search(r"[\x00-\x1f\x7f]", r) for r in wr),
+   "report: WHERE rows (two path rows and a branch row) are exactly 30 wide, control characters dropped")
+many = {"ask": "q", "files": [f"/w/party_hud/f{n}.py" for n in range(8)] + ["/w/party_hud/" + "x" * 40 + ".py"], "cmds": 0, "agents": 3, "cwd": "/w"}
+fl = [strip(r).strip("┃ ") for r in render.report_side_rows(done, "Studio", dict(rep, task=many), 1, 1, (24, 14))]
+fa = [strip(r) for r in render.report_side_rows(done, "Studio", dict(rep, task=dict(many, files=["/w/party_hud/ui.py", "/other/" + "d/" * 20 + "ui.py"], agents=0, cmds=14)), 1, 1, (24, 14))]
+ok(fl.count("+4 more") == 1 and "• party_hud/f0.py" in fl and "• party_hud/f4.py" in fl and "party_hud/f5.py" not in "".join(fl) and "3 agents" in fl and not any("/w/" in r for r in fl)
+   and any(r.startswith("• …/") and r.endswith("ui.py") for r in (x.strip("┃ ") for x in fa)) and any("14 cmds" in r for r in fa)
+   and all(common.cw(r) == 30 for r in fa),
+   "report: side column lists files relative to cwd in first-edit order, 6 rows with +N more, long paths cut from the left; all rows 30 wide")
+fb = [r for r in render.report_side_rows(done, "Studio", dict(rep, task=many), 1, 1, (24, 14)) if "party_hud/f" in strip(r)]
+ok(len(fb) == 5 and all(r.count(common.fg("green", True) + "•") == 1 for r in fb)
+   and not any("•" in strip(r) for r in render.report_side_rows(done, "Studio", dict(rep, task=many), 1, 1, (24, 14)) if "more" in strip(r) or "agents" in strip(r)),
+   "report: every listed file has a green • bullet; +N more and the counts row do not")
+ctl = [strip(r) for r in render.report_side_rows(done, "Studio", dict(rep, task=dict(many, files=["/w/a\x1b[31m\nb\tc\x07.py"], agents=0)), 1, 1, (24, 14))]
+ok(any("a[31mbc.py" in r for r in ctl) and not any(re.search(r"[\x00-\x1f\x7f]", r) for r in ctl) and all(common.cw(r) == 30 for r in ctl),
+   "report: control characters in an edited file's path never reach the side column; rows stay 30 wide")
+short = [strip(l) for l in render.render_report(done, "Studio", dict(rep, text="一行"), [], 150, art=True, banner=(88, 10), portrait=(24, 14), height=60).splitlines()]
+long_ = [strip(l) for l in render.render_report(done, "Studio", dict(rep, text="\n".join(f"L{n}" for n in range(60))), [], 150, art=True, banner=(88, 10), portrait=(24, 14), height=20).splitlines()]
+ok(len(short) == 59 and short[-1].startswith("┗") and any("⏎ go" in l for l in short) and sum(l.startswith("┗") for l in short) == 1
+   and long_[-1].startswith("┗") and len(long_) > 20 and all(common.cw(l) <= 150 for l in short + long_),
+   "report: split frame closes on the last row; a short report is padded to the pane height - 1")
+busy_w = render.render_report(busy, "Studio", rep, [], 150, art=True, banner=(118, 15), portrait=(24, 14)).splitlines()
+ok("還有 1 個分支任務進行中" in strip(busy_w[16]) and strip(busy_w[17]).endswith("┃  "),
+   "report: split page puts the 還有 N 個分支任務進行中 line right under the banner")
+wide99 = render.render_report(done, "Studio", rep, [], 99, art=True).splitlines()
+ok(wide99 == render.render_report(done, "Studio", rep, [], 99, art=True, banner=(80, 10), portrait=(24, 3)).splitlines()
+   and not any(strip(l).startswith("┏") for l in wide99)
+   and not any(strip(l).startswith("┏") for l in render.render_report(done, "Studio", rep, [], 150).splitlines()),
+   "report: below 100 columns, or without art, the old layout stays")
 sf = strip(render.render_report(done, "Studio", dict(rep, subagents=[sub]), [], 60))
 ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > sf.index("完成了報告畫面") and "subagent said hi" in sf
    and "## " not in sf and "進行中" not in sf,
    "report: finished subagent listed below the main report with its own report (Markdown), no 進行中")
 nr = strip(render.render_no_report(40, 10)).splitlines()
-ok(len(nr) == 10 and "Nobody is waiting or done." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
-   "report popup with nobody waiting or done: says so and waits (a popup that exits at once only flashes)")
+ok(len(nr) == 10 and "No party members." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
+   "report popup with no party members: says so and waits (a popup that exits at once only flashes)")
 ok(render.wrap("一二三四五", 4) == ["一二", "三四", "五"] and render.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
    "report: wrap by display width; tabs expanded, control characters dropped")
 md = render.render_markdown
@@ -182,7 +355,7 @@ B, I, R, fgc = "\033[1m", "\033[3m", common.RESET, common.fg
 ok(md("# T\n###### s", 20) == [fgc("gold", True) + "T" + R, fgc("gold", True) + "s" + R], "markdown: # to ###### headings in gold bold, marker dropped")
 ok(md("a **b** c", 20) == ["a " + B + "b" + R + " c"], "markdown: **bold**")
 ok(md("*x* _y_ snake_case_name", 30) == [I + "x" + R + " " + I + "y" + R + " snake_case_name"], "markdown: *italic* and _italic_, not the underscores inside a word")
-ok(md("a `**x**` b", 20) == ["a " + fgc("amber") + "**x**" + R + " b"], "markdown: `inline code` is literal")
+ok(md("a `**x**` b", 20) == ["a " + fgc("code") + "**x**" + R + " b"], "markdown: `inline code` is literal, in the cool code color")
 ok([strip(r) for r in md("- a\n* b\n1. c", 20)] == ["• a", "• b", "1. c"] and [strip(r) for r in md("- 一二三四五", 6)] == ["• 一二", "  三四", "  五"],
    "markdown: -, * and 1. lists; wrapped items hang under the text")
 ok(md("```py\n**x**\n```\nabcdef", 20) == [fgc("green") + "**x**" + R, "abcdef"] and [strip(r) for r in md("```\nabcdef", 4)] == ["abcd", "ef"],
@@ -196,18 +369,117 @@ ok([strip(r) for r in md("1. abcdefgh", 6)] == ["1. abc", "   def", "   gh"], "m
 ok([strip(r) for r in md("e\u0301" * 5, 5)] == ["e\u0301" * 5], "markdown: combining marks take no column, five e+accent fit in width 5")
 wr = md("**aaa bbb ccc**", 5)
 ok(len(wr) == 3 and all(r.startswith(B) and r.endswith(R) and common.cw(strip(r)) <= 5 for r in wr), "markdown: styled text wraps, every row carries its own style and reset")
-raw = ["  - **x**", "  - nested", "| a | b |", "![img](u.png)", "<b>x</b>", "> *q*"]
-ok(md("\n".join(raw), 30) == raw, "markdown: nested lists, tables, images, HTML and quotes are shown as written")
+raw = ["  - **x**", "  - nested", "| a | b |", "![img](u.png)", "<b>x</b>"]
+ok(md("\n".join(raw), 30) == raw, "markdown: nested lists, tables, images and HTML are shown as written")
+tb = "| 名稱 | `k` |\n|:--|--:|\n| 一二 | **x** |\n| ab | yy |"
+tr = md(tb, 20)
+ok([strip(r) for r in tr] == ["名稱 │ k", "─────┼───", "一二 │ x", "ab   │ yy"] and tr[1] == fgc("dim") + "─────┼───" + R and "│" in tr[0] and tr[0].startswith(B + "名稱"),
+   "markdown: a table that fits is aligned columns (CJK = 2), bold header, rule under it, no |---| row")
+tn = md(tb, 8)
+ok([strip(r) for r in tn] == ["名稱：一", "  二", "k：x", "", "名稱：ab", "k：yy"] and tn[0].startswith(fgc("dim") + "名稱："),
+   "markdown: a table too wide becomes name: value groups, a blank row between rows")
+ok([strip(r) for r in md("| 名稱 | v |\n|--|--|\n| 一二三四五六 | `ab cd` |", 12)] == ["名稱：一二三", "  四五六", "v：ab cd"]
+   and all(common.cw(strip(r)) <= w for w in (1, 2, 3, 5, 12) for r in md(tb, w)),
+   "markdown: long table cells wrap with an indent and no table row is wider than width")
+ok([strip(r) for r in md("| a | b |\n|--|--|\n| 1 |", 20)] == ["a │ b", "──┼──", "1 │ "],
+   "markdown: a short table row is padded with empty cells")
+ok(md("| a | b |\nplain", 30) == ["| a | b |", "plain"], "markdown: a | line without a separator row is plain text")
+ok([strip(r) for r in md("Haven't seen the report yet", 12)] == ["Haven't seen", "the report", "yet"], "markdown: English wraps at the last space that fits, words stay whole")
+ok([strip(r) for r in md("ab abcdefghij", 6)] == ["ab", "abcdef", "ghij"], "markdown: a word wider than the row is cut hard")
+ok([strip(r) for r in md("一二三，四五。六", 6)] == ["一二", "三，四", "五。六"] and all(common.cw(strip(r)) <= 6 for r in md("一二三，四五。六", 6)),
+   "markdown: closing punctuation never starts a row, the previous character comes along")
+qr = md("> a **b**\n> > c", 20)
+ok([strip(r) for r in qr] == ["▎ a b", "▎▎ c"] and all(r.startswith(fgc("dim") + "▎") for r in qr) and md("> x", 20)[0].endswith(fgc("dim") + "x" + R),
+   "markdown: a quote line gets a dim ▎ edge (one per level) and dim text")
+ok([strip(r) for r in md("> aaa bbb ccc", 7)] == ["▎ aaa", "▎ bbb", "▎ ccc"], "markdown: every wrapped row of a quote keeps the ▎ edge")
+wide_cases = [("a。。。", 5), ("a" + "，" * 9 + "。", 21), ("- 一" + "）" * 8 + "。", 20), ("> > > > > x", 4), ("> abc", 1)]
+ok(all(common.cw(strip(r)) <= w and "".join(strip(x) for x in md(t, w)).replace("▎", "").replace("•", "").replace(" ", "") == t.replace("> ", "").replace("- ", "").replace(" ", "")
+       for t, w in wide_cases for r in md(t, w)), "markdown: no row is wider than width and no text is lost, even when punctuation carrying has no room")
+ok([strip(r) for r in md("see README.md 」", 14)] == ["see README.md", "」"] and [strip(r) for r in md("abcd   ef", 4)] == ["abcd", "ef"] and [strip(r) for r in md("word 。。。", 6)] == ["word", "。。。"] and [strip(r) for r in md("   abcdef", 3)] == ["abc", "def"],
+   "markdown: wrapping never leaves a leading space or an empty row")
+ok([strip(r) for r in md("aa bcd，", 6)] == ["aa", "bcd，"] and [strip(r) for r in md("- aa bcd，", 8)] == ["• aa", "  bcd，"],
+   "markdown: closing punctuation carries the whole English word to the next row, in lists too")
+ok([strip(r) for r in md("see README.md」", 14)] == ["see", "README.md」"] and [strip(r) for r in md("> see README.md」", 16)] == ["▎ see", "▎ README.md」"],
+   "markdown: the carried word keeps its own trailing punctuation, in quotes too")
+ok("".join(strip(r) for r in md("> 中文", 3)) == "中文" and all(common.cw(strip(r)) <= 3 for r in md("> 中文", 3)),
+   "markdown: a quote too narrow for the edge drops the edge, not the text")
 mk = lambda pane, status: {"pane": pane, "status": status}
 qt = [{"name": "A", "agents": [mk("%1", "done"), mk("%2", "working"), mk("%3", "waiting")]},
       {"name": "B", "agents": [mk("%4", "done")]}]
-ok([a["pane"] for _, a in ui.report_queue(qt)] == ["%3", "%1", "%4"], "report queue: waiting first, then done")
+ok(ui.banner_cells(170, 0.452) == (138, 10, 6) and ui.banner_cells(150, 0.452) == (118, 10, 5) and ui.banner_cells(120, 0.2) == (88, 4, 4),
+   "report banner: split fills the right column (at most 10 rows) with the 4:1..8:1 image closest to cols x ratio / rows")
+ok(ui.banner_cells(400, 0.5) == (160, 10, 8),
+   "report banner: flatter than 8:1 narrows the cols to the 8:1 width (rows x 8 / ratio)")
+ok(ui.banner_cells(99, 0.452) == (80, 9, 4) and ui.banner_cells(60, 0.452) == (60, 7, 4) and ui.banner_cells(400, 0.5)[2] == 8,
+   "report banner: narrow stays 4:1 with at most 10 rows, a capped height sets the width (rows x 4 / ratio)")
+ok(art.image_row(art.banner_id("done", True, False, 5), 0, 118) in render.render_report(done, "Studio", rep, [], 150, art=True, banner=(118, 10, 5), portrait=(24, 14)).splitlines()[1],
+   "report: the banner row carries the image id of its k:1 ratio")
+fake_art = {art.banner_id("done", True, False): (b"B",), art.portrait_id(done): (b"P", 6, 3), art.big_portrait_id(done): (b"G",)}
+bid_, pid_, big_ = art.banner_id("done", True, False), art.portrait_id(done), art.big_portrait_id(done)
+sp = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11))
+nr = ui.report_images(done, True, fake_art, 90, (80, 10), (20, 11))
+ok(sp.index(f"a=d,d=I,i={bid_}") < sp.index(f"a=T,U=1,f=100,i={bid_},c=118,r=15")
+   < sp.index(f"a=d,d=I,i={big_}") < sp.index(f"a=T,U=1,f=100,i={big_},c=20,r=11") and big_ != pid_ and f"i={pid_}," not in sp
+   and f"a=d,d=I,i={pid_}," not in nr and f"a=d,d=I,i={big_}," not in nr and f"a=T,U=1,f=100,i={pid_},c=6,r=3" in nr and f"i={big_}," not in nr,
+   "report images: split deletes then sends the banner and the big portrait (own id); narrow never deletes the sidebar portrait and sends its id")
+fake_art.update({art.label_id("took"): (b"L",), art.label_id("where"): (b"M",)})
+lb = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), None, ["took", "where"])
+lb_n = ui.report_images(done, True, fake_art, 90, (80, 10), (20, 11), None, ["took"])
+tid, wid = art.label_id("took"), art.label_id("where")
+ok(f"i={tid},c=8,r=1,q=2,m=0;TA==" in lb and f"i={wid},c=9,r=1" in lb and f"i={art.label_id('files')}," not in lb and f"i={tid}," not in lb_n
+   and ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), {bid_: (118, 15), big_: (20, 11), tid: (8, 1), wid: (9, 1)}, ["took", "where"]) == ""
+   and f"i={wid},c=9,r=1" in ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), {bid_: (118, 15), big_: (20, 11), tid: (8, 1)}, ["took", "where"]),
+   "report images: split also sends the labels this page shows (1 row, their own cols); a redraw skips unchanged ones and sends a new one; narrow sends none")
+rd_same = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), {bid_: (118, 15), big_: (20, 11)})
+rd_big = ui.report_images(done, True, fake_art, 150, (118, 15), (24, 12), {bid_: (118, 15), big_: (20, 11)})
+rd_new = ui.report_images(done, True, fake_art, 90, (80, 10), (20, 11), {bid_: (118, 15), big_: (20, 11)})
+ok(rd_same == "" and "a=d" not in rd_big and f"i={big_},c=24,r=12" in rd_big and f"i={bid_}," not in rd_big
+   and "a=d" not in rd_new and f"i={bid_},c=80,r=10" in rd_new and f"i={pid_},c=6,r=3" in rd_new,
+   "report images: a redraw at the same cells sends nothing, a resized image is resent without a delete, unchanged ones are skipped")
+pg_same = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), None, (), {bid_: (118, 15), big_: (20, 11)})
+pg_big = ui.report_images(done, True, fake_art, 150, (118, 15), (24, 12), None, (), {bid_: (118, 15), big_: (20, 11)})
+pg_new = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), None, (), {bid_: (118, 15)})
+ok(pg_same == "", "report images: a new page sends nothing for an id this pane already sent at the same cells")
+ok("a=d" not in pg_big and f"i={big_},c=24,r=12" in pg_big and f"i={bid_}," not in pg_big,
+   "report images: a new page resends an id sent at other cells under the same id, without a delete")
+ok(pg_new.index(f"a=d,d=I,i={big_}") < pg_new.index(f"a=T,U=1,f=100,i={big_},c=20,r=11") and f"i={bid_}," not in pg_new,
+   "report images: a new page deletes an id this pane never sent before its image")
+fd_sp = ui.report_first_deletes(done, True, fake_art, 150, (118, 15), (20, 11), {bid_: (118, 15)})
+fd_nr = ui.report_first_deletes(done, True, fake_art, 90, (80, 10), (20, 11), {})
+ok(fd_sp == art.kitty_delete(big_) and "a=T" not in fd_sp and f"a=d,d=I,i={bid_}," in fd_nr and f"i={pid_}," not in fd_nr,
+   "report first frame: deletes only the ids this pane never sent, never the sidebar portrait")
+ok(f"i={big_},c=20,r=11,q=2,m=0;Rw==" in sp and "UA==" not in sp and "UA==" in nr and "Rw==" not in nr,
+   "report images: split sends the big portrait PNG bytes, narrow sends the small portrait bytes")
+pc_, pr_ = ui.portrait_cells(0.452)
+raw_wide = render.render_report(done, "Studio", rep, [], 150, art=True, banner=(88, 10), portrait=(pc_, pr_)).splitlines()
+ok(pc_ == art.SPLIT_BIG_PORTRAIT_COLS == 20 and pr_ == 10 and strip(raw_wide[1]).startswith("┃" + " " * 4 + chr(0x10EEEE))
+   and art.image_row(art.big_portrait_id(done), 0, 20) in raw_wide[1] and art.image_row(art.banner_id("done", True, False), 0, 88) in raw_wide[1],
+   "report: split portrait is SPLIT_BIG_PORTRAIT_COLS wide, centered in the frame, and its top row shares a row with the banner top")
+ok([a["pane"] for _, a in ui.report_queue(qt)] == ["%3", "%1", "%4", "%2"], "report queue: waiting first, then done, then the rest")
 ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"] and ui.report_queue(qt, "%2")[0][0] == "A",
    "report queue: the pane asked for comes first, whatever its status")
+ok(abs(ui.report_resize_wait(5.0, 5.0) - ui.RESIZE_INTERVAL) < 1e-9 and ui.RESIZE_INTERVAL > 0 and abs(ui.report_resize_wait(5.0, 5.02) - (ui.RESIZE_INTERVAL - 0.02)) < 1e-9
+   and ui.report_resize_wait(5.0, 5.0 + ui.RESIZE_INTERVAL) == 0 and ui.report_resize_wait(5.0, 9.0) == 0,
+   "report resize: redraws are at least RESIZE_INTERVAL apart, a redraw after a pause is not delayed")
+ok(ui.ART_SETTLE > ui.report_art_wait(None) == ui.REPORT_ART_SETTLE > 0 and ui.report_art_wait({1: (10, 5)}) == 0 and ui.report_art_wait({}) == 0,
+   "report art wait: a fresh page (first open, n) waits REPORT_ART_SETTLE (shorter than the sidebar's ART_SETTLE), a resize redraw sends images at once")
+pk, grabs = {}, []
+ok(ui.report_peek(pk, "%1", None, None, lambda p: grabs.append(p) or ["x"]) == ["x"] and ui.report_peek(pk, "%1", None, None, lambda p: grabs.append(p) or ["y"]) == ["x"]
+   and grabs == ["%1"] and ui.report_peek(pk, "%2", {}, None, grabs.append) == [] and grabs == ["%1"],
+   "report peek: a redraw reuses the captured peek instead of grabbing the pane again")
 qs = [{"name": "A", "agents": [dict(mk("%1", "working"), summons=[{}]), mk("%2", "working"), mk("%3", "done"), dict(mk("%4", "working"), summons=[])]},
       {"name": "B", "agents": [mk("%5", "waiting"), dict(mk("%6", "working"), summons=[{}])]}]
-ok([a["pane"] for _, a in ui.report_queue(qs)] == ["%5", "%3", "%1", "%6"],
-   "report queue: working member with running subagents comes after waiting and done; working without subagents is left out")
+ok([a["pane"] for _, a in ui.report_queue(qs)][:4] == ["%5", "%3", "%1", "%6"],
+   "report queue: working member with running subagents comes after waiting and done")
+qi = [{"name": "A", "agents": [dict(mk("%1", "idle"), window="@1"), dict(mk("%2", "idle"), window="@2"), dict(mk("%3", "working"), window="@2")]}]
+ok([a["pane"] for _, a in ui.report_queue(qi)] == ["%1", "%2", "%3"], "report queue: with nobody waiting or done, idle and working members are still queued")
+qw = [{"name": "A", "agents": [dict(mk("%1", "idle"), window="@1"), dict(mk("%2", "waiting"), window="@2"), dict(mk("%3", "idle"), window="@1")]}]
+ok([a["pane"] for _, a in ui.report_queue(qw, None, "@1")] == ["%2", "%1", "%3"], "report queue: a member waiting for you stays first, the current window's members follow")
+ok([a["pane"] for _, a in ui.report_queue(qi, None, "@2")] == ["%2", "%3", "%1"], "report queue: members of the current window come before the other idle or working ones")
+qm = [{"name": "A", "agents": [dict(mk("%1", "idle"), window="@1")]}, {"name": "B", "agents": [dict(mk("%2", "idle"), window="@2")]}]
+ok([a["pane"] for _, a in ui.report_queue(qm, None, "@2")] == ["%2", "%1"], "report queue: the caller's window orders the queue, whichever session it is in")
+ok([a["pane"] for _, a in ui.report_queue(qi, "%3", "@2")] == ["%3", "%2", "%1"], "report queue: the pane asked for stays first with a current window")
+ok(ui.report_queue([]) == [] and ui.report_queue([{"name": "A", "agents": []}], "%1", "@1") == [], "report queue: no members, empty queue")
 ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") == "report"
    and ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "popup") is None,
    "r in the sidebar opens the report pane (not inside the P popup)")
@@ -218,6 +490,16 @@ os.environ["TMUX_PANE"] = "%5"
 ui.open_report("%7")
 ui.open_report_pane = real_open
 ok(opened == [("%5", "%7")], "r: the report opens beside the sidebar's own window, for the selected member")
+real_gs, real_rf = ui.get_snapshot, ui.report_for
+ui.report_for = lambda a: {"status_seen": a["status"]}
+q = [("S", {"pane": "%1", "status": "working"})]
+ui.get_snapshot = lambda f=None: {"towns": [{"agents": [{"pane": "%1", "status": "done"}]}]}
+seen = ui.refresh_live(q, 0)
+ui.get_snapshot = lambda f=None: {"towns": [{"agents": []}]}
+gone_ = ui.refresh_live(q, 0)
+ui.get_snapshot, ui.report_for = real_gs, real_rf
+ok(seen == {"status_seen": "done"} and q[0][1]["status"] == "done" and gone_ is None,
+   "live page re-read: the member's new status decides the report; a member the snapshot no longer lists -> None (stop re-reading)")
 calls = []
 real_tmux = sidebars.tmux
 def fake_tmux(usage, rows="%1 1 s1 r\n%2 0 s r\n"):
@@ -233,8 +515,9 @@ c = open_cmd()
 ok(c[0] == "new-pane" and all(f in c for f in ("-x80%", "-y80%", "-X10%", "-Y10%"))
    and "-O" not in c and "-D" not in c and c[c.index("-t") + 1] == "%2" and c[-1].endswith("--report %7"),
    "report pane: tmux with new-pane (O flag in its usage) floats it at 80% x 80%, beside the first non-sidebar pane")
-ok(("set-option", "-p", "-t", "%9", "@party_report", "1", ";", "set-option", "-p", "-t", "%9", "allow-passthrough", "on") in calls,
-   "report pane: marked @party_report and allow-passthrough on, this pane only, in one tmux call")
+ok(("set-option", "-p", "-t", "%9", "@party_report", "1", ";", "set-option", "-p", "-t", "%9", "allow-passthrough", "on") in calls
+   and not any("window-style" in c or "window-active-style" in c for c in calls),
+   "report pane: marked @party_report and allow-passthrough on, this pane only, in one tmux call; the terminal's own background stays")
 calls.clear()
 sidebars.open_report_pane("@1", "")
 ok(not any(c[0] == "list-commands" for c in calls) and open_cmd()[0] == "new-pane" and open_cmd()[-1].endswith("party.py --report"),
@@ -255,22 +538,22 @@ sidebars.tidy()
 sidebars.tmux = real_tmux
 ok(sorted(killed) == ["%1", "%2"], "Tidy: a report pane counts as a sidebar, so a window with only a sidebar and a report is closed")
 import json, tempfile
-import fcntl, pty, select as _sel, struct, subprocess, termios as _tm
+import fcntl, pty, select as _sel, signal, struct, subprocess, termios as _tm, time
 child = """
 import sys
 sys.path.insert(0, %r)
 from party_hud import collect, ui
 ui.get_snapshot = lambda f=None: collect.collect(%r)
 ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(%d)), "start": 1, "end": 2}
-ui.tmux = lambda *a: print("TMUX", a, flush=True) or ""
+ui.tmux = lambda *a: print("TMUX", a, flush=True) or ("off" if "@party_anim" in a else "")
 ui.run_report("%%1")
 print("EXITED", flush=True)
 """
-def report_session(keys, rows=10, lines=60):
+def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), gap=0.0):
     m, sl = pty.openpty()
     fcntl.ioctl(sl, _tm.TIOCSWINSZ, struct.pack("HHHH", rows, 60, 0, 0))
     env = dict(os.environ, TMUX_PANE="%99")
-    p = subprocess.Popen([sys.executable, "-c", child % (os.path.dirname(sys.argv[1]), sys.argv[2], lines)], stdin=sl, stdout=sl, stderr=sl, env=env, close_fds=True)
+    p = subprocess.Popen([sys.executable, "-c", src % (os.path.dirname(sys.argv[1]), sys.argv[2], lines)], stdin=sl, stdout=sl, stderr=sl, env=env, close_fds=True)
     os.close(sl)
     out = b""
     def read_until(marker, n):
@@ -283,24 +566,83 @@ def report_session(keys, rows=10, lines=60):
                     out += os.read(m, 65536)
                 except OSError:
                     return
-    for n, key in enumerate(keys, 1):
-        read_until(b"close", n)
+    if resizes:
+        read_until(b"\x1b[J", 1)
+        for r in resizes:
+            fcntl.ioctl(m, _tm.TIOCSWINSZ, struct.pack("HHHH", r, 60, 0, 0))
+            p.send_signal(signal.SIGWINCH)
+            time.sleep(gap)
+        time.sleep(0.5)
+        while _sel.select([m], [], [], 0.2)[0]:
+            out += os.read(m, 65536)
+    for key, n in zip(keys, draws or range(1, len(keys) + 1)):
+        if not resizes:
+            read_until(b"\x1b[J", n)
         os.write(m, key)
     read_until(b"EXITED", 1)
     p.wait(timeout=5)
     os.close(m)
     return out.decode(errors="ignore")
 once = report_session([b"\r"])
-ok(all(f"L{n}" in once for n in range(60)), "report pane: a report taller than the terminal is printed in full, so copy-mode can scroll it")
-ok("\x1b[?1049h" not in once and "\x1b[H" not in once and "\x1b[?1003h" not in once, "report pane: normal screen, no cursor homing, no mouse reporting (tmux needs both for copy-mode)")
+ok("L0" in once and "L59" not in once and "\x1b[?1003h" in once and once.rindex("\x1b[?1003l") > once.index("switch-client"),
+   "report pane: only the first rows are drawn; mouse reporting is on while it runs and off when it ends")
+ok("copy-mode" not in once and "clear-history" not in once and "\x1b[3J" not in once, "report pane: no copy-mode, no tmux history calls, no history clearing")
+ok(once.count("\x1b[?1049h") == 1 and once.count("\x1b[?1049l") == 1 and once.index("\x1b[?1049h") < once.index("L0") and once.rindex("\x1b[?1049l") > once.index("switch-client"),
+   "report pane: alternate screen entered before the first draw and left on exit")
+boom = report_session([], src=child.replace("ui.run_report", "ui.report_for = lambda a: 1 / 0\nui.run_report"))
+ok(boom.count("\x1b[?1049h") == 1 and boom.rindex("\x1b[?1049l") > boom.index("\x1b[?1049h") and "ZeroDivisionError" in boom,
+   "report pane: the alternate screen is left also when the report pane fails")
 ok("TMUX ('switch-client', '-t'" in once and "EXITED" in once, "report pane: Enter jumps to the member's pane and exits")
+seen_win = report_session([b"q"], src=child.replace("ui.run_report", "ui.report_queue = lambda t, p=None, w=None: print('WIN', w, flush=True) or []\nui.run_report", 1))
+ok("TMUX ('display-message', '-p', '-t', '%99', '#{window_id}')" in seen_win, "report pane: the caller's window is asked of tmux by the pane's own $TMUX_PANE")
 twice = report_session([b"n", b"q"])
-ok(twice.count("close") == 2 and twice.index("clear-history', '-t', '%99'") < twice.index("\x1b[2J") < twice.rindex("close"),
-   "report pane: n clears this pane's history, then clears the screen and prints the next report")
-ok(once.index("TMUX ('copy-mode', '-t', '%99')") < once.index("TMUX ('send-keys', '-t', '%99', '-X', 'history-top')") < once.index("switch-client"),
-   "report pane: a report taller than the pane opens in copy-mode at its first line")
-ok("copy-mode" not in report_session([b"q"], rows=40, lines=3), "report pane: a report that fits the pane does not enter copy-mode")
-ok("EXITED" in twice and "L59" in twice[twice.rindex("\x1b[2J"):], "report pane: q ends the program, which closes the pane")
+ok("\x1b[2J" not in twice and twice.count("L0") == 2, "report pane: n draws the next report in place, without clearing the screen")
+rs = report_session([b"q"], rows=30, resizes=[29, 28, 27, 26, 25, 24, 23, 22, 21, 20] * 2, gap=0.005)
+rs_draws = rs.count("\x1b[J") - 1
+ok("\x1b[2J" not in rs and "\x1b[3J" not in rs, "report pane: a resize redraws in place, never clears the screen")
+ok(2 <= rs_draws <= 8, f"report pane: 20 size changes in about 0.1 s redraw a bounded number of times (got {rs_draws})")
+last = rs[rs.rindex("\x1b[H") : rs.index("\x1b[J", rs.rindex("\x1b[H"))]
+ok(last.count("\n") == 19, "report pane: after the burst the last redraw has the final size")
+anim_src = child.replace('"\\n".join(f"L{n}"', '"\\n\\n".join(f"L{n}"').replace('or ("off" if "@party_anim" in a else "")', 'or ""')
+aq = report_session([b"q"], rows=16, lines=12, src=anim_src)
+a_first = aq[aq.index("\x1b[H") : aq.index("\x1b[H", aq.index("\x1b[H") + 1)]
+a_last = aq[aq.rindex("\x1b[H") :]
+ok(aq.count("\x1b[H") == 2 and "L1" in a_first and "L3" not in a_first and "L3" in a_last and "EXITED" in aq,
+   "report pane: a key during the opening animation draws the whole page at once and is still handled (q exits)")
+an = report_session([b"n", b"q"], rows=16, lines=12, src=anim_src)
+ok("report 2/3" in an and an.count("\x1b[H") == 4 and "EXITED" in an, "report pane: n during the animation changes page at once, and the new page starts its own animation")
+art_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1"})]
+ui.art_supported = lambda *a: True
+ui.load_art = lambda: {"k": 1}
+ui.REPORT_ART_SETTLE = 0
+ui.report_images = lambda *a: "<IMG r=%%d>" %% os.get_terminal_size(1).lines
+ui.report_image_plan = lambda *a: []
+ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
+ui.run_report"""
+ra = report_session([b"q"], rows=30, resizes=[29, 28, 27, 26, 25, 24, 23, 22, 21, 20] * 2, gap=0.005, src=child.replace("ui.run_report", art_inject, 1).replace("import sys\n", "import os, sys\n", 1))
+ok(ra.count("<IMG") == 2 and ra.count("<IMG r=20>") == 1,
+   "report pane: images are resent once, at the final size, after the resize burst stops")
+first_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1"})]
+ui.art_supported = lambda *a: True
+ui.load_art = lambda: {"k": 1}
+ui.REPORT_ART_SETTLE = 0
+ui.report_images = lambda *a: ""
+ui.report_image_plan = lambda *a: [(7, 10, 5)]
+ui.portrait_id = lambda a: -1
+ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
+ui.run_report"""
+fp = report_session([b"n", b"q"], src=child.replace("ui.run_report", first_inject, 1))
+ok(fp.count("a=d,d=I,i=7") == 2 and fp.index("a=d,d=I,i=7") < fp.index("\x1b[H") < fp.rindex("a=d,d=I,i=7"),
+   "report pane: the first frame is written with a delete of the unsent image id, and n does not delete it again")
+ex_src = first_inject.replace("[(7, 10, 5)]", "[(7, 10, 5), (-1, 6, 3)]")
+ex = report_session([b"q"], src=child.replace("ui.run_report", ex_src, 1))
+ok("a=d,d=I,i=7" in ex[ex.index("\x1b[H"):] and ex.rindex("a=d,d=I,i=7") < ex.rindex("\x1b[?1049l") and "a=d,d=I,i=-1" not in ex[ex.index("\x1b[H"):],
+   "report pane: on exit the images it sent are deleted before leaving the alternate screen, the sidebar portrait is not")
+scr = report_session([b"G", b"q"])
+ok("L59" in scr[scr.index("\x1b[H", scr.index("\x1b[J")):] and "L59" not in once, "report pane: G redraws the bottom rows in place")
+fit = report_session([b"j", b"q"], rows=40, lines=3, draws=[1, 1])
+ok(fit.count("\x1b[H") == 1, "report pane: a report that fits the pane does not redraw on j")
+ok("EXITED" in twice, "report pane: q ends the program, which closes the pane")
 from datetime import datetime
 pane = lambda pid, cmd: {"session_name": "New", "window_index": "1", "window_name": "w", "window_active": "1",
                          "session_attached": "1", "pane_id": pid, "pane_active": "1", "pane_current_command": cmd,
@@ -322,8 +664,8 @@ rs = collect.collect(g.name)
 ok(rs["panes"]["%31"]["sidebar"] is True and rs["panes"]["%30"]["sidebar"] is False
    and [a["pane"] for t in rs["towns"] for a in t["agents"]] == ["%30"],
    "A report pane (@party_report) is treated like a sidebar: not a member, and it does not keep a window alive")
-ok(new["%21"]["hp"] is None and not new["%21"]["fresh"] and re.search(r"agy.*\n.*· idle.*\n.*HP +-- +│\n.*SP +-- +│", nl),
-   "Other agents with unreadable context: HP / SP stay --")
+ok(new["%21"]["hp"] is None and not new["%21"]["fresh"] and re.search(r"agy.*\n.*· idle.*\n.*HP +-- +│\n╰", nl) and "SP --" not in nl,
+   "Other agents with unreadable context: HP stays --, no SP row")
 ok(new["%22"]["status"] == "working" and new["%21"]["status"] == "idle", "Other agents: recent screen change = busy, no change = idle")
 with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
     json.dump({"panes": [pane("%30", "claude"), dict(pane("%31", "claude"), **{"@workmux_pane_status": "✅"}),
@@ -357,6 +699,30 @@ ok(collect.codex_report(f.name) == {"text": "## 結果\n完成", "start": 100, "
    "codex report: last task_complete's message and start / end time")
 ok(collect.codex_report(g.name) is None and collect.codex_report("/nope") is None,
    "codex report: no message or no file -> None")
+with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+    um = lambda tid, t: json.dumps({"type": "event_msg", "payload": {"type": "item_completed", "turn_id": tid, "item": {"type": "UserMessage", "content": [{"type": "text", "text": t}]}}}) + "\n"
+    ce = lambda tid: json.dumps({"type": "event_msg", "payload": {"type": "item_completed", "turn_id": tid, "item": {"type": "CommandExecution"}}}) + "\n"
+    ts = lambda tid: json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": tid}}) + "\n"
+    f.write(ts("t1") + um("t1", "old ask") + ce("t1") + ts("t2") + um("t2", " new ask ") + ce("t2") + ce("t2"))
+    f.write('{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t2","last_agent_message":"x","started_at":1,"completed_at":2}}\n')
+ok(collect.codex_task(f.name) == {"ask": "new ask", "files": 0, "cmds": 2, "agents": 0} and collect.codex_task("/nope") is None,
+   "codex task: the finished turn's UserMessage text and its CommandExecution count (item_completed events)")
+with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+    f.write(ts("t9") + um("t9", "long turn") + ce("t9") + ("x" * 1000 + "\n") * 300 + ce("t9") + ce("t9"))
+    f.write('{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t9","last_agent_message":"x","started_at":1,"completed_at":2}}\n')
+ok(collect.codex_task(f.name) is None, "codex task: turn started before the tail that is read -> None, not a short count")
+
+with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
+    fc = lambda tid, name, inp: json.dumps({"type": "response_item", "payload": {"type": "custom_tool_call", "name": name, "input": inp}}) + "\n"
+    am = lambda tid, t: json.dumps({"type": "event_msg", "payload": {"type": "item_completed", "turn_id": tid, "item": {"type": "AgentMessage", "content": [{"type": "Text", "text": t}]}}}) + "\n"
+    f.write(ts("t1") + um("t1", "old ask") + '{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":"earlier answer","started_at":10,"completed_at":20}}\n')
+    f.write('{"type":"event_msg","payload":{"type":"task_started","turn_id":"t2","started_at":500}}\n')
+    f.write(um("t2", "now ask") + fc("t2", "exec", "\nrg -n foo src\nmore") + ce("t2") + am("t2", "a\nb\nc") + fc("t2", "exec", "ls -la"))
+cl = collect.codex_live(f.name)
+ok(cl == {"live": True, "task": {"ask": "now ask", "files": 0, "cmds": 1, "agents": 0}, "start": 500, "end": None,
+          "tool": "exec: ls -la", "said": "a\nb\nc", "prev": {"text": "earlier answer", "start": 10, "end": 20}},
+   "codex live: turn without task_complete -> ask, start, newest tool row, newest message, previous turn's report")
+ok(collect.codex_live(g.name) is None and collect.codex_live("/nope") is None, "codex live: newest turn event is task_complete (or no file) -> None")
 
 def transcript(*recs):
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
@@ -385,6 +751,92 @@ ok(collect.claude_report(transcript(*turn[:6])) is None and collect.claude_repor
 ok(collect.claude_report(transcript(*turn[:4])) is None, "claude report: turn with only thinking so far -> None")
 ok(collect.claude_report(transcript(*turn[:2])) == {"text": "old answer", "start": t0, "end": t0 + 60},
    "claude report: answer without tool calls")
+edit = lambda t, name, **inp: rec("assistant", t, [{"type": "tool_use", "id": f"u{t}", "name": name, "input": inp}])
+task_log = transcript(rec("user", 0, "old"), rec("assistant", 1, [text("ok")]),
+    rec("user", 2, [text("  fix\nthe thing  ")]), edit(3, "Edit", file_path="/a.py"), edit(3, "Write", file_path="/a.py"),
+    edit(4, "MultiEdit", file_path="/b.py"), edit(4, "Bash", command="ls"), edit(5, "Bash", command="pwd"), edit(5, "Task", prompt="x"),
+    rec("user", 5, [{"type": "tool_result", "tool_use_id": "x"}]), edit(6, "Agent", prompt="y"),
+    edit(6, "Edit", file_path="/side.py", ), rec("assistant", 7, [text("done")]),
+    rec("user", 8, "<bash-input>ls</bash-input>"))
+task_log2 = transcript(*[({**r_, "isSidechain": True} if r_["message"]["content"][0].get("input", {}).get("file_path") == "/side.py" else r_) if isinstance(r_["message"]["content"], list) else r_ for r_ in map(json.loads, open(task_log))])
+ok(collect.claude_task(task_log2) == {"ask": "fix\nthe thing", "files": ["/a.py", "/b.py"], "cmds": 2, "agents": 2}
+   and collect.claude_task("/nope")["ask"] is None,
+   "claude task: prompt of the answered turn, distinct edited files, Bash, Agent and Task counts (sidechain and older turns skipped)")
+inj = lambda t, text_, **kw: rec("user", t, text_, **kw)
+noisy = transcript(rec("user", 0, "real ask"), edit(1, "Edit", file_path="/a.py"), rec("assistant", 2, [text("ok")]),
+    inj(3, "<task-notification>\n<task-id>x</task-id>", origin={"kind": "task-notification"}),
+    edit(4, "Bash", command="ls"), edit(4, "Edit", file_path="/b.py"),
+    inj(5, "<system-reminder>\nnote\n</system-reminder>"), inj(5, "<local-command-stdout>x</local-command-stdout>"),
+    inj(5, "<task-notification>y"), inj(5, "peer msg", origin={"kind": "peer"}),
+    rec("assistant", 6, [text("done")]))
+ok(collect.claude_task(noisy) == {"ask": "real ask", "files": ["/a.py", "/b.py"], "cmds": 1, "agents": 0},
+   "claude task: injected user records (origin not human, task-notification, local-command, system-reminder only) are not the prompt; their tool calls still count")
+slash = transcript(rec("user", 0, "before"), rec("assistant", 1, [text("a")]),
+    rec("user", 2, "<command-message>sdlc-run</command-message>\n<command-name>/sdlc-run</command-name>\n<command-args>game-feel 025</command-args>", origin={"kind": "human"}),
+    rec("user", 2, "Base directory for this skill: /x\n" + "skill text\n" * 50, isMeta=True),
+    rec("user", 3, "<system-reminder>\ninjected\n</system-reminder>\n/real typed words"),
+    edit(4, "Edit", file_path="/c.py"), rec("assistant", 5, [text("done")]))
+slash2 = transcript(*list(map(json.loads, open(slash)))[:-3], rec("assistant", 5, [text("done")]))
+ok(collect.claude_task(slash)["ask"] == "/real typed words" and collect.claude_task(slash2)["ask"] == "/sdlc-run game-feel 025"
+   and collect.claude_typed({}, "<system-reminder>only</system-reminder>") is None,
+   "claude task: a slash command shows as /name args (no skill text); system-reminder blocks are cut and an empty remainder is skipped")
+pb = lambda body, i="cd54": f'<pasted_content id="{i}">\n{body}\n</pasted_content id="{i}">'
+ok(collect.claude_typed({}, "[Image #1] it broke\n\n\n" + pb("❯❯ bash x\nok")) == "[Image #1] it broke"
+   and collect.claude_typed({}, "\n\n" + pb("❯❯ printf\n57") + "\n\n\nnew window is fine") == "new window is fine",
+   "claude typed: text typed outside a pasted_content block is the ask; the block is dropped")
+ok(collect.claude_typed({}, pb("❯❯ printf\n57")) == "❯❯ printf\n57",
+   "claude typed: only a paste -> the pasted text without the pasted_content markers")
+ok(collect.claude_typed({}, pb("one", "a") + "\nmiddle\n" + pb("two", "b")) == "middle",
+   "claude typed: two pastes with typed words between -> only the words")
+ok(collect.claude_typed({}, 'hi\n<pasted_content id="z">\nbody') == "hi\nbody"
+   and "pasted_content" not in collect.claude_typed({}, '<pasted_content id="z">\nbody'),
+   "claude typed: an unclosed pasted_content block loses only its opening marker")
+ok(collect.claude_typed({}, pb('see </pasted_content id="q"> inside') + "\ntyped") == "typed"
+   and collect.claude_typed({}, pb('a </pasted_content id="q"> b')) == 'a </pasted_content id="q"> b'
+   and "pasted_content" not in collect.claude_typed({}, pb("x") + '\ntyped\n<pasted_content id="z">\nrest'),
+   "claude typed: a closing-marker lookalike inside a paste does not end it; a stray opening marker beside a full block is dropped")
+edit_ = lambda t, name, **inp: rec("assistant", t, [{"type": "tool_use", "id": "z", "name": name, "input": inp}])
+liveq = transcript(rec("user", 0, "before"), rec("assistant", 1, [text("previous answer")]),
+    rec("user", 2, "fix the thing"), rec("assistant", 3, [text("working on it\nline2")]),
+    edit_(4, "Edit", file_path="/a.py"), rec("user", 5, [{"type": "tool_result", "tool_use_id": "z"}]),
+    edit_(6, "Bash", command="rg -n foo\nsecond line", description="search"))
+cl = collect.claude_live(liveq)
+ok(cl == {"live": True, "task": {"ask": "fix the thing", "files": ["/a.py"], "cmds": 1, "agents": 0},
+          "start": t0 + 120, "end": None, "tool": "Bash: rg -n foo", "said": "working on it\nline2",
+          "prev": {"text": "previous answer", "start": t0, "end": t0 + 60}},
+   "claude live: turn without a final answer -> ask, start, newest tool row, newest text, previous turn's report")
+ok(collect.report_for({"kind": "claude", "transcript": liveq, "status": "working"})["live"] is True
+   and collect.report_for({"kind": "claude", "transcript": liveq}) is None
+   and collect.report_for({"kind": "claude", "transcript": transcript(*turn), "status": "idle"})["text"].startswith("## 結果"),
+   "report_for: working -> live page; any other status keeps the finished-report path")
+repo = tempfile.mkdtemp()
+os.makedirs(os.path.join(repo, ".git", "refs"))
+os.makedirs(os.path.join(repo, "src", "deep"))
+with open(os.path.join(repo, ".git", "HEAD"), "w") as f:
+    f.write("ref: refs/heads/feat/x\n")
+wt = tempfile.mkdtemp()
+os.makedirs(os.path.join(repo, ".git", "worktrees", "wt1"))
+with open(os.path.join(repo, ".git", "worktrees", "wt1", "HEAD"), "w") as f:
+    f.write("ref: refs/heads/wt-branch\n")
+with open(os.path.join(wt, ".git"), "w") as f:
+    f.write("gitdir: " + os.path.join(repo, ".git", "worktrees", "wt1") + "\n")
+det = tempfile.mkdtemp()
+bad = tempfile.mkdtemp()
+os.makedirs(os.path.join(bad, ".git"))
+os.makedirs(os.path.join(det, ".git"))
+with open(os.path.join(det, ".git", "HEAD"), "w") as f:
+    f.write("0123456789abcdef0123456789abcdef01234567\n")
+with open(os.path.join(bad, ".git", "HEAD"), "w") as f:
+    f.write("ref: refs/heads/a\tb\x1b]52;c;ZXZpbA==\x07\n")
+tags = tempfile.mkdtemp()
+os.makedirs(os.path.join(tags, ".git"))
+with open(os.path.join(tags, ".git", "HEAD"), "w") as f:
+    f.write("ref: refs/remotes/o/x\n")
+ok(collect.git_branch(bad) == "ab]52;c;ZXZpbA==" and collect.git_branch(tags) is None,
+   "git branch: control characters are dropped from the name; a ref outside refs/heads -> None")
+ok(collect.git_branch(os.path.join(repo, "src", "deep")) == "feat/x" and collect.git_branch(wt) == "wt-branch"
+   and collect.git_branch(det) == "0123456" and collect.git_branch("/nope/none") is None,
+   "git branch: read from .git/HEAD (repo, parent directory), from a worktree's gitdir file, short sha when detached, None outside a repo")
 sess = transcript(*turn)
 sdir = os.path.join(sess[:-6], "subagents")
 os.makedirs(sdir)
@@ -518,11 +970,14 @@ ok(fh["sel"] == "%2", "Cursor already on a member of that window (just clicked):
 import os, unicodedata
 art.ART_DIR = tempfile.mkdtemp()
 ok(art.load_art() is None, "No images in art/: load_art returns None (text version)")
-for i, n in enumerate(art.PORTRAIT_FILES + art.CREST_FILES):
-    open(os.path.join(art.ART_DIR, ("portrait-" if i < 8 else "crest-") + n + ".png"), "wb").write(b"PNG" + bytes([i]))
+flat_banners = [f"{n}-{k}x1" for k in range(5, 9) for n in art.BANNER_FILES]
+for i, n in enumerate(art.PORTRAIT_FILES + art.CREST_FILES + art.BANNER_FILES + art.PORTRAIT_FILES + flat_banners + list(art.LABEL_COLS)):
+    prefix = "portrait-" if i < 8 else "crest-" if i < 16 else "banner-" if i < 20 or i >= 28 and i < 44 else "label-" if i >= 44 else "portrait-big-"
+    open(os.path.join(art.ART_DIR, prefix + n + ".png"), "wb").write(b"PNG" + bytes([i]))
 imgs = art.load_art()
-ok(imgs and len(imgs) == 16 and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2),
-   "All 16 images present: portraits 6x3 cells, crests 4x2 cells")
+ok(imgs and len(imgs) == 51 and imgs[art.label_id("running")] == (b"PNG" + bytes([50]),) and imgs[art.banner_id("waiting", True, False, 7)] == (b"PNG" + bytes([28 + 2 * 4 + 1]),) and imgs[art.BIG_PORTRAIT_ID + 3] == (b"PNG\x17",) and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2)
+   and imgs[art.BANNER_ID + 2] == (b"PNG\x12",),
+   "All 51 images present: portraits 6x3 cells, crests 4x2 cells, 4 banners in 5 ratios, 8 big portraits and 7 heading labels (no cell size stored)")
 ok(art.art_supported("", "xterm-ghostty") and art.art_supported("", "xterm-kitty") and not art.art_supported("", "xterm-256color")
    and not art.art_supported("", "wezterm") and art.art_supported("on", "xterm-256color") and not art.art_supported("off", "xterm-ghostty"),
    "Images: auto on for Ghostty / Kitty, text elsewhere; @party_art on / off forces it")
@@ -531,6 +986,12 @@ ok(art.load_art() is None, "One image missing -> whole UI falls back to text")
 ok(common.cw(strip(art.image_row(art.PORTRAIT_ID, 2, 6))) == 6 and art.image_row(art.PORTRAIT_ID, 2, 6).count("\U0010EEEE") == 6,
    "Placeholder row is 6 cells: diacritics (row, column) take no width")
 row = art.image_row(0x7A0103, 1, 2)
+ok(len(art.DIAC) >= 80 and art.DIAC[:3] == [0x305, 0x30D, 0x30E] and len(set(art.DIAC)) == len(art.DIAC)
+   and common.cw(strip(art.image_row(art.BANNER_ID, 9, 297))) == 297 and len(art.DIAC) == 297,
+   "Placeholders: 297 distinct diacritics, so a banner row can fill a wide right column")
+bp = art.big_portrait_id(done)
+ok(bp != art.portrait_id(done) and bp not in range(art.PORTRAIT_ID, art.PORTRAIT_ID + 8) and bp >> 8 != art.BANNER_ID >> 8,
+   "Report: the big portrait has its own image id, apart from the sidebar portrait and the banners")
 ok(row.startswith("\x1b[38;2;122;1;3m") and "\U0010EEEE̍̅\U0010EEEE̍̍" in row,
    "Placeholders: foreground = image id, row-2 diacritic 030D, column diacritics 0305 / 030D")
 os.environ["TMUX"] = "x"
@@ -538,6 +999,8 @@ seq = art.kitty_image(7, b"x" * 5000, 6, 3)
 ok(seq.startswith("\x1bPtmux;\x1b\x1b_Ga=T,U=1,f=100,i=7,c=6,r=3,q=2,m=1;") and seq.count("\x1bPtmux;") == 2
    and seq.endswith("m=0;" + __import__("base64").b64encode(b"x" * 5000).decode()[4096:] + "\x1b\x1b\\\x1b\\"),
    "Image upload: base64 in 4096-char chunks, wrapped in tmux passthrough, last chunk m=0")
+ok(art.kitty_delete(5) == "\x1bPtmux;\x1b\x1b_Ga=d,d=I,i=5,q=2\x1b\x1b\\\x1b\\",
+   "Image delete: a=d,d=I for the id, wrapped in tmux passthrough, so a resend with new cells is not shown at the old size")
 aw = strip(render.render(towns, 33, "%1", row_map=(arm := []), art=True)).splitlines()
 w = lambda l: sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in l)
 ok(all(w(l) == 33 for l in aw if l[:1] in "╭│╰"), "Art: every box line is 33 wide")
@@ -567,8 +1030,15 @@ n31, n30 = (re.sub(r"\033\[[0-9;:]*m", "", render.stat_rows(nar, w)[0]) for w in
 nar2 = dict(nar, hp_left=890_000, hp_max=1_200_000)
 n30b = re.sub(r"\033\[[0-9;:]*m", "", render.stat_rows(nar2, 19)[0])
 ok(n31.endswith(f"HP     1M/1M {render.MODEL_ICON} Opus") and n30.endswith(f"HP    1M/1M {render.MODEL_ICON} Opus") and common.cw(n30) == 19
-   and n30b.endswith(f"HP     890k {render.MODEL_ICON} Opus"),
-   "Narrow sidebar: value area yields to the model icon; 1.0M as 1M; shrink the bar first, drop the max (/1.2M) only if still too wide")
+   and n30b.endswith("HP 890k/1.2M  Opus"),
+   "Narrow sidebar: the HP value (left/max) stays whole and the model badge yields; 1.0M as 1M; the max is dropped only if the row is still too narrow")
+n17, n13 = (re.sub(r"\033\[[0-9;:]*m", "", render.stat_rows(nar2, w)[0]) for w in (17, 11))
+ok(n17.rstrip().endswith("HP 890k/1.2M") and "Op" not in n17 and common.cw(n17) == 17 and n13.endswith("890k") and "/" not in n13 and common.cw(n13) == 11,
+   "Narrow sidebar: badge dropped (no stub) before the value is cut; max dropped only when the row cannot hold it")
+long_a = dict(nar2, name="party-hud-long-name", cls=0, kind="claude", status="working", sp=(600.0, 3600))
+nc = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card(long_a, 28, True, True)]
+ok(all(w(l) == 28 for l in nc) and "890k/1.2M" in nc[2] and "…" in nc[1] and "party-hud-long-name" not in nc[1],
+   "Narrow art card: name truncated with … while the HP value stays whole; every line exactly 28 wide")
 text = render.render(towns, 33, "%1", hints="sidebar") + render.render(towns, 33, "%1", art=True) + render.render(towns, 33, "%1", ["x"], "popup")
 for nm in [t["name"] for t in towns] + [a["name"] for a in agents] + [s["desc"] for a in agents for s in a.get("summons", [])]:
     text = text.replace(nm, "")
@@ -586,6 +1056,11 @@ ok(st1 == st2 == "done" and st3 == "idle" and st4 == "idle", "Unseen done: busy 
 ok(mu("idle", True, s0)[0] == "idle" and mu("sleep", False, s1)[0] == "done" and mu("working", False, s1)[0] == "working",
    "Watched pane finishing goes straight to idle; asleep keeps done; busy again clears done")
 ok(mu("idle", False, {})[0] == "idle", "Idle member that was never busy is not marked done")
+ts = [{"agents": [{"pane": "%60", "status": "idle", "focus": True}, {"pane": "%61", "status": "idle", "focus": False, "lead": "%60"},
+                  {"pane": "%62", "status": "idle", "focus": False}]}]
+collect.mark_unseen(ts, {"%61": {"status": "working", "unseen": False}, "%62": {"status": "working", "unseen": False}})
+ok([a["pane"] for a in ts[0]["agents"]] == ["%62", "%60", "%61"] and ts[0]["agents"][2]["status"] == "done",
+   "Unseen done: a summoned member that finishes stays right under its lead; other done members move up")
 low = {"hp": 8, "hp_left": 16000, "hp_max": 200000, "sp": None, "fresh": False}
 red, dim = "\x1b[1;38;2;208;96;90m", "\x1b[1;38;2;138;143;168m"
 render._tick = 0; on = render.stat_rows(low, 22)[0]
@@ -688,7 +1163,107 @@ cr = art.crest_ids(["dotfiles", "homelab", "notes", "projects", "scratch"])
 ok(len(set(cr.values())) == 5, "Crests: unique for up to 8 squads (real collisions: notes/projects, dotfiles/scratch)")
 ok(len(set(art.crest_ids(f"s{i}" for i in range(8)).values())) == 8 and len(art.crest_ids(f"s{i}" for i in range(9))) == 9,
    "Crests: exactly 8 squads use all 8; repeats start at the 9th")
+ph = ["", "BANNER1", "BANNER2", ""]
+pbody = ["P1a", "P1b", "", "P2", "", common.fg("green") + "c1", "", common.fg("green") + "c2", "", "P3", "", "P4", "", "P5"]
+pf = render.report_frames(ph + pbody, 100)
+pn = len(ph + pbody)
+ok(pf[-1] == ph + pbody and 2 <= len(pf) <= 5 and all(len(f) == pn for f in pf), "Report animation: at most 5 frames, the last one is the whole page")
+ok(all(f[:3] == ph[:3] for f in pf) and pf[0][3:9] == ["", "P1a", "P1b", "", "P2", ""] and pf[0][9:] == [""] * (pn - 9) and [r for r in pf[0] if r] == ["BANNER1", "BANNER2", "P1a", "P1b", "P2"],
+   "Report animation: the first frame has the head rows and the first paragraphs; the rest is blank")
+cb = next(i for i, r in enumerate(ph + pbody) if r.endswith("c1"))
+ok(all(bool(f[cb]) == bool(f[cb + 2]) for f in pf) and any(f[cb] for f in pf) and not pf[0][cb], "Report animation: a code block with a blank row inside is never cut")
+ok(render.report_frames(ph + ["only", "one"], 100) == [ph + ["only", "one"]] and render.report_frames(ph + ["a"], 100) == [ph + ["a"]],
+   "Report animation: fewer than 2 paragraphs after the head does not animate")
+ok(render.report_frames(ph + pbody, 6)[-1] == ph + pbody and len(render.report_frames(ph + pbody, 6)) < len(pf)
+   and render.report_frames(ph + pbody + ["", "hint"], 100, tail=2)[0][-2:] == ["", "hint"],
+   "Report animation: steps that change nothing in the visible rows are dropped; the tail rows are always shown")
+fl_, fr_ = render.report_parts(done, "Studio", dict(rep, text="\n\n".join(f"para {n}" for n in range(9))), [], 150, art=True, banner=(88, 10), portrait=(24, 14), height=40, fixed=True)
+ff = render.report_frames(fr_, 40)
+ok(len(ff) > 1 and all([common.cw(r) for r in render.report_view(fl_, f, 40, 0)[0]][:14] == [common.cw(r) for r in render.report_view(fl_, fr_, 40, 0)[0]][:14] for f in ff)
+   and all(common.cw(r) <= common.cw(g) for f in ff for r, g in zip(render.report_view(fl_, f, 40, 0)[0], render.report_view(fl_, fr_, 40, 0)[0])),
+   "Report animation: every frame keeps the left column and never makes a row wider than the full page")
+vf = ["", "B", "", "p0", "", "p1", "p1b", "", "p2", "", "p3"]
+vf_ = render.report_frames(vf, 8)
+vg = ["", "B", "", "p0", "p0b", "", "p1", "", "p2"]
+ok(len(vf_) == 2 and vf_[-1] == vf and len(render.report_frames(vf, 100)) == 4 and render.report_frames(vg, 6) == [vg],
+   "Report animation: a frame whose first `height` rows equal the next frame's is not drawn; fewer than 2 distinct frames give [right]")
+ok(ui.report_anim_enabled("") and ui.report_anim_enabled("on") and not ui.report_anim_enabled("off\n") and not ui.report_anim_enabled(" off "),
+   "@party_anim: off turns the animation off; unset or anything else keeps it")
 fe = next(a for a in agents if a["pane"] == "%1")
+an, a0 = {}, dict(fe, status="working")
+a1 = dict(a0, hp=48, hp_left=96000, sp=(1320, 3600))
+sm = dict(a0, hp=86, hp_left=172000, sp=(2460, 3600))
+ui.animate(an, [a0], 0.0)
+d1 = ui.animate(an, [a1], 10.0)
+ok(not d1[2] and d1[0][0]["hp"] == 48 and d1[0][0]["hp_delta"] == 48 - a0["hp"] and d1[0][0]["sp_delta"] == 22 - render.sp_points(a0),
+   "Sidebar animation: HP and SP show the new value at once, with the change as hp_delta / sp_delta")
+lab = [ui.animate(an, [a1], t) for t in (19.9, 20.0)]
+ok(not lab[0][2] and lab[0][0][0]["hp_delta"] is not None and not lab[1][2] and lab[1][0][0] is a1,
+   "Sidebar animation: the change labels stay 10 s (still there at 9.9 s, gone at 10 s) and never make the loop busy; then nothing is copied")
+a2, rs = dict(a1, hp=88, hp_left=176000), {}
+ui.animate(rs, [a0], 0.0)
+ui.animate(rs, [a1], 10.0)
+ui.animate(rs, [a2], 12.0)
+r1, r2 = ui.animate(rs, [a2], 21.9), ui.animate(rs, [a2], 22.0)
+ok(r1[0][0]["hp_delta"] == 40 and r2[0][0] is a2,
+   "Sidebar animation: a new change within 10 s of the old label shows the new change and restarts the 10 s")
+sa = {}
+ui.animate(sa, [a0], 0.0)
+sd, _, sbusy = ui.animate(sa, [sm], 10.0)
+ok(not sbusy and sd[0] is sm, "Sidebar animation: a change under 5 points (HP 88 to 86, SP 42 to 41) shows no label and is not busy")
+nb, nl, nbusy = ui.animate({}, [a0], 5.0)
+ok(nb[0] is a0 and not nl and not nbusy and "hp_delta" not in nb[0],
+   "Sidebar animation: a member seen for the first time has no label, nothing copied, nothing due")
+fa = {}
+ui.animate(fa, [a0], 0.0)
+d0 = dict(a0, status="done")
+lit = [bool(ui.animate(fa, [d0], t)[1]) for t in (30.0, 30.4, 30.5, 31.0, 31.5, 33.5, 33.9, 34.0)]
+fc = {}
+ui.animate(fc, [a0], 0.0)
+fb = ui.animate(fc, [d0], 30.0)[2], ui.animate(fc, [d0], 33.9)[2], ui.animate(fc, [d0], 34.0)[2]
+ok(lit == [True, True, False, True, False, False, False, False] and fb == (True, True, False),
+   "Sidebar animation: a member turning done pulses the frame every 0.5 s (lit, plain, lit, plain...) for 4 s, then the frames stop")
+ok(not ui.animate({}, [dict(a0, status="done")], 30.0)[1] and not ui.animate(fa, [dict(d0, status="idle")], 40.0)[1],
+   "Sidebar animation: no flash for a member first seen as done, or leaving to idle")
+fw = ui.animate({"%1": {"last": [88, 42], "delta": [None, None], "t0": [0, 0], "status": "done", "flash": None}}, [dict(a0, status="waiting")], 1.0)[1]
+ok(fw == {"%1"}, "Sidebar animation: turning waiting flashes too")
+gone = {}
+ui.animate(gone, [a0, dict(a0, pane="%9")], 0.0)
+ui.animate(gone, [a0], 1.0)
+ok(set(gone) == {"%1"}, "Sidebar animation: the state of a member that disappeared is dropped")
+on = render.render(towns, 33, "%2", flash={"%1", "%2"})
+off = render.render(towns, 33, "%2")
+ok(on != off and strip(on) == strip(off) and render.render(towns, 33, "%2", flash=()) == off and [common.cw(l) for l in strip(on).split("\n")] == [common.cw(l) for l in strip(off).split("\n")],
+   "Flash changes only the frame color: same text, same widths; no flash is the same output as before")
+fl_sel = render.card(dict(fe, status="done"), 33, True, False, True)
+fl_not = render.card(dict(fe, status="done"), 33, False, False, True)
+ok(fl_sel != render.card(dict(fe, status="done"), 33, True) and fl_not != render.card(dict(fe, status="done"), 33, False),
+   "Flash lights the frame of a selected card and of an unselected card")
+for sq_art in (False, True):
+    sq_on = render.render(towns, 33, "%2", flash={"%1"}, art=sq_art, focus="squad", squad=1)
+    sq_off = render.render(towns, 33, "%2", art=sq_art, focus="squad", squad=1)
+    sq_diff = [i for i, (x, y) in enumerate(zip(sq_on.split("\n"), sq_off.split("\n"))) if x != y]
+    ok(sq_diff and strip(sq_on) == strip(sq_off) and [common.cw(l) for l in strip(sq_on).split("\n")] == [common.cw(l) for l in strip(sq_off).split("\n")]
+       and render.render(towns, 33, "%2", flash={"%99"}, art=sq_art, focus="squad", squad=1) == sq_off,
+       f"Flash pulses the name row of the squad whose member is flashing, also when another squad is viewed (art={sq_art}): same text and widths")
+lw = lambda rows: [common.cw(strip(r)) for r in rows]
+tl = [dict(fe, hp_delta=40, sp_delta=-12), dict(fe, hp_delta=-12), dict(fe, summons=[1, 2], hp_delta=40, sp_delta=-12)]
+ok(all("+40%" in strip(render.stat_rows(a, 29)[0]) for a in tl[:1] + tl[2:]) and "-12" in strip(render.stat_rows(tl[0], 29)[1])
+   and "-12%" not in strip(render.stat_rows(tl[0], 29)[1])
+   and all(lw(render.stat_rows(a, wd)) == lw(render.stat_rows(fe, wd)) for a in tl for wd in range(10, 40)),
+   "Change labels: +N% on the HP row (HP shows tokens, the label is percentage points), -N on the SP row, and every row keeps its width from 10 to 39 cells")
+ok(all(lw(render.card(a, 33, False)) == lw(render.card(fe, 33, False)) for a in tl)
+   and all(lw(render.card(a, 33, False, True)) == lw(render.card(fe, 33, False, True)) for a in tl),
+   "Change labels: a card with labels is as wide on every line as one without, with or without art")
+ok(common.fg("green") in render.stat_rows(dict(fe, hp_delta=40), 29)[0] and common.fg("red") in render.stat_rows(dict(fe, hp_delta=-40), 29)[0]
+   and common.fg("red") not in render.stat_rows(dict(fe, hp_delta=40, hp=88), 29)[0],
+   "Change labels: an increase is green, a decrease is red")
+ok(strip(render.stat_rows(dict(fe, hp_delta=40), 12)[0]) == strip(render.stat_rows(fe, 12)[0]),
+   "Change labels: where the row has no room the label is left out")
+op = dict(fe, model="Opus 5.5", hp=66, hp_left=131353, hp_max=200000)
+ok("+58%" in strip(render.card(dict(op, hp_delta=58), 33, False, True)[2]) and "Opus" not in strip(render.card(dict(op, hp_delta=58), 33, False, True)[2])
+   and "Opus" in strip(render.card(op, 33, False, True)[2]),
+   "Change labels: on a 33-column art card the label takes the model badge's place while it is shown")
 pid = art.portrait_id(fe)
 ok(f"\x1b[38;2;{pid >> 16 & 255};{pid >> 8 & 255};{pid & 255}m" in render.render(towns, 33, "%1", art=True)
    and pid == art.PORTRAIT_ID + fe["cls"], "Portrait chosen by class")
@@ -738,6 +1313,29 @@ shown = len({p for p in rm2 if p and p[0] == "agent"})
 ok(re.fullmatch(r" *▲ \d+ more *", up) and re.fullmatch(r" *▼ \d+ more *", down)
    and int(up.split()[1]) + int(down.split()[1]) + shown == 40, "Cards don't fit: ▲ / ▼ N more above and below, summing to the hidden count")
 ok(not any("more" in l for l in lines), "Everything fits: no ▲ / ▼ hints")
+crowd = [dict(towns[0], name=f"Sq{k}", agents=[dict(agents[0], pane=f"%{200 + 2 * k + j}", summons=[], focus=False) for j in range(2)]) for k in range(12)]
+for use_art in (True, False):
+    for k, pane in ((0, "%200"), (11, "%222")):
+        cm = []
+        cl = strip(render.render(crowd, 33, pane, None, "sidebar", 24, cm, art=use_art)).splitlines()
+        ok(len(cl) == 24 and cl[-1].lstrip().startswith("⏎") and sum(l.startswith("╔") for l in cl) == 1 and any(l.startswith("║❯") for l in cl)
+           and any(l.startswith("╚") for l in cl) and ("agent", pane) in cm and ("squad", k) in cm,
+           f"12 squads at 33x24 (art={use_art}, squad {k}): selected card fully visible with ❯, viewed squad listed, hint row last")
+cm = []
+cl = strip(render.render(crowd, 33, "%222", None, "sidebar", 24, cm, art=True)).splitlines()
+box_end = next(i for i, l in enumerate(cl) if l.startswith("╰"))
+shown = {p[1] for p in cm if p and p[0] == "squad"}
+ok(re.fullmatch(r"│ *▲ \d+ more *│", cl[1]) and int(cl[1].strip("│ ").split()[1]) == 12 - len(shown) and 11 in shown and 0 not in shown
+   and not any("▼" in l for l in cl[:box_end]), "Squads don't fit, last squad viewed: ▲ N more in the frame, N = hidden squads, no ▼")
+cm = []
+cl = strip(render.render(crowd, 33, "%200", None, "sidebar", 24, cm, art=True)).splitlines()
+ok(cm[0] is None and cm[1] == ("squad", 0) and cm[box_end - 1] is None and cm[box_end] is None and "▼" in cl[box_end - 1]
+   and all(cm[i] == ("squad", (i - 1) // 2) for i in range(1, box_end - 1)) and int(cl[box_end - 1].strip("│ ").split()[1]) == 12 - len({p[1] for p in cm if p and p[0] == "squad"}),
+   "Squads don't fit: the ▼ more row maps to None, squad rows map to their own index")
+cm = []
+cl = strip(render.render(crowd[:3], 33, "%200", None, "sidebar", 24, cm, art=True)).splitlines()
+ok(not any("more" in l for l in cl) and cl[0].startswith("╭─ Squads 3") and cl[7].startswith("╰") and cm[:8] == [None, *[("squad", k // 2) for k in range(6)], None],
+   "Squads all fit: no more rows, frame holds every squad row")
 sq = strip(render.render(towns, 33, "%1", focus="squad", squad=1)).splitlines()
 ok(any(l.startswith("│▌") and "Server" in l for l in sq) and not any(l.startswith("╔") for l in sq),
    "Squad focus (Server): gold bar on the squad row, no card gets the selected gold frame")
@@ -747,6 +1345,80 @@ ok(pi("\x1b[<35;5;3M") == [("hover", 2)], "Mouse move -> hover row 3")
 ok(pi("\x1b[<64;1;1M\x1b[<65;1;1M") == [("key", "k"), ("key", "j")], "Wheel -> k / j")
 ok(pi("\x1b[A\x1b[B") == [("key", "k"), ("key", "j")], "Arrow keys -> k / j")
 ok(pi("\x1b") == [("key", "\x1b")] and pi("jv") == [("key", "j"), ("key", "v")], "Lone Esc and plain keys")
+ok(pi("\x1b[5~\x1b[6~j") == [("key", "PgUp"), ("key", "PgDn"), ("key", "j")], "PgUp / PgDn -> own keys, no stray ~")
+ok(ui.handle_key("PgUp", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") is None,
+   "Sidebar ignores PgUp")
+ok([ui.report_scroll(k, 5, 20, 10) for k in ["k", "j", "PgUp", "PgDn", "g", "G", "b", " ", "x"]] == [4, 6, 0, 14, 0, 20, 5, 5, 5],
+   "Report scroll keys -> offset: k / j one row, PgUp / PgDn a page (height - 1), g / G top / bottom; other keys keep it")
+ok(ui.report_scroll("j", 20, 20, 10) == 20 and ui.report_scroll("k", 0, 20, 10) == 0 and ui.report_scroll("PgDn", 15, 20, 10) == 20
+   and all(ui.report_scroll(k, 0, 0, 10) == 0 for k in ["j", "k", "PgUp", "PgDn", "g", "G"]),
+   "Report offset stays inside 0..limit; a report that fits never moves")
+ok([ui.report_step("N", 0, 3), ui.report_step("N", 1, 3), ui.report_step("n", 2, 3), ui.report_step("N", 0, 1), ui.report_step("x", 1, 3)] == [2, 0, 0, 0, 1],
+   "Report N goes to the previous report and wraps from the first to the last; n unchanged; a single report stays")
+rh = [re.sub(r"\x1b\[[0-9;]*m", "", r) for r in render.report_side_rows(done, "Studio", rep, 2, 3, (24, 14), rows_total=30)]
+ok(any("n/N" in r and "? keys" in r for r in rh), "Report left column hint row (24 columns) shows n/N and ? keys")
+lt = {"ask": "請幫我把這個很長的需求完整地實作並且測試一下然後回報給我 " * 3, "files": [f"/w/party_hud/f{n}.py" for n in range(8)], "cmds": 14, "agents": 2, "dir": "/w/party_hud/some/dir", "branch": "feature/x", "cwd": "/w"}
+lrep = dict(rep, text="\n".join(f"L{n}" for n in range(60)), task=lt)
+lparts = {h: render.report_parts(done, "Studio", lrep, [], 100, 2, 3, art=True, banner=(68, 8), portrait=(24, 14), height=h, now=860 + 3725, fixed=True) for h in (24, 40)}
+ok(all(len(lparts[h][0]) == h and "? keys" in strip(lparts[h][0][-2]) and strip(lparts[h][0][-1]).startswith("┗")
+       and all(common.cw(strip(r)) == render.SPLIT_SIDE_COLS for r in lparts[h][0])
+       and len(render.report_view(*lparts[h], h, 0)[0]) == h
+       and "? keys" in strip(render.report_view(*lparts[h], h, 0)[0][h - 2])
+       for h in (24, 40)),
+   "Report split page, left column taller than the pane (24 and 40 rows): the frame is exactly height rows, every row 30 wide, the hint stays on its last content row")
+ok(all(strip(lparts[h][0][-3]).strip("┃ ") == "…" for h in (24, 40))
+   and not any(strip(r).strip("┃ ") == "…" for r in render.report_parts(done, "Studio", lrep, [], 100, 2, 3, art=True, banner=(68, 8), portrait=(24, 14), height=60, now=860 + 3725, fixed=True)[0]),
+   "Report left column: a cut shows a dim … row above the hint (the column does not scroll, so no arrow), and a column that fits has none")
+fit_args = (done, "Studio", dict(rep, task={"ask": "q", "files": [], "cmds": 0, "agents": 0, "dir": None, "branch": None}), 1, 1, (24, 14))
+ok(render.report_side_rows(*fit_args, rows_total=30, now=860 + 3725, labels=True, fit=True) == render.report_side_rows(*fit_args, rows_total=30, now=860 + 3725, labels=True),
+   "Report left column that fits rows_total is byte-identical with and without fit")
+pref = art.image_row(art.big_portrait_id(done), 0, 1).split(chr(0x10EEEE))[0]
+for h in (8, 12, 17, 24):
+    lp = render.report_parts(done, "Studio", lrep, [], 100, 2, 3, art=True, banner=(68, 8), portrait=(24, 14), height=h, now=860 + 3725, fixed=True)[0]
+    nport = sum(pref in r for r in lp)
+    ok(nport in (0, 14) and len(lp) == h and "? keys" in strip(lp[-2]), f"Report left column at height {h}: the portrait image is kept whole or dropped whole, never split ({nport} rows)")
+need = {
+    "report": "n N j k ↑ ↓ wheel PgUp PgDn g G ⏎ q Esc ?",
+    "sidebar": "j k J K 1-9 n v r ⏎ q Esc P ?",
+    "popup": "j k J K 1-9 n v ⏎ q Esc P ?",
+}
+ok(all(set(need[m].split()) <= {t for k, _ in render.HELP[m] for t in k.replace(" / ", " ").split()} for m in need)
+   and all(k != "r" for k, _ in render.HELP["popup"]),
+   "Key help lists every key of its mode (r only in the sidebar's)")
+ok(all(len(rows) == h and all(common.cw(r) == w for r in rows) for m in need for w in (28, 33, 80) for h in (3, 12, 30)
+       for rows in [[strip(r) for r in render.help_screen(m, w, h)]]),
+   "Key help: exactly height rows, every row exactly width cells (CJK-safe), also in a short pane")
+hb = [strip(r) for r in render.help_screen("report", 80, 30)]
+hk = max(common.cw(k) for k, _ in render.HELP["report"]) + 1
+hw = 5 + hk + max(common.cw(t) for _, t in render.HELP["report"])
+hn = len(render.HELP["report"]) + 2
+ok(hb[(30 - 1 - hn) // 2].startswith(" " * ((80 - hw) // 2) + "╭") and not any("╭" in r for r in hb[:(30 - 1 - hn) // 2])
+   and hb[(30 - 1 - hn) // 2].rstrip().endswith("╮") and common.cw(hb[(30 - 1 - hn) // 2].rstrip()) == (80 - hw) // 2 + hw,
+   "Key help box is centred in the pane: top row and left margin follow (height - 1 - box) // 2 and (width - box) // 2, box width wraps the content")
+ok(all(t.startswith("next") for m in ("sidebar", "popup") for k, t in render.HELP[m] if k in ("j k", "J K")),
+   "Key help: j / J are listed as next and k / K as prev, the way handle_key moves")
+ok(all("? keys" in strip(render.hint_line(m, w)) for m, w in (("sidebar", 28), ("popup", 28), ("report", 24)))
+   and "q close" in strip(render.hint_line("report", 60)) and "? keys" in strip(render.render(towns, 28, "%1", None, "sidebar")).splitlines()[-1],
+   "Key hints keep ? keys at the narrowest widths (sidebar / popup 28, report left column 24)")
+ok([ui.help_toggle(k, s) for k, s in [("?", False), ("j", False), ("?", True), ("\x1b", True), ("q", True), ("n", True), ("\r", True)]]
+   == [(True, True), (False, False), (False, True), (False, True), (False, True), (True, True), (True, True)],
+   "Key help: ? opens; ?, Esc, q close it and are eaten (q never reaches the report's close); other keys are eaten while it is open")
+rl, rr = [f"S{n:02}".ljust(30) for n in range(12)], [f"R{n:02}" for n in range(40)]
+v0, o0 = render.report_view(rl, rr, 10, 0)
+v7, o7 = render.report_view(rl, rr, 10, 7)
+ok(o7 == 7 and [r[:30] for r in v7] == [r[:30] for r in v0] == rl[:10] and [r[32:] for r in v7] == rr[7:17] and [r[32:] for r in v0] == rr[:10],
+   "Report view: the left column keeps its first rows, the right column shifts with the offset")
+ok(render.report_view(rl, rr, 10, 99) == (render.report_view(rl, rr, 10, 30)[0], 30) and render.report_view(rl, rr, 10, -3)[1] == 0
+   and render.report_view(rl, rr[:6], 10, 4)[1] == 0,
+   "Report view: the offset is clamped to 0..len(right) - height, and to 0 when the right column fits")
+ok(all(common.cw(r) == 30 + 2 + 3 for r in v7) and len(v7) == 10 and len(render.report_view(rl, rr[:4], 20, 0)[0]) == 12,
+   "Report view: rows are left + gap + right wide, at most height rows")
+np_ = [f"P{n}" for n in range(30)]
+nv, no = render.report_view([], np_, 8, 5)
+ok(nv == np_[5:13] and no == 5, "Report view, narrow page: no left column, the whole page scrolls")
+fl, fr = render.report_parts(done, "Studio", dict(rep, text="\n".join(f"L{n}" for n in range(60))), [], 150, art=True, banner=(88, 10), portrait=(24, 14), height=40, fixed=True)
+ok(len(fl) == 40 and strip(fl[-1]).startswith("┗") and len(fr) > 40,
+   "Report page, fixed left column: the frame closes on the pane's last row however long the text is")
 fe = next(a for a in agents if a["pane"] == "%1")
 ok(common.class_icon(fe) in render.render(towns, 33) and collect.collect(sys.argv[2])["towns"][0]["agents"][1]["cls"] == fe["cls"],
    "Class icon fixed by session id (same after re-reading the snapshot)")
@@ -844,12 +1516,13 @@ report_text_ok() {
   python3 - "$party" "$tmp" <<'EOF'
 import os, stat, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, common
-import party
+import party, tempfile, json
 fails = []
 def ok(cond, msg):
     if not cond: fails.append(msg)
 calls, snaps = [], []
 real_snapshot = collect.get_snapshot
+real_report = collect.report_for
 agent = lambda s, summons=(), **kw: {"pane": "%5", "kind": "claude", "status": s, "summons": list(summons), **kw}
 snap = lambda s, summons=(), **kw: {"towns": [{"agents": [agent(s, summons, **kw)]}]}
 def run(rounds, *a, pane_rc=0, **kw):
@@ -864,6 +1537,14 @@ def run(rounds, *a, pane_rc=0, **kw):
 waits = lambda: [c for c in calls if c[0][0] == "wait-for"]
 ok(run([snap("waiting")], "%5") == (0, "all done\n", ""), "report-text: exit 0 prints the report")
 ok(run([snap("working")], "%5")[0] == 0 and not waits(), "report-text without --wait: no waiting even while working")
+prevlog = tempfile.mktemp(suffix=".jsonl")
+with open(prevlog, "w") as pf:
+    for r_ in [("user", "q1"), ("assistant", [{"type": "text", "text": "answer one"}]), ("user", "q2"),
+               ("assistant", [{"type": "tool_use", "id": "x", "name": "Bash", "input": {"command": "ls"}}])]:
+        pf.write(json.dumps({"type": r_[0], "timestamp": "2026-11-07T10:00:00Z", "message": {"content": r_[1]}}) + "\n")
+run([snap("working", transcript=prevlog)], "%5")
+collect.report_for = real_report
+ok(collect.report_text("%5") == (0, "answer one\n", ""), "report-text without --wait: a working member -> the previous round's answer, as before the live page")
 ok(run([snap("waiting")], "5")[0] == 2 and not calls, "report-text: a name that is not a pane id -> 2, tmux not called")
 rc, out, err = run([snap("waiting")], "%5", pane_rc=1)
 ok(rc == 2 and out == "" and "can't find pane" in err, "report-text: pane does not exist -> 2 with the tmux error on stderr")
@@ -1019,7 +1700,13 @@ ok(("set-option", "-p", "-t", "%9", "@party_lead", "%1") in calls, "summon: the 
 calls.clear(); shows[:] = ready
 sidebars.summon("codex", tmp, True, 5)
 ok(calls[0] == ("new-window", "-P", "-F", "#{pane_id}", "-c", tmp, "codex"), "summon --window: new-window, --cwd passed to -c")
+calls.clear(); shows[:] = ready
+sidebars.summon("codex", tmp, False, 5, True)
+ok(calls[0] == ("split-window", "-t", "%1", "-P", "-F", "#{pane_id}", "-c", tmp, "codex -s read-only"), "summon --read-only: codex starts with -s read-only")
 calls.clear()
+for kind in ("claude", "agy", "grok"):
+    rc, out, err = sidebars.summon(kind, tmp, False, 5, True)
+    ok(rc == 2 and out == "" and "no enforced read-only mode" in err and not calls, f"summon --read-only: {kind} -> 2, no pane opened")
 ok(sidebars.summon("vim", tmp, False, 5)[0] == 2 and not calls, "summon: an agent outside AGENT_CMDS -> 2, tmux not called")
 del os.environ["TMUX_PANE"]
 ok(sidebars.summon("claude", tmp, False, 5)[0] == 2 and not calls, "summon: outside tmux -> 2")
@@ -1059,6 +1746,62 @@ EOF2
 }
 check "summon: tmux arguments, exit codes, timeout; @party_lead / @xv grouping" summon_ok
 
+# crew: every round saved under $XDG_STATE_HOME/party-hud/crew/<UTC start>-<pane>/round-NNN/
+crew_ok() {
+  python3 - "$party" "$tmp" <<'EOF3'
+import json, os, subprocess, sys, time
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import sidebars
+import party
+fails = []
+def ok(cond, msg):
+    if not cond: fails.append(msg)
+state = os.path.join(sys.argv[2], "crewstate")
+os.environ["XDG_STATE_HOME"] = state
+root = os.path.join(state, "party-hud", "crew")
+read = lambda *p: open(os.path.join(root, *p), encoding="utf-8").read()
+party.get_snapshot = lambda: {"towns": [{"agents": [{"pane": "%5", "kind": "codex"}]}]}
+party.tmux_run = lambda args, timeout=None: (0, "%5" + party.FIELD_SEP + "/work/dir\n", "")
+party.subprocess.run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", "")
+rc, out, err = party.ask("%5", "first?")
+sess = os.listdir(root)
+ok(rc == 0 and len(sess) == 1 and sess[0].endswith("Z-5"), "crew: first --ask on a pane not summoned creates <UTC time>-<pane id without %> ")
+meta = json.loads(read(sess[0], "round-001", "meta.json"))
+ok(read(sess[0], "round-001", "question.md") == "first?" and meta["pane"] == "%5" and meta["agent"] == "codex"
+   and meta["cwd"] == "/work/dir" and "asked_at" in meta, "crew: --ask writes round-001/question.md and meta.json (asked_at, pane, agent, cwd)")
+ok(sidebars.crew_replied("%5", "answer\n", 0) == "", "crew: --report-text save succeeds")
+meta = json.loads(read(sess[0], "round-001", "meta.json"))
+ok(read(sess[0], "round-001", "reply.md") == "answer\n" and meta["rc"] == 0 and "replied_at" in meta and meta["agent"] == "codex",
+   "crew: --report-text writes reply.md into the latest round and adds replied_at, rc to meta.json")
+party.ask("%5", "second?")
+ok(read(sess[0], "round-002", "question.md") == "second?" and os.listdir(root) == sess, "crew: the second --ask makes round-002 in the same session")
+os.rename(os.path.join(root, sess[0]), os.path.join(root, "20261101T000000Z-5"))
+sess = ["20261101T000000Z-5"]
+sidebars.crew_replied("%7", "lone\n", 0)
+lone = [d for d in os.listdir(root) if d.endswith("Z-7")][0]
+ok(read(lone, "round-001", "reply.md") == "lone\n" and not os.path.exists(os.path.join(root, lone, "round-001", "question.md")),
+   "crew: --report-text with no round yet makes a round holding only the reply")
+old, new = os.path.join(root, "20200101T000000Z-9"), os.path.join(root, "20261101T000000Z-8")
+os.makedirs(old); os.makedirs(new)
+past = time.time() - 15 * 86400
+os.utime(old, (past, past))
+ok(sidebars.crew_summoned("%5") == "" and not os.path.exists(old) and os.path.isdir(new) and os.path.isdir(os.path.join(root, sess[0])),
+   "crew: --summon deletes session dirs older than 14 days and keeps newer ones")
+fresh = [d for d in os.listdir(root) if d.endswith("Z-5") and d != sess[0]]
+ok(len(fresh) == 1, "crew: --summon always makes a new session dir, even when the pane id has an older one")
+party.ask("%5", "after summon")
+ok(read(fresh[0], "round-001", "question.md") == "after summon" and not os.path.exists(os.path.join(root, sess[0], "round-003")),
+   "crew: --ask after --summon writes round-001 of the new session, not the old one")
+blocked = os.path.join(sys.argv[2], "blocked")
+open(blocked, "w").close()
+os.environ["XDG_STATE_HOME"] = blocked
+rc, out, err = party.ask("%5", "third?")
+ok(rc == 5 and out and "could not save" in err, "crew: --ask save failure -> rc 5 with a message on stderr, send time still printed")
+print("\n".join(fails), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF3
+}
+check "crew: rounds saved under XDG_STATE_HOME, 14-day cleanup, save failure -> rc 5" crew_ok
+
 # transcript: time of the last usage entry; TTL from the latest usage that wrote cache (1h -> 3600)
 cat >"$tmp/t.jsonl" <<'EOF'
 {"type":"assistant","timestamp":"2026-11-03T04:00:00.000Z","message":{"usage":{"cache_creation":{"ephemeral_1h_input_tokens":500,"ephemeral_5m_input_tokens":0}}}}
@@ -1091,5 +1834,32 @@ d=collect.read_party("%7"); print(d["session_id"], d["ctx_left"], d["ctx_size"],
 check "statusline integration: writes session, 88% left, max 1M, transcript, model base name" test "$got" = "abc-1 88 1000000 /p/abc-1.jsonl Opus 5.5"
 check "statusline integration: broken JSON or outside tmux -> no error, no output" \
   test -z "$(echo garbage | XDG_RUNTIME_DIR="$tmp/xdg" TMUX_PANE=%9 "$sl"; echo '{}' | TMUX_PANE='' "$sl")"
+
+check "art: the 8 big portraits are 384x432 RGBA PNGs (color type 6) so the frame corners and glow stay transparent" \
+  python3 -c 'import glob, struct, sys
+fs = glob.glob(sys.argv[1] + "/art/portrait-big-*.png")
+ok = len(fs) == 8
+for f in fs:
+    b = open(f, "rb").read(33)
+    ok = ok and struct.unpack(">II", b[16:24]) == (384, 432) and b[24:26] == bytes([8, 6])
+sys.exit(not ok)' "$root"
+
+check "art: the 8 small portraits are 192x216 RGBA PNGs (color type 6) so the frame corners stay transparent" \
+  python3 -c 'import glob, struct, sys
+fs = [f for f in glob.glob(sys.argv[1] + "/art/portrait-*.png") if "-big-" not in f]
+ok = len(fs) == 8
+for f in fs:
+    b = open(f, "rb").read(33)
+    ok = ok and struct.unpack(">II", b[16:24]) == (192, 216) and b[24:26] == bytes([8, 6])
+sys.exit(not ok)' "$root"
+
+check "art: the 7 heading labels are RGBA PNGs 44 px high, 20 px per cell wide (8, 10, 9, 9, 8, 9, 11 cells)" \
+  python3 -c 'import struct, sys
+cols = {"took": 8, "waited": 10, "asked": 9, "files": 9, "work": 8, "where": 9, "running": 11}
+ok = True
+for n, c in cols.items():
+    b = open(sys.argv[1] + "/art/label-" + n + ".png", "rb").read(33)
+    ok = ok and struct.unpack(">II", b[16:24]) == (c * 20, 44) and b[24:26] == bytes([8, 6])
+sys.exit(not ok)' "$root"
 
 exit "$fail"

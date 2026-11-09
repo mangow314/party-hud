@@ -2,7 +2,22 @@
 
 import re
 
-from .art import ART_MIN_WIDTH, CREST_CELLS, PORTRAIT_CELLS, crest_ids, image_row, portrait_id
+from .art import (
+    ART_MIN_WIDTH,
+    CREST_CELLS,
+    LABEL_COLS,
+    PORTRAIT_CELLS,
+    SPLIT_GAP,
+    SPLIT_MIN_WIDTH,
+    SPLIT_PORTRAIT_COLS,
+    SPLIT_SIDE_COLS,
+    banner_id,
+    big_portrait_id,
+    crest_ids,
+    image_row,
+    label_id,
+    portrait_id,
+)
 from .common import BUILDINGS, CLASS_NAMES, RESET, STATUS_TAG, SUMMON_ICON, C, bg, class_icon, clip, cw, fg, printable
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -74,27 +89,35 @@ def stat_rows(a, width):
     num_col = hp_col if hp is not None and hp < 50 else "fg"
     sp_col = sp_color(pts * 100 / SP_MAX) if pts is not None else "dim"
     w = min(width, STAT_W, max(METER_MIN, width - cw(model_badge(a, width)) - 1))
+    w = min(width, max(w, len(HP_ICON + "HP") + len(cur) + len(tail) + 1))
     rw = max(0, width - w - 1)
 
-    def right(text, color):
+    def right(text, color, delta=None, unit=""):
         text = clip(text, rw)
+        tag = f"{delta:+d}{unit}" if delta else ""
+        if tag and cw(tag) + cw(text) + (1 if text else 0) > rw:
+            text = ""
+        if delta and tag and cw(tag) + cw(text) + (1 if text else 0) <= rw:
+            pad = " " * (rw - cw(tag) - cw(text))
+            return (
+                " "
+                + fg("green" if delta > 0 else "red")
+                + tag
+                + RESET
+                + pad
+                + (fg(color) + text + RESET if text else "")
+            )
         return " " * (width - w - cw(text)) + (fg(color) + text + RESET if text else "")
 
     n = len(a.get("summons", []))
-    return (
-        meter_row(HP_ICON + "HP", "hp", cur, num_col, tail, hp, hp_col, w) + right(model_badge(a, rw), "model"),
-        meter_row(
-            SP_ICON + "SP",
-            "sp",
-            str(pts) if pts is not None else "--",
-            "fg",
-            f"/{SP_MAX}m" if pts is not None else "",
-            pts * 100 / SP_MAX if pts is not None else None,
-            sp_col,
-            w,
-        )
-        + right(f"{SUMMON_ICON}{n}" if n else "", "violet"),
+    badge = model_badge(a, rw)
+    hp_row = meter_row(HP_ICON + "HP", "hp", cur, num_col, tail, hp, hp_col, w) + right(
+        badge if cw(badge) <= rw else "", "model", a.get("hp_delta"), "%"
     )
+    if pts is None:
+        return [hp_row]
+    sp_row = meter_row(SP_ICON + "SP", "sp", str(pts), "fg", f"/{SP_MAX}m", pts * 100 / SP_MAX, sp_col, w)
+    return [hp_row, sp_row + right(f"{SUMMON_ICON}{n}" if n else "", "violet", a.get("sp_delta"))]
 
 
 def fmt_left(sec):
@@ -134,7 +157,7 @@ def squad_summary(agents):
     return " ".join(s for s, _ in segs) + (RESET if segs else ""), sum(w for _, w in segs) + max(0, len(segs) - 1)
 
 
-def squad_line(i, t, width, lit, cursor=False, home=False):
+def squad_line(i, t, width, lit, cursor=False, home=False, pulse=False):
     dots, right_w = squad_summary(t["agents"])
     if not t["agents"]:
         dots, right_w = fg("dim") + "(empty)", cw("(empty)")
@@ -143,6 +166,8 @@ def squad_line(i, t, width, lit, cursor=False, home=False):
     pad = width - 4 - cw(name) - right_w - pin_w
     pin = f" {fg('gold')}{PIN_ICON}" if home else ""
     mark, name_col = squad_marks(t, lit, cursor)
+    if pulse:
+        name_col = fg("fg")
     return (
         f"{mark}{RESET} {fg('gold')}{BUILDINGS[i % len(BUILDINGS)]}{RESET} {name_col}{name}{RESET}{pin}{RESET}"
         f"{' ' * max(1, pad)}{dots}{RESET}"
@@ -168,22 +193,77 @@ def status_rows(a, width, sel=True):
     job = CLASS_NAMES[a["cls"]]
     name = clip(a["name"], width - 4 - cw(job) - 1 - cw(label) - 1)
     pad = width - 3 - cw(name) - 1 - cw(job) - cw(label) - 1
-    hp_row, sp_row = stat_rows(a, width - 2)
     return [
         (
             f" {fg('blue')}{class_icon(a)}{RESET} {fg('fg', True) if sel else fg('dim')}{name}{RESET} {fg('dim')}{job}{RESET}"
             f"{' ' * max(1, pad)}{fg(lc)}{label}{RESET} "
         ),
-        f" {hp_row} ",
-        f" {sp_row} ",
+        *(f" {r} " for r in stat_rows(a, width - 2)),
     ]
 
 
 HINTS = {
-    "popup": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "quit")],
-    "sidebar": [("jk/JK", "nav"), ("⏎", "go"), ("n", "next"), ("q", "hide")],
-    "report": [("⏎", "go"), ("n", "next"), ("q", "close")],
+    "popup": [("⏎", "go"), ("n", "next"), ("?", "keys"), ("q", "close")],
+    "sidebar": [("⏎", "go"), ("n", "next"), ("?", "keys"), ("q", "hide")],
+    "report": [("⏎", "go"), ("n/N", "report"), ("?", "keys"), ("q", "close")],
+    "help": [("?/Esc/q", "back")],
 }
+
+HELP = {
+    "report": [
+        ("n / N", "next / prev report"),
+        ("j k ↑ ↓", "scroll"),
+        ("wheel", "scroll"),
+        ("PgUp PgDn", "page"),
+        ("g / G", "top / bottom"),
+        ("⏎", "go to agent"),
+        ("q Esc", "close"),
+        ("?", "this help"),
+    ],
+    "sidebar": [
+        ("j k", "next / prev card"),
+        ("J K", "next / prev squad"),
+        ("1-9", "pick card"),
+        ("n", "next waiting / done"),
+        ("v", "peek output"),
+        ("r", "open report"),
+        ("⏎", "go to agent"),
+        ("q", "hide sidebars"),
+        ("Esc P", "back to pane"),
+        ("?", "this help"),
+    ],
+    "popup": [
+        ("j k", "next / prev card"),
+        ("J K", "next / prev squad"),
+        ("1-9", "pick card"),
+        ("n", "next waiting / done"),
+        ("v", "peek output"),
+        ("⏎", "go to agent"),
+        ("q Esc P", "close"),
+        ("?", "this help"),
+    ],
+}
+
+
+def help_screen(mode, width, height):
+    """Rows of the key help of a mode, exactly height rows of width cells: a framed list, blank rows, the hint on the last row."""
+    width = max(28, width)
+    keys = max(cw(k) for k, _ in HELP[mode]) + 1
+    title = f"Keys · {mode}"
+    boxw = min(width, max(5 + keys + max(cw(t) for _, t in HELP[mode]), cw(title) + 6))
+    inner = boxw - 2
+    rows = []
+    for key, text in HELP[mode]:
+        text = clip(text, inner - 3 - keys)
+        pad = inner - 3 - keys - cw(text)
+        rows.append(f" {fg('gold', True)}{key}{RESET}{' ' * (keys - cw(key))} {fg('dim')}{text}{RESET}{' ' * pad} ")
+    framed = box(title, rows, boxw)
+    left = (width - boxw) // 2
+    top = max(0, (height - 1 - len(framed)) // 2)
+    out = [" " * width] * top + [" " * left + r + " " * (width - left - boxw) for r in framed]
+    out = out[: height - 1]
+    hint = hint_line("help", width)
+    return out + [" " * width] * (height - 1 - len(out)) + [hint + " " * (width - cw(ESCAPE.sub("", hint)))]
 
 
 def hint_line(mode, width):
@@ -233,12 +313,43 @@ def wrap(text, width):
     return rows
 
 
+ESCAPE = re.compile(r"\x1b(?:\[([0-?]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[^\[\]]?)")
+
+
+def wrap_sgr(text, width):
+    """Like wrap, but keeps SGR escapes (zero width) and drops every other escape; each row ends in RESET and the next restarts the active style."""
+    rows = []
+    for line in text.replace("\r", "").expandtabs(4).split("\n"):
+        active, row, used, styled, pos = "", "", 0, False, 0
+        parts = []
+        for m in ESCAPE.finditer(line):
+            parts.append((line[pos : m.start()], m))
+            pos = m.end()
+        parts.append((line[pos:], None))
+        for chars, m in parts:
+            for ch in printable(chars):
+                if used + cw(ch) > width:
+                    rows.append(row + RESET if styled else row)
+                    row, used, styled = active, 0, bool(active)
+                row += ch
+                used += cw(ch)
+            if m and m.group(2) == "m" and re.fullmatch(r"[0-9;:]*", m.group(1)):
+                active = "" if m.group(1) in ("", "0") else active + m.group(0)
+                row += m.group(0)
+                styled = True
+        rows.append(row + RESET if styled else row)
+    return rows
+
+
 MD_INLINE = re.compile(
     r"`([^`]+)`|\*\*(.+?)\*\*|(?<!!)\[([^\]]+)\]\(([^)\s]+)\)|\*(?!\s)(.+?)(?<!\s)\*|(?<!\w)_(?!\s)(.+?)(?<!\s)_(?!\w)"
 )
 MD_HEADING = re.compile(r"#{1,6}\s+(.*)")
 MD_RULE = re.compile(r"(-{3,}|\*{3,}|_{3,})\s*")
 MD_ITEM = re.compile(r"(?:[-*]|\d+\.)\s+")
+MD_QUOTE = re.compile(r"(?:> ?)+")
+NO_LINE_START = "，。、；：？！）」』》"
+MD_TABLE_SEP = re.compile(r"\|\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?\s*")
 MD_RAW = re.compile(r"\s+(?:[-*]|\d+\.)\s|\s*(?:\||>|<)")
 
 
@@ -249,7 +360,7 @@ def md_inline(text, style=""):
         cells += [(ch, style) for ch in text[pos : m.start()]]
         code, bold, label, url, em, em2 = m.groups()
         if code is not None:
-            cells += [(ch, style + fg("amber")) for ch in code]
+            cells += [(ch, style + fg("code")) for ch in code]
         elif bold is not None:
             cells += md_inline(bold, style + "\033[1m")
         elif label is not None:
@@ -261,19 +372,72 @@ def md_inline(text, style=""):
     return cells + [(ch, style) for ch in text[pos:]]
 
 
-def md_rows(cells, width, indent=0):
-    """Cells -> rows of at most width columns, continuation rows indented; each styled run ends with RESET."""
-    lines, row, used, room = [], [], 0, width
+def md_tokens(cells, words):
+    tokens = []
     for cell in cells:
         w = cw(cell[0])
-        if w > width - indent:
-            continue
-        if used + w > room:
+        prev = tokens[-1] if tokens else [(" ", "")]
+        joins = w == 0 or (cell[0] in NO_LINE_START and prev[0][0] != " ")
+        joins = joins or (
+            w == 1 and cell[0] != " " and prev[0][0] != " " and cw(prev[0][0]) < 2 and cw(prev[-1][0]) < 2
+        )
+        if words and tokens and joins:
+            prev.append(cell)
+        else:
+            tokens.append([cell])
+    return tokens
+
+
+def md_rows(cells, width, indent=0, words=True):
+    """Cells -> rows of at most width columns, continuation rows indented; each styled run ends with RESET. With words, a narrow word moves whole to the next row and no row starts with closing punctuation."""
+    cells = [c for c in cells if cw(c[0]) <= width - indent]
+    lines, row, used, hard = [], [], 0, set()
+
+    def flush(is_hard=False):
+        nonlocal row, used
+        while words and row and row[-1][0] == " ":
+            row.pop()
+        if row:
             lines.append(row)
-            row, used, room = [], 0, width - indent
-        row.append(cell)
-        used += w
-    lines.append(row)
+        if is_hard:
+            hard.add(len(lines))
+        row, used = [], 0
+
+    for tok in md_tokens(cells, words):
+        tw = sum(cw(c[0]) for c in tok)
+        lim = width if not lines else width - indent
+        if words and tok[0][0] == " ":
+            if (row or not lines) and used + tw <= lim:
+                row += tok
+                used += tw
+        elif used + tw <= lim:
+            row += tok
+            used += tw
+        elif tw <= width - indent:
+            flush()
+            row, used = tok[:], tw
+        else:
+            if row and width - indent > lim - used:
+                flush()
+            for cell in tok:
+                w = cw(cell[0])
+                if used + w > (width if not lines else width - indent):
+                    flush(True)
+                row.append(cell)
+                used += w
+    flush()
+    if not lines:
+        lines.append([])
+    for i in sorted(hard):
+        while i < len(lines) and lines[i][0][0] in NO_LINE_START:
+            prev = lines[i - 1]
+            k = len(prev) - 1
+            while k > 0 and cw(prev[k][0]) == 0:
+                k -= 1
+            if k < 1 or prev[0][0] in NO_LINE_START or sum(cw(c[0]) for c in prev[k:] + lines[i]) > width - indent:
+                break
+            lines[i] = prev[k:] + lines[i]
+            del prev[k:]
     rows = []
     for n, row in enumerate(lines):
         out, prev = " " * indent if n else "", ""
@@ -286,18 +450,81 @@ def md_rows(cells, width, indent=0):
     return rows
 
 
-def render_markdown(text, width):
-    """Markdown subset -> rows of at most width columns with SGR styles. Nested lists, tables, images, HTML and quotes stay raw."""
+def md_table_cells(line):
+    body = line.strip()[1:]
+    if body.endswith("|") and not body.endswith("\\|"):
+        body = body[:-1]
+    return [c.strip().replace("\\|", "|") for c in re.split(r"(?<!\\)\|", body)]
+
+
+def md_table(src, width):
+    """Table lines (header first, separator already dropped) -> aligned columns if they fit, else one group per data row."""
+    grid = [md_table_cells(line) for line in src]
+    n = max(len(r) for r in grid)
+    grid = [r + [""] * (n - len(r)) for r in grid]
+    head, body = grid[0], grid[1:]
+    bold = "\033[1m"
+    dim = fg("dim")
+    cells = [[md_inline(c, bold if r is head else "") for c in r] for r in grid]
+    sizes = [max(sum(cw(ch) for ch, _ in row[k]) for row in cells) for k in range(n)]
+    sep = [(" ", ""), ("│", dim), (" ", "")]
+    lines = []
+    for row in cells:
+        line = []
+        for k, cell in enumerate(row):
+            if k:
+                line += sep
+            line += cell
+            if k < n - 1:
+                line += [(" ", "")] * (sizes[k] - sum(cw(ch) for ch, _ in cell))
+        lines.append(line)
+    if sum(sizes) + 3 * (n - 1) <= width:
+        return (
+            md_rows(lines[0], width, words=False)
+            + [dim + "─┼─".join("─" * w for w in sizes) + RESET]
+            + [r for line in lines[1:] for r in md_rows(line, width, words=False)]
+        )
+    if not body:
+        return md_rows(lines[0], width)
+    out = []
+    indent = 2 if width > 2 else 0
+    for r, row in enumerate(cells[1:]):
+        if r:
+            out.append("")
+        for k, cell in enumerate(row):
+            label = "".join(ch for ch, _ in cells[0][k]) or str(k + 1)
+            label += "："
+            out += md_rows([(ch, dim) for ch in label] + cell, width, indent)
+    return out
+
+
+def render_markdown(text, width, code_width=None):
+    """Markdown subset -> rows of at most width columns (fenced code up to code_width, default width) with SGR styles. Tables are aligned columns when they fit, else one "name: value" group per row. Nested lists, images and HTML stay raw."""
+    code_width = code_width or width
     rows, code = [], False
-    for line in printable_lines(text):
-        if line.startswith("```"):
+    lines = printable_lines(text)
+    i = 0
+    while i < len(lines):
+        line = lines[i]
+        i += 1
+        if not code and line.startswith("|") and i < len(lines) and MD_TABLE_SEP.fullmatch(lines[i]):
+            end = i + 1
+            while end < len(lines) and lines[end].startswith("|"):
+                end += 1
+            rows += md_table([line] + lines[i + 1 : end], width)
+            i = end
+        elif line.startswith("```"):
             code = not code
         elif code:
-            rows += md_rows([(ch, fg("green")) for ch in line], width)
+            rows += md_rows([(ch, fg("green")) for ch in line], code_width, words=False)
         elif m := MD_HEADING.fullmatch(line):
             rows += md_rows(md_inline(m[1], fg("gold", True)), width)
         elif MD_RULE.fullmatch(line):
             rows.append(fg("dim") + "─" * width + RESET)
+        elif m := MD_QUOTE.match(line):
+            n = min(m[0].count(">"), max(width - 3, 0))
+            bar = fg("dim") + "▎" * n + RESET + " " if n else ""
+            rows += [bar + r for r in md_rows(md_inline(line[m.end() :], fg("dim")), width - n - 1 if n else width)]
         elif MD_RAW.match(line) or line.lstrip().startswith("!["):
             rows += md_rows([(ch, "") for ch in line], width)
         elif m := MD_ITEM.match(line):
@@ -313,42 +540,47 @@ def printable_lines(text):
     return [printable(line) for line in text.replace("\r", "").expandtabs(4).split("\n")]
 
 
-def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
-    """Report pane text: who, how long, HP, then the whole report as Markdown, or the pane's last lines (peek) when there is no report.
-    With art the portrait stands left of the first three rows."""
-    width = max(28, width)
-    facts = []
-    if report and report["start"] and report["end"]:
-        facts.append(f"took {fmt_took(report['end'] - report['start'])}")
-    if a.get("hp_left") is not None:
-        facts.append(f"HP {fmt_tokens(a['hp_left'])}" + (f"/{fmt_tokens(a['hp_max'])}" if a.get("hp_max") else ""))
-    elif a.get("hp") is not None:
-        facts.append(f"HP {a['hp']}%")
-    if total > 1:
-        facts.append(f"report {pos}/{total}")
-    summons = a.get("summons", [])
-    title = REPORT_TITLE.get(a["status"], "Report") if report else "Last output"
-    if report and summons:
-        title = f"還有 {len(summons)} 個分支任務進行中"
-    pid = portrait_id(a)
-    text_w = width - PORTRAIT_CELLS[0] - 1 if art else width
-    head = [
-        (f"{STATUS_TAG[a['status']][0] or '·'} {title}", fg(STATUS_TAG[a["status"]][2], True)),
-        (f"{class_icon(a)} {a['name']}  {a['kind']} · {squad}", fg("fg", True)),
-        ("  ".join(facts), fg("dim")),
-    ]
+LIVE_SAID_ROWS = 4
+
+
+def is_final(report):
+    return bool(report) and not report.get("live")
+
+
+def live_rows(report, width, wide, now):
+    """Page of a member still working: status row with the time so far, the "現在" block (newest tool call, tail of the newest text), then the previous round's report."""
+    gold = fg("gold", True)
+    status = "進行中" + (f" · 已 {fmt_took(now - report['start'])}" if now is not None and report.get("start") else "")
+    rows = [gold + clip(status, width) + RESET, "", gold + "現在" + RESET]
+    if report.get("tool"):
+        rows.append(fg("fg", True) + clip(report["tool"], width) + RESET)
+    said = [r for r in wrap_lines(report.get("said") or "", width) if r.strip()]
+    rows += [fg("dim") + r + RESET for r in said[-LIVE_SAID_ROWS:]]
+    if not report.get("tool") and not said:
+        rows.append(fg("dim") + "…" + RESET)
+    rows += ["", fg("line") + "─" * width + RESET, gold + "上一輪報告" + RESET, ""]
+    prev = report.get("prev")
+    rows += render_markdown(prev["text"], width, wide) if prev else [fg("dim") + "no earlier report" + RESET]
+    return rows
+
+
+def wrap_lines(text, width):
+    return [r for line in printable_lines(text) for r in wrap(line, width)]
+
+
+def report_rows(report, peek, summons, width, wide=None, now=None):
+    """Report body rows: the Markdown (or the pane's last lines), running branch tasks, finished subagents; code and pane lines may use wide columns (default width)."""
+    wide = wide or width
     rows = []
-    for r, (text, style) in enumerate(head):
-        line = style + clip(text, text_w) + RESET
-        rows.append(f"{image_row(pid, r, PORTRAIT_CELLS[0])} {line}" if art else line)
-    rows.append("")
-    if report:
-        rows += render_markdown(report["text"], width)
+    if report and report.get("live"):
+        rows += live_rows(report, width, wide, now)
+    elif report:
+        rows += render_markdown(report["text"], width, wide)
     else:
         lines = [l.rstrip() for l in peek]
-        while lines and not lines[-1]:
+        while lines and not ESCAPE.sub("", lines[-1]):
             lines.pop()
-        rows += [fg("dim") + r + RESET for l in lines for r in wrap(l, width)] or [fg("dim") + "no report yet" + RESET]
+        rows += [r for l in lines for r in wrap_sgr(l, wide)] or [fg("dim") + "no report yet" + RESET]
     for s in summons:
         rows += [
             "",
@@ -362,26 +594,303 @@ def render_report(a, squad, report, peek, width, pos=1, total=1, art=False):
         ]
     for s in (report or {}).get("subagents", []):
         rows += ["", fg("gold", True) + clip(f"{SUMMON_ICON} {s['desc'] or s['type']}", width) + RESET]
-        rows += render_markdown(s["text"], width) if s["text"] else []
-    return "\n".join(rows + ["", hint_line("report", width)])
+        rows += render_markdown(s["text"], width, wide) if s["text"] else []
+    return rows
+
+
+FILE_ROWS = 6
+
+
+def side_path(path, cwd, width):
+    """Path relative to cwd when under it, else absolute; too wide -> cut from the left at a "/" so the file name stays (`…/party_hud/ui.py`)."""
+    path = printable(path)
+    if cwd and path.startswith(cwd.rstrip("/") + "/"):
+        path = path[len(cwd.rstrip("/")) + 1 :]
+    if cw(path) <= width:
+        return path
+    for i, ch in enumerate(path):
+        if ch == "/" and cw("…" + path[i:]) <= width:
+            return "…" + path[i:]
+    tail = path.rsplit("/", 1)[-1]
+    while cw("…" + tail) > width:
+        tail = tail[1:]
+    return "…" + tail
+
+
+def where_rows(path, width):
+    """Path in one row, else split at a "/" into two; still too wide -> drop leading segments and start with "…/"."""
+    path = printable(path)
+    segs = path.split("/")
+    for i in range(len(segs)):
+        text = path if i == 0 else "…/" + "/".join(segs[i:])
+        if cw(text) <= width:
+            return [text]
+        for j in range(len(text) - 1, 0, -1):
+            if text[j] == "/" and cw(text[:j]) <= width and cw(text[j:]) <= width:
+                return [text[:j], text[j:]]
+    return [clip("…/" + segs[-1], width)]
+
+
+SIDE_STATUS = {"done": "Complete", "waiting": "Waiting"}
+SIDE_FRAME = {"done": "gold", "waiting": "warn", "working": "sp"}
+LABEL_COLOR = {
+    "took": "code",
+    "running": "code",
+    "waited": "amber",
+    "asked": "gold",
+    "files": "green",
+    "work": "green",
+    "where": "violet",
+}
+LABEL_TEXT = {name: name.upper() for name in LABEL_COLS}
+WAIT_BAND = "\033[48;2;56;38;22m"
+BULLET = "•"
+
+
+def side_labels(report, now):
+    """Names of the heading labels the left column of this report shows, in order."""
+    names = []
+    if report and report["start"] and report["end"]:
+        names.append("took")
+    elif report and report.get("live") and report["start"] and now is not None:
+        names.append("running")
+    if report and report["end"] and now is not None:
+        names.append("waited")
+    task = (report or {}).get("task") or {}
+    if task.get("ask"):
+        names.append("asked")
+    if task.get("files"):
+        names.append("files")
+    elif task.get("cmds") or task.get("agents"):
+        names.append("work")
+    if task.get("dir") or task.get("branch"):
+        names.append("where")
+    return names
+
+
+def report_side_rows(a, squad, report, pos, total, portrait, rows_total=0, now=None, labels=False, fit=False):
+    """Left column of the split report: framed portrait (portrait = cols, rows; centered), name, status tag, kind · squad, TOOK (RUNNING while it works), how long it has waited (when now is given), the prompt, work done, directory and branch, key hints on the last row. Every row is SPLIT_SIDE_COLS wide; the frame is padded down to rows_total rows and takes its color from the status. Headings are pixel label images (labels=True) or colored text. With fit, content taller than rows_total is cut from the bottom to a dim … row above the hint (a portrait the cut would split is dropped whole)."""
+    w = SPLIT_PORTRAIT_COLS
+    hot = a["status"] == "waiting"
+
+    def line(text="", width=0):
+        return f"  {text}{' ' * (w - width)}  "
+
+    def heading(name, value=""):
+        if labels:
+            head, hw = image_row(label_id(name), 0, LABEL_COLS[name]), LABEL_COLS[name]
+        else:
+            head, hw = fg(LABEL_COLOR[name], True) + LABEL_TEXT[name] + RESET, len(LABEL_TEXT[name])
+        if not (hot and name == "waited"):
+            val = fg("fg", True) + value + RESET if value else ""
+            return line(head + " " * (w - hw - cw(value)) + val, w)
+        val = fg("warn", True) + value + RESET
+        row = head + " " * (w - hw - cw(value)) + val
+        return " " + fg("warn", True) + "!" + RESET + WAIT_BAND + row.replace(RESET, RESET + WAIT_BAND) + RESET + "  "
+
+    pc, pr = portrait
+    pad = " " * ((w - pc) // 2)
+    rows = [line(pad + image_row(big_portrait_id(a), r, pc), (w - pc) // 2 + pc) for r in range(pr)]
+    rows.append(line())
+    name, kind = clip(a["name"], w), clip(f"{a['kind']} · {squad}", w)
+    rows.append(line(fg("gold", True) + name + RESET, cw(name)))
+    if a["status"] in SIDE_STATUS:
+        tag = f"{STATUS_TAG[a['status']][0]} {SIDE_STATUS[a['status']]}"
+        rows.append(line(fg(STATUS_TAG[a["status"]][2]) + tag + RESET, cw(tag)))
+    rows.append(line(fg("dim") + kind + RESET, cw(kind)))
+    names = side_labels(report, now)
+    if "took" in names:
+        rows += [line(), heading("took", fmt_took(report["end"] - report["start"]))]
+    if "running" in names:
+        rows += [line(), heading("running", fmt_took(now - report["start"]))]
+    if "waited" in names:
+        rows += [line(), heading("waited", fmt_took(now - report["end"]))]
+    task = (report or {}).get("task") or {}
+    if "asked" in names:
+        ask = [r for r in wrap(task["ask"], w) if r.strip()]
+        if len(ask) > 3:
+            ask = [*ask[:2], clip(ask[2] + "…", w)]
+        rows += [line(), heading("asked")]
+        rows += [line(fg("fg", True) + r + RESET, cw(r)) for r in ask]
+    files = [side_path(f, task.get("cwd"), w - 2) for f in task.get("files") or []]
+    if len(files) > FILE_ROWS:
+        files = [*files[: FILE_ROWS - 1], f"+{len(files) - FILE_ROWS + 1} more"]
+    counts = " · ".join(f"{task[k]} {k}" for k in ("cmds", "agents") if task.get(k))
+    if "files" in names or "work" in names:
+        rows += [line(), heading("files" if "files" in names else "work")]
+        bullet = fg(LABEL_COLOR["files"], True) + BULLET + RESET + " "
+        for t in files:
+            more = t.startswith("+") and t.endswith(" more")
+            rows.append(line(("" if more else bullet) + fg("fg", True) + t + RESET, cw(t) + (0 if more else 2)))
+        if counts:
+            rows.append(line(fg("fg", True) + counts + RESET, cw(counts)))
+    where = [*where_rows(task["dir"], w)] if task.get("dir") else []
+    if task.get("branch"):
+        where.append(clip(f" {task['branch']}", w))
+    if where:
+        rows += [line(), heading("where")]
+        rows += [line(fg("fg", True) + t + RESET, cw(t)) for t in where]
+    if total > 1:
+        text = f"report {pos}/{total}"
+        rows += [line(), line(fg("dim") + text + RESET, len(text))]
+    hint = hint_line("report", w)
+    if fit and len(rows) > rows_total - 3:
+        keep = max(0, rows_total - 4)
+        if keep < pr:
+            rows = rows[pr:]
+        more = "…"
+        rows = [*rows[:keep], line(fg("dim") + more + RESET, cw(more))]
+    rows += [line()] * (rows_total - 3 - len(rows))
+    rows.append(line(hint, cw(ESCAPE.sub("", hint))))
+    return box(None, rows, SPLIT_SIDE_COLS, SIDE_FRAME.get(a["status"], "blue"), heavy=True)
+
+
+def report_split_parts(a, squad, report, peek, width, pos, total, banner, portrait, height, now=None, fixed=False):
+    rw = width - SPLIT_SIDE_COLS - SPLIT_GAP
+    summons = a.get("summons", [])
+    bid = banner_id(a["status"], is_final(report), bool(summons), *banner[2:])
+    right = ["", *(image_row(bid, r, min(banner[0], rw)) for r in range(banner[1]))]
+    if is_final(report) and summons:
+        title = f"{STATUS_TAG[a['status']][0] or '·'} 還有 {len(summons)} 個分支任務進行中"
+        right.append(fg(STATUS_TAG[a["status"]][2], True) + clip(title, min(banner[0], rw)) + RESET)
+    bw = min(banner[0], rw)
+    right += ["", *report_rows(report, peek, summons, bw, rw, now)]
+    rows_total = height if fixed else max(len(right) + 2, height - 1)
+    return report_side_rows(a, squad, report, pos, total, portrait, rows_total, now, True, fixed), right
+
+
+def report_join(left, right):
+    """Put the right column beside the left one; no left column (narrow page) means right is the whole page."""
+    if not left:
+        return list(right)
+    blank = " " * SPLIT_SIDE_COLS
+    rows = []
+    for i in range(max(len(left), len(right))):
+        side = left[i] if i < len(left) else blank
+        rows.append(side + (" " * SPLIT_GAP + right[i] if i < len(right) else ""))
+    return rows
+
+
+def report_view(left, right, height, offset):
+    """The screen rows (at most height) and the clamped offset: the left column stays at its first rows, the right column (the whole page when left is empty) scrolls from offset."""
+    offset = max(0, min(offset, len(right) - height))
+    rows = report_join(left, right[offset : offset + height])
+    return rows[:height], offset
+
+
+CODE_ROW = fg("green")
+
+
+def report_frames(right, height, steps=5, tail=0):
+    """Opening animation of a fresh page as successive versions of the right column, the last one being right itself.
+    Rows before the first blank-row-separated paragraph (banner, head) are in every frame; the paragraphs that start inside the first `height` rows appear in at most `steps` groups, the rest stays blank. The last `tail` rows are always shown. A code block is never cut. Fewer than 2 such paragraphs, or frames that look the same in the first `height` rows, give [right]."""
+    n = len(right) - tail
+    cuts = [0]
+    for i in range(1, n):
+        if right[i] or not right[i - 1]:
+            continue
+        j = i
+        while j < n and not right[j]:
+            j += 1
+        # a blank row between two code rows is inside the block
+        if not (right[i - 1].startswith(CODE_ROW) and j < n and right[j].startswith(CODE_ROW)):
+            cuts.append(i)
+    cuts = [c for c in cuts if c < height or c == 0]
+    body = len(cuts) - 1
+    if body < 2:
+        return [right]
+    ends = cuts[1:] + [n]
+    k = min(steps, body)
+    frames = []
+    for s in range(1, k):
+        end = ends[-(-s * body // k)]
+        f = right[:end] + [""] * (n - end) + right[n:]
+        if not frames or f[:height] != frames[-1][:height]:
+            frames.append(f)
+    if frames and frames[-1][:height] == right[:height]:
+        frames.pop()
+    return frames + [right] if frames else [right]
+
+
+def render_report(*args, **kwargs):
+    return "\n".join(report_join(*report_parts(*args, **kwargs)))
+
+
+def report_parts(
+    a,
+    squad,
+    report,
+    peek,
+    width,
+    pos=1,
+    total=1,
+    art=False,
+    banner=(80, 10),
+    portrait=(20, 10),
+    height=0,
+    now=None,
+    fixed=False,
+):
+    """(left, right) rows of the report page; left is empty unless the page splits. With fixed the left frame is exactly height rows instead of growing with the text.
+    Report pane text: who, how long, HP, then the whole report as Markdown, or the pane's last lines (peek) when there is no report.
+    With art a banner (banner = cols, rows[, k of the k:1 image]) opens the page in place of the title row, and the portrait stands left of the first three rows.
+    With art and width >= SPLIT_MIN_WIDTH the page splits: a framed side column (portrait = cols, rows) left, banner and text right, and the frame reaches the last row, or row height - 1 when the report is shorter."""
+    width = max(28, width)
+    if art and width >= SPLIT_MIN_WIDTH:
+        return report_split_parts(a, squad, report, peek, width, pos, total, banner, portrait, height, now, fixed)
+    facts = []
+    if report and report["start"] and report["end"]:
+        facts.append(f"took {fmt_took(report['end'] - report['start'])}")
+    if a.get("hp_left") is not None:
+        facts.append(f"HP {fmt_tokens(a['hp_left'])}" + (f"/{fmt_tokens(a['hp_max'])}" if a.get("hp_max") else ""))
+    elif a.get("hp") is not None:
+        facts.append(f"HP {a['hp']}%")
+    if total > 1:
+        facts.append(f"report {pos}/{total}")
+    summons = a.get("summons", [])
+    title = REPORT_TITLE.get(a["status"], "Report") if is_final(report) else "Working" if report else "Last output"
+    if is_final(report) and summons:
+        title = f"還有 {len(summons)} 個分支任務進行中"
+    pid = portrait_id(a)
+    text_w = width - PORTRAIT_CELLS[0] - 1 if art else width
+    show_title = not art or bool(is_final(report) and summons)
+    head = [
+        (f"{STATUS_TAG[a['status']][0] or '·'} {title}" if show_title else "", fg(STATUS_TAG[a["status"]][2], True)),
+        (f"{class_icon(a)} {a['name']}  {a['kind']} · {squad}", fg("fg", True)),
+        ("  ".join(facts), fg("dim")),
+    ]
+    rows = []
+    if art:
+        bid = banner_id(a["status"], is_final(report), bool(summons), *banner[2:])
+        rows += [image_row(bid, r, min(banner[0], width)) for r in range(banner[1])]
+    for r, (text, style) in enumerate(head):
+        line = style + clip(text, text_w) + RESET
+        rows.append(f"{image_row(pid, r, PORTRAIT_CELLS[0])} {line}" if art else line)
+    rows.append("")
+    rows += report_rows(report, peek, summons, width, None, now)
+    return [], rows + ["", hint_line("report", width)]
 
 
 def render_no_report(width, height):
     width = max(28, width)
-    text = clip("Nobody is waiting or done.", width - 4)
+    text = clip("No party members.", width - 4)
     out = box("Quest reports", [f" {fg('dim')}{text}{RESET}{' ' * (width - 4 - cw(text))} "], width)
     out += [""] * (height - 1 - len(out))
     out.append(f" {fg('gold', True)}q{RESET} {fg('dim')}close{RESET}")
     return "\n".join(out)
 
 
-def box(title, rows, width, color="line", double=False, title_color="gold"):
-    """Rounded frame with the title in the top border. Every row must be exactly width - 2 wide."""
-    tl, h, tr, v, bl, br = "╔═╗║╚╝" if double else "╭─╮│╰╯"
-    t = f" {clip(title, width - 6)} "
-    out = [fg(color) + tl + h + fg(title_color, True) + t + RESET + fg(color) + h * (width - 3 - cw(t)) + tr + RESET]
-    out += [f"{fg(color)}{v}{RESET}{r}{fg(color)}{v}{RESET}" for r in rows]
-    out.append(fg(color) + bl + h * (width - 2) + br + RESET)
+def box(title, rows, width, color="line", double=False, title_color="gold", heavy=False):
+    """Rounded frame (heavy: bold square ┏━┓ lines) with the title in the top border (title None: plain border). Every row must be exactly width - 2 wide."""
+    tl, h, tr, v, bl, br = "┏━┓┃┗┛" if heavy else "╔═╗║╚╝" if double else "╭─╮│╰╯"
+    edge = fg(color, heavy)
+    if title is None:
+        out = [edge + tl + h * (width - 2) + tr + RESET]
+    else:
+        t = f" {clip(title, width - 6)} "
+        out = [edge + tl + h + fg(title_color, True) + t + RESET + edge + h * (width - 3 - cw(t)) + tr + RESET]
+    out += [f"{edge}{v}{RESET}{r}{edge}{v}{RESET}" for r in rows]
+    out.append(edge + bl + h * (width - 2) + br + RESET)
     return out
 
 
@@ -397,12 +906,14 @@ def seg_row(segs, width):
     return out + " " * (width - used)
 
 
-def squad_rows_art(t, pid, width, lit, cursor=False, home=False):
+def squad_rows_art(t, pid, width, lit, cursor=False, home=False, pulse=False):
     tw = width - 2 - CREST_CELLS[0]
     agents = t["agents"]
     dots, dots_w = squad_summary(agents)
     name = clip(t["name"], tw - dots_w - 1)
     mark, name_col = squad_marks(t, lit, cursor)
+    if pulse:
+        name_col = fg("fg")
     alert = squad_alert(agents)
     asleep = sum(a["status"] == "sleep" for a in agents)
     counts = (
@@ -437,11 +948,12 @@ def art_rows(a, width, sel):
         ),
         *stat_rows(a, tw),
     ]
+    text += [" " * tw] * (PORTRAIT_CELLS[1] - len(text))
     return [f" {image_row(pid, r, PORTRAIT_CELLS[0])} {t} " for r, t in enumerate(text)]
 
 
-def card(a, width, sel, art=False):
-    """One member card. Selected: gold double frame and ❯ (☞ has ambiguous width and breaks some terminals)."""
+def card(a, width, sel, art=False, lit=False):
+    """One member card. Selected: gold double frame and ❯ (☞ has ambiguous width and breaks some terminals). lit: frame in the flash color."""
     pad = "  " if a.get("lead") else ""
     width -= len(pad)
     if art:
@@ -450,10 +962,14 @@ def card(a, width, sel, art=False):
         rows = status_rows(a, width - 2, sel)
     if sel:
         rows[0] = fg("gold", True) + "❯" + RESET + rows[0][1:]
-        lines = box(a.get("kind", "claude"), rows, width, "gold", double=True)
+        lines = box(a.get("kind", "claude"), rows, width, "fg" if lit else "gold", double=True)
     else:
         lines = box(
-            a.get("kind", "claude"), rows, width, "warn" if a["status"] == "waiting" else "line", title_color="dim"
+            a.get("kind", "claude"),
+            rows,
+            width,
+            "fg" if lit else "warn" if a["status"] == "waiting" else "line",
+            title_color="dim",
         )
     return [pad + l for l in lines]
 
@@ -471,9 +987,11 @@ def render(
     tick=0,
     art=False,
     here=None,
+    flash=(),
 ):
     """Squad list on top, then one card per member of the viewed squad.
     selected: pane id (None = your current Claude pane). peek: output lines that replace the cards.
+    flash: pane ids whose card frame is in the flash color this frame; their squad's name row is too.
     row_map: if a list is given, filled with screen row -> ("squad", i) / ("agent", pane) / None, for the mouse."""
     global _tick
     _tick = tick
@@ -489,35 +1007,84 @@ def render(
     view = squad if on_squad else home if home is not None else 0 if towns else None
     vt = towns[view] if view is not None else None
     w = inner - 1
-    squad_rows, targets = [], [None]
+    units, center = [], 0
     crests = crest_ids(t["name"] for t in towns)
     if here is None:
         here = next((t["name"] for t in towns if any(a["focus"] for a in t["agents"])), None)
+    fold = [not t["agents"] and i != view and not (on_squad and squad == i) for i, t in enumerate(towns)]
     for i, t in enumerate(towns):
         cur = on_squad and squad == i
+        if fold[i]:
+            if i and fold[i - 1]:
+                continue
+            n = 1
+            while i + n < len(towns) and fold[i + n]:
+                n += 1
+            if n > 1:
+                indent = 2 + CREST_CELLS[0] if art else 4
+                text = f"+{n} empty"
+                line = " " * indent + fg("dim") + text + RESET + " " * (w - indent - len(text))
+                units.append(([line + " "], [("squad", i)], n))
+                continue
         mine = t["name"] == here
+        pulse = bool(flash) and any(a["pane"] in flash for a in t["agents"])
         lines = (
-            squad_rows_art(t, crests[t["name"]], w, i == view, cur, mine)
+            squad_rows_art(t, crests[t["name"]], w, i == view, cur, mine, pulse)
             if art
-            else [squad_line(i, t, w, i == view, cur, mine)]
+            else [squad_line(i, t, w, i == view, cur, mine, pulse)]
         )
-        squad_rows += [highlight(l + " ", "view") if i == view else l + " " for l in lines]
-        targets += [("squad", i)] * len(lines)
+        if i == view:
+            center = len(units)
+        units.append(
+            ([highlight(l + " ", "view") if i == view else l + " " for l in lines], [("squad", i)] * len(lines), 1)
+        )
+
+    members = vt["agents"] if vt else []
+    peeking = peek is not None and sel is not None and not on_squad
+    cards = [card(a, width, a is sel and not on_squad, art, a["pane"] in flash) for a in members] if not peeking else []
+    i = next((k for k, a in enumerate(members) if a is sel), 0)
+    hint_h = 1 if hints else 0
+    below = len(cards[i]) if cards else 3
+    more = lambda arrow, n: f"{fg('dim')}{f'{arrow} {n} more'.center(width)}{RESET}"
+
+    def fit_squads(room):
+        """Squad units that fit in `room` rows, growing both ways from the viewed one -> [lo, hi)."""
+        lo, hi, used = center, center + 1, len(units[center][0])
+        while True:
+            grew = False
+            for k in (hi, lo - 1):
+                if 0 <= k < len(units) and not lo <= k < hi and used + len(units[k][0]) <= room:
+                    used += len(units[k][0])
+                    lo, hi, grew = min(lo, k), max(hi, k + 1), True
+            if not grew:
+                return lo, hi
+
+    squad_rows, targets = [], [None]
+    if units:
+        room = height - hint_h - below - 2
+        lo, hi = fit_squads(room)
+        if lo > 0 or hi < len(units):
+            lo, hi = fit_squads(room - 2)
+        if lo > 0:
+            squad_rows.append(more("▲", sum(u[2] for u in units[:lo])))
+            targets.append(None)
+        for rows, tgt, _ in units[lo:hi]:
+            squad_rows += rows
+            targets += tgt
+        if hi < len(units):
+            squad_rows.append(more("▼", sum(u[2] for u in units[hi:])))
+            targets.append(None)
     out = box(f"Squads {len(towns)}", squad_rows, width)
     targets.append(None)
 
-    members = vt["agents"] if vt else []
-    hint_h = 1 if hints else 0
     avail = height - len(out) - hint_h
     low, low_targets = [], []
-    if peek is not None and sel is not None and not on_squad:
+    if peeking and sel is not None:
         low = box(
             f"Peek · {sel['name']}", peek_rows(peek, inner, max(1, avail - 2)), width, STATUS_TAG[sel["status"]][2]
         )
         low_targets = [None] * len(low)
-    elif members:
-        cards = [card(a, width, a is sel and not on_squad, art) for a in members]
-        i = next((k for k, a in enumerate(members) if a is sel), 0)
+    elif cards:
 
         def fit(room):
             """Cards that fit in `room` rows, growing both ways from the selected one -> [lo, hi)."""
@@ -534,7 +1101,6 @@ def render(
         lo, hi = fit(avail)
         if lo > 0 or hi < len(cards):
             lo, hi = fit(avail - 2)
-        more = lambda arrow, n: f"{fg('dim')}{f'{arrow} {n} more'.center(width)}{RESET}"
         if lo > 0:
             low.append(more("▲", lo))
             low_targets.append(None)
