@@ -36,6 +36,7 @@ from .art import (
 from .collect import get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
 from .render import (
+    help_overlay,
     help_screen,
     is_final,
     render,
@@ -485,8 +486,12 @@ def run_report(pane=None, fixture=None):
                 True,
             )
             limit = max(0, len(right) - size.lines)
-            screen = help_screen("report", width, size.lines) if helping else None
             offset = min(offset, limit)
+            screen = (
+                help_overlay(report_view(left, right, size.lines, offset)[0], "report", width, size.lines)
+                if helping
+                else None
+            )
             shown = time.monotonic()
             frames = report_frames(right, size.lines, tail=0 if left else 2) if fresh and anim else [right]
             fresh = False
@@ -532,6 +537,8 @@ def run_report(pane=None, fixture=None):
                         live = False
                         continue
                     reports[a["pane"]] = new
+                    if is_final(new):
+                        drawn = None
                     break
                 if art_pending and time.monotonic() - last_winch >= RESIZE_SETTLE:
                     resized = False
@@ -549,7 +556,11 @@ def run_report(pane=None, fixture=None):
                         rest.append(key)
                 keys = rest
                 if helping != was:
-                    screen = help_screen("report", width, size.lines) if helping else None
+                    screen = (
+                        help_overlay(report_view(left, right, size.lines, offset)[0], "report", width, size.lines)
+                        if helping
+                        else None
+                    )
                     draw_report(left, right, size.lines, offset, screen)
                 if "n" in keys or "N" in keys:
                     i = report_step("N" if "N" in keys and "n" not in keys else "n", i, len(queue))

@@ -119,9 +119,13 @@ current window in half.
 - For Claude Code the report is the text after the last tool call of its last answer; for Codex, its last finished reply.
 - Without a report the pane's last lines are shown instead (`Last output`): always for agy and Grok, and usually for a
   Claude member waiting for a permission or an answer, whose question is in those lines. The lines keep the pane's own colours. A member waiting for you always gets the `Waiting` banner (also with a report or running subagents); others without a report get `Last output`.
-- A Claude Code or Codex member that is still working shows an in-progress page: a status row (`進行中 · 已 12m 03s`, the time since its last typed prompt), a `現在` block (its newest tool call and the last lines of its newest text), then the previous round's report. The page re-reads about every 1.5 s while it is open and switches to the real report once the member is done or waiting. The left column shows this round's `ASKED`, `FILES` and `WHERE`; a `RUNNING` label with the time so far takes the place of `TOOK`.
+- The banner follows the member: `Quest Complete` (done, nothing still running), `Waiting for You` (waiting for your answer), `Report` (a finished report of an idle member, or of any member with running subagents), `Last Output` (no finished report yet).
 
-  <img src="docs/img/report-working.svg" width="780" alt="The in-progress page of a working member: status row with the time so far, the 現在 block with the newest tool call and text, then the previous round's report; RUNNING label in the left column">
+  <img src="docs/img/banners.svg" width="480" alt="The four report banners one above the other, each with a line saying when it shows: Quest Complete, Waiting for You, Report and Last Output">
+
+- A Claude Code or Codex member that is still working shows an in-progress page: a status row (`Working · 12m 03s`, the time since its last typed prompt), a `Now` block (its newest tool call and the last lines of its newest text), then the previous round's report (headed `Previous report`). The page re-reads about every 1.5 s while it is open and switches to the real report once the member is done or waiting. The left column shows this round's `ASKED`, `FILES` and `WHERE`; a `RUNNING` label with the time so far takes the place of `TOOK`.
+
+  <img src="docs/img/report-working.svg" width="780" alt="The in-progress page of a working member: status row with the time so far, the Now block with the newest tool call and text, then the previous round's report; RUNNING label in the left column">
 
 - In the split page the left column stays put and only the right column (banner and text) scrolls; in a narrow pane the whole page scrolls. Scroll with `j`/`k`, the arrow keys or the mouse wheel (a line), `PgUp`/`PgDn` (a page), `g`/`G` (top/bottom). A report that fits does not move. To copy text, hold `Shift` and drag (the terminal does the selection).
 - Resizing the pane redraws the report at the new size right away and as often as it can be drawn, in place and without clearing the screen; the images follow once the resize has stopped for a moment.
@@ -129,8 +133,8 @@ current window in half.
 - `n` next report, `N` previous report, `Enter` goes to the member's pane, `q` / `Esc` closes the pane, `?` shows every key (press `?` / `Esc` / `q` to go back to the same spot).
 - Reading a report does not clear the "done" mark; going to the pane does.
 - A Claude Code member that is still running subagents also gets a report page. The title changes from
-  `Quest complete` to `還有 N 個分支任務進行中` (N = running subagents), and each running subagent is listed under the
-  report with its name and `進行中`.
+  `Quest complete` to `N subagents still running` (N = running subagents; `1 subagent still running` for one), and each running subagent is listed under the
+  report with its name and `running`.
 - Subagents that finished during that answer's turn (since your last prompt) are listed under the report too, each
   with the last report it handed back (Markdown styled).
 

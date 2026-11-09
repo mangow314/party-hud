@@ -4,7 +4,8 @@ Parses ANSI colors, underline colors, wide characters and Kitty Unicode placehol
   python3 scripts/screenshot.py scripts/screenshot.json docs/img
 
 writes window.svg (the sidebar beside a pane), card.svg (one card with a legend), report.svg and report-working.svg
-(the split report page of a finished and of a working member) and help.svg (the report page with the key help on top).
+(the split report page of a finished and of a working member) and help.svg (the report page in faint text with the key help box over it, as `?` draws it) and
+banners.svg (the four report banners, each with the case that shows it).
 Text is <text> with one x per character, lines and blocks are <rect>, Kitty images and Nerd Font icons are embedded
 PNGs (data URIs only), so GitHub shows the files without the fonts.
 Needs Pillow and a Nerd Font for the icons: set PARTY_FONT to a TTF path containing {} for the style
@@ -25,9 +26,9 @@ from PIL import Image, ImageDraw, ImageFont
 
 S = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(S, ".."))
-from party_hud.art import DIAC, load_art
+from party_hud.art import DIAC, banner_id, image_row, load_art
 from party_hud.collect import collect
-from party_hud.render import help_screen, is_final, render, report_parts, report_view, side_labels
+from party_hud.render import help_overlay, is_final, render, report_parts, report_view, side_labels
 from party_hud.ui import banner_cells, portrait_cells, report_image_plan
 
 loaded = load_art()
@@ -181,6 +182,7 @@ class Canvas:
 
         for y, line in enumerate(text.split("\n")):
             fgc, bgc, b, x, i = FG, None, False, x0, 0
+            faint = False
             ul, ulc = False, None  # underline (SGR 4) and underline color (SGR 58)
             last_x = x0 * CW
             cells: list[tuple[int, str, int, tuple[int, ...], bool]] = []  # x, character, width in px, color, bold
@@ -191,9 +193,13 @@ class Canvas:
                     j = 0
                     while j < len(p):
                         if p[j] == 0:
-                            fgc, bgc, b, ul, ulc = FG, None, False, False, None
+                            fgc, bgc, b, ul, ulc, faint = FG, None, False, False, None, False
                         elif p[j] == 1:
                             b = True
+                        elif p[j] == 2:
+                            faint = True
+                        elif p[j] == 22:
+                            faint = False
                         elif p[j] == 4:
                             ul = True
                         elif p[j] == 24:
@@ -233,23 +239,24 @@ class Canvas:
                         runs.append([img, r, c, 1, px, py])
                     x += 1
                     continue
+                eff = tuple(round(c * 0.45 + k * 0.55) for c, k in zip(fgc, BG)) if faint else fgc
                 if unicodedata.combining(ch):
-                    cells.append((last_x, ch, 0, fgc, b))
+                    cells.append((last_x, ch, 0, eff, b))
                     continue
                 w = 2 if unicodedata.east_asian_width(ch) in "WF" else 1
                 if ul:
-                    add(px, py + CH - 3, px + w * CW, py + CH, ulc or fgc)
+                    add(px, py + CH - 3, px + w * CW, py + CH, ulc or eff)
                 if bgc:
                     add(px, py, px + w * CW, py + CH, bgc)
                 if ch == "▅":  # drawn by hand so line height does not matter
-                    add(px, py + CH * 3 // 8, px + CW, py + CH, fgc)
+                    add(px, py + CH * 3 // 8, px + CW, py + CH, eff)
                 elif "─" <= ch <= "╿":
                     for rx0, ry0, rx1, ry1 in line_rects(ch):
-                        add(px + rx0, py + ry0, px + rx1, py + ry1, fgc)
+                        add(px + rx0, py + ry0, px + rx1, py + ry1, eff)
                 elif ch != " " and (icon_glyph(ch) or ch in MISSING):
-                    icons.append((self.glyph(ch, fgc, b, w), px, py))
+                    icons.append((self.glyph(ch, eff, b, w), px, py))
                 else:
-                    cells.append((px, ch, w * CW, fgc, b))
+                    cells.append((px, ch, w * CW, eff, b))
                     last_x = px
                 x += w
             texts += self.text_runs(cells, (y0 + y) * CH + 4 + ASC)
@@ -424,18 +431,32 @@ def report_page(fixture, data, entry, helping=False):
     )
     rows, _ = report_view(left, right, REPORT_ROWS, 0)
     plan = report_image_plan(a, is_final(report), art, REPORT_COLS, banner, big, side_labels(report, now))
+    if helping:
+        rows = help_overlay(rows, "report", REPORT_COLS, REPORT_ROWS)
     cv = Canvas(REPORT_COLS * CW, REPORT_ROWS * CH, {img: (c, r) for img, c, r in plan})
     cv.paint("\n".join(rows), 0, 0)
-    if helping:
-        keys = help_screen("report", REPORT_COLS, REPORT_ROWS)[:-1]
-        plain = [ESC.sub("", row) for row in keys]
-        top = next(i for i, row in enumerate(plain) if row.strip())
-        bottom = max(i for i, row in enumerate(plain) if row.strip())
-        c0 = min(len(row) - len(row.lstrip()) for row in plain if row.strip())
-        c1 = max(len(row.rstrip()) for row in plain)
-        cv.rect(0, 0, cv.w, cv.h, BG, 0.6)
-        cv.rect(c0 * CW, top * CH, c1 * CW, (bottom + 1) * CH, BG)
-        cv.paint("\n".join(keys), 0, 0)
+    return cv
+
+
+BANNERS = [
+    ("Quest Complete", ("done", True, False), ["The member finished and no subagent is still running."]),
+    ("Waiting for You", ("waiting", True, False), ["The member is waiting for your answer or approval."]),
+    ("Report", ("idle", True, False), ["A finished report of an idle member, or of any member", "that still has subagents running."]),
+    ("Last Output", ("working", False, False), ["No finished report yet (the member is still working):", "the pane's last lines are shown instead."]),
+]  # fmt: skip
+
+
+def banners():
+    """The four report banners, one above the other at the narrow-page size, each followed by when `banner_id` picks it."""
+    cols, rows, k = banner_cells(60, RATIO)
+    block = rows + 4
+    cv = Canvas((cols + 2) * CW, (len(BANNERS) * block + 1) * CH)
+    for n, (name, (status, has_report, has_summons), why) in enumerate(BANNERS):
+        bid = banner_id(status, has_report, has_summons, k)
+        y = 1 + n * block
+        cv.sizes[bid] = (cols, rows)
+        cv.paint("\n".join(image_row(bid, r, cols) for r in range(rows)), 1, y)
+        cv.paint("\n".join(f"\x1b[38;2;120;128;160m{line}" for line in why), 1, y + rows)
     return cv
 
 
@@ -449,6 +470,7 @@ if __name__ == "__main__":
         "report.svg": report_page(fixture, data, data["reports"]["done"]),
         "report-working.svg": report_page(fixture, data, data["reports"]["working"]),
         "help.svg": report_page(fixture, data, data["reports"]["done"], True),
+        "banners.svg": banners(),
     }
     for name, cv in pages.items():
         path = os.path.join(outdir, name)

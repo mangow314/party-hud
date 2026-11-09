@@ -193,8 +193,8 @@ ok("no report yet" in strip(render.render_report(done, "Studio", None, [], 60)),
 lv = {"live": True, "text": "", "start": 1000, "end": None, "tool": "Bash: rg -n 很長的指令" * 6, "said": "第一行\n" + "很長的一行中文" * 20 + "\nlast words",
       "prev": {"text": "## 上輪\n舊報告", "start": 1, "end": 2}, "task": {"ask": "做事", "files": [], "cmds": 2, "agents": 0, "dir": "~/x", "branch": "main", "cwd": "/x"}}
 lf = strip(render.render_report(dict(done, status="working"), "Studio", lv, [], 60, now=1000 + 723)).splitlines()
-ok("進行中 · 已 12m 03s" in lf and "現在" in " ".join(lf) and "last words" in " ".join(lf) and "上一輪報告" in " ".join(lf) and "舊報告" in " ".join(lf),
-   "live report: status row with the time so far, 現在 block, then the previous round's report")
+ok("Working · 12m 03s" in lf and "Now" in lf and "last words" in " ".join(lf) and "Previous report" in lf and "舊報告" in " ".join(lf),
+   "live report: status row with the time so far, Now block, then the previous round's report")
 ok(all(common.cw(l) <= 60 for l in lf), "live report: no row is wider than the width")
 colored = "\x1b[31mred\x1b[0m plain"
 ok(render.wrap_sgr(colored, 40) == ["\x1b[31mred\x1b[0m plain\x1b[0m"], "Last output: SGR escapes stay as they are")
@@ -207,13 +207,13 @@ ok(len(wr) > 2 and all(common.cw(strip(r)) <= 9 for r in wr) and all(r.endswith(
 sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## 子結果\nsubagent said hi"}
 busy = dict(done, summons=[{"type": "executor", "desc": "Branch 還在跑" * 8}])
 bf = strip(render.render_report(busy, "Studio", dict(rep, subagents=[sub]), [], 60))
-ok("Quest complete" not in bf and "還有 1 個分支任務進行中" in bf.splitlines()[0] and "進行中" in bf.split("\n\n", 1)[1]
+ok("Quest complete" not in bf and "1 subagent still running" in bf.splitlines()[0] and "running" in bf.split("\n\n", 1)[1]
    and all(common.cw(l) <= 60 for l in bf.splitlines()),
-   "report: a branch task still running -> title says so instead of Quest complete, task listed as 進行中, rows fit")
+   "report: a branch task still running -> title says so instead of Quest complete, task listed as running, rows fit")
 bart = render.render_report(busy, "Studio", rep, [], 60, art=True, banner=(40, 5)).splitlines()
-ok(len(bart) > 5 and bart[0] == art.image_row(art.banner_id("done", True, True), 0, 40) and "還有 1 個分支任務進行中" in strip(bart[5])
+ok(len(bart) > 5 and bart[0] == art.image_row(art.banner_id("done", True, True), 0, 40) and "1 subagent still running" in strip(bart[5])
    and all(common.cw(strip(l)) <= 60 for l in bart),
-   "report: art plus a running branch task -> banner then the 還有 N 個分支任務進行中 line, rows fit")
+   "report: art plus a running branch task -> banner then the N subagents still running line, rows fit")
 wide = render.render_report(done, "Studio", rep, [], 150, 2, 3, art=True, banner=(118, 15), portrait=(24, 14)).splitlines()
 wl = [strip(l) for l in wide]
 bot = next(i for i, l in enumerate(wl) if l.startswith("┗"))
@@ -334,8 +334,8 @@ ok(len(short) == 59 and short[-1].startswith("┗") and any("⏎ go" in l for l 
    and long_[-1].startswith("┗") and len(long_) > 20 and all(common.cw(l) <= 150 for l in short + long_),
    "report: split frame closes on the last row; a short report is padded to the pane height - 1")
 busy_w = render.render_report(busy, "Studio", rep, [], 150, art=True, banner=(118, 15), portrait=(24, 14)).splitlines()
-ok("還有 1 個分支任務進行中" in strip(busy_w[16]) and strip(busy_w[17]).endswith("┃  "),
-   "report: split page puts the 還有 N 個分支任務進行中 line right under the banner")
+ok("1 subagent still running" in strip(busy_w[16]) and strip(busy_w[17]).endswith("┃  "),
+   "report: split page puts the N subagents still running line right under the banner")
 wide99 = render.render_report(done, "Studio", rep, [], 99, art=True).splitlines()
 ok(wide99 == render.render_report(done, "Studio", rep, [], 99, art=True, banner=(80, 10), portrait=(24, 3)).splitlines()
    and not any(strip(l).startswith("┏") for l in wide99)
@@ -343,8 +343,8 @@ ok(wide99 == render.render_report(done, "Studio", rep, [], 99, art=True, banner=
    "report: below 100 columns, or without art, the old layout stays")
 sf = strip(render.render_report(done, "Studio", dict(rep, subagents=[sub]), [], 60))
 ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > sf.index("完成了報告畫面") and "subagent said hi" in sf
-   and "## " not in sf and "進行中" not in sf,
-   "report: finished subagent listed below the main report with its own report (Markdown), no 進行中")
+   and "## " not in sf and "running" not in sf,
+   "report: finished subagent listed below the main report with its own report (Markdown), no running")
 nr = strip(render.render_no_report(40, 10)).splitlines()
 ok(len(nr) == 10 and "No party members." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
    "report popup with no party members: says so and waits (a popup that exits at once only flashes)")
@@ -634,6 +634,11 @@ ui.run_report"""
 fp = report_session([b"n", b"q"], src=child.replace("ui.run_report", first_inject, 1))
 ok(fp.count("a=d,d=I,i=7") == 2 and fp.index("a=d,d=I,i=7") < fp.index("\x1b[H") < fp.rindex("a=d,d=I,i=7"),
    "report pane: the first frame is written with a delete of the unsent image id, and n does not delete it again")
+live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5)]", "ui.report_image_plan = lambda a, final, *r: [(7 if final else 8, 10, 5)]").replace(
+    "ui.run_report", "ui.LIVE_REFRESH = 0.2\nui.report_for = lambda a: {'live': True, 'text': 'x', 'start': 1, 'end': 2}\nui.refresh_live = lambda q, i: {'text': 'done', 'start': 1, 'end': 3}\nui.run_report", 1)
+lv = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", live_inject, 1))
+ok("a=d,d=I,i=7" in lv and lv.index("a=d,d=I,i=7") > lv.index("\x1b[H") and lv.index("a=d,d=I,i=7") < lv.rindex("\x1b[H"),
+   "report pane: when the in-progress page turns into the final report, the new banner id is deleted with the next frame, as for a new page")
 ex_src = first_inject.replace("[(7, 10, 5)]", "[(7, 10, 5), (-1, 6, 3)]")
 ex = report_session([b"q"], src=child.replace("ui.run_report", ex_src, 1))
 ok("a=d,d=I,i=7" in ex[ex.index("\x1b[H"):] and ex.rindex("a=d,d=I,i=7") < ex.rindex("\x1b[?1049l") and "a=d,d=I,i=-1" not in ex[ex.index("\x1b[H"):],
@@ -1040,6 +1045,18 @@ nc = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card(long_a, 28, True, T
 ok(all(w(l) == 28 for l in nc) and "890k/1.2M" in nc[2] and "…" in nc[1] and "party-hud-long-name" not in nc[1],
    "Narrow art card: name truncated with … while the HP value stays whole; every line exactly 28 wide")
 text = render.render(towns, 33, "%1", hints="sidebar") + render.render(towns, 33, "%1", art=True) + render.render(towns, 33, "%1", ["x"], "popup")
+en_lv = {"live": True, "text": "", "start": 1000, "end": None, "tool": "Bash: ls", "said": "thinking",
+         "prev": {"text": "## Earlier\nold report", "start": 1, "end": 2}, "task": {"ask": "do it", "files": [], "cmds": 2, "agents": 0, "dir": "~/x", "branch": "main", "cwd": "/x"}}
+en_rep = {"text": "## Result\nall done", "start": 100, "end": 860}
+en_sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## Result\nsub said hi"}
+en_busy = dict(done, summons=[{"type": "executor", "desc": "Branch"}, {"type": "executor", "desc": "Branch 2"}])
+en_pages = [render.render_report(dict(done, status="working"), "Studio", en_lv, [], 60, now=1723),
+            render.render_report(dict(done, status="working", summons=[{"type": "executor", "desc": "Branch"}]), "Studio", en_lv, [], 60, now=1723),
+            render.render_report(en_busy, "Studio", dict(en_rep, subagents=[en_sub]), [], 60),
+            render.render_report(en_busy, "Studio", en_rep, [], 60, art=True, banner=(40, 5)),
+            render.render_report(dict(done, status="working", summons=[{"type": "executor", "desc": "Branch"}]), "Studio", en_lv, [], 150, art=True, banner=(118, 15), portrait=(24, 14), now=1723),
+            render.render_report(en_busy, "Studio", en_rep, [], 150, art=True, banner=(118, 15), portrait=(24, 14))]
+text += "".join(en_pages)
 for nm in [t["name"] for t in towns] + [a["name"] for a in agents] + [s["desc"] for a in agents for s in a.get("summons", [])]:
     text = text.replace(nm, "")
 ok(not re.search(r"[一-鿿＀-￯]", text), "UI text is all English (only session / member names may be CJK)")
@@ -1395,6 +1412,27 @@ hn = len(render.HELP["report"]) + 2
 ok(hb[(30 - 1 - hn) // 2].startswith(" " * ((80 - hw) // 2) + "╭") and not any("╭" in r for r in hb[:(30 - 1 - hn) // 2])
    and hb[(30 - 1 - hn) // 2].rstrip().endswith("╮") and common.cw(hb[(30 - 1 - hn) // 2].rstrip()) == (80 - hw) // 2 + hw,
    "Key help box is centred in the pane: top row and left margin follow (height - 1 - box) // 2 and (width - box) // 2, box width wraps the content")
+ph = art.image_row(art.BANNER_ID, 0, 60)
+FAINT = "\x1b[2m"
+pg = [ph + "  \x1b[1;31mred\x1b[0m text", "\x1b[32m" + "你好" * 40 + "\x1b[0m", "short"] + ["\x1b[34mrow\x1b[0m " + "x" * 70] * 27
+ov = render.help_overlay(pg, "report", 80, 30)
+ovt = [strip(r) for r in ov]
+ot, ol = (30 - 1 - hn) // 2, (80 - hw) // 2
+box_rows = [strip(r) for r in render.help_box("report", 80, 30)[0]]
+ok(len(ov) == 30 and all(common.cw(r) == 80 for r in ovt[ot : ot + hn])
+   and [r[ol : ol + hw] for r in ovt[ot : ot + hn]] == box_rows and ovt[ot].startswith("row ") and ovt[ot][ol - 1] == "x",
+   "Key help overlay: height rows, rows with the box exactly width, box centred, page text kept on both sides")
+ok(ov[1] == render.dim_row(pg[1]) and ov[1].startswith(FAINT) and ov[1].endswith("\x1b[0m")
+   and all(r.startswith(FAINT) and FAINT in r[len(FAINT) :] for r in (ov[ot - 1], ov[ot + hn])),
+   "Key help overlay: page rows outside the box are in faint text (SGR 2 again after every SGR)")
+ok(strip(render.cols_of("a你b", 2, 4)) == " b" and strip(render.cols_of("a你b", 0, 2)) == "a " and strip(render.cols_of("ab", 0, 5)) == "ab   ",
+   "Key help overlay: a wide character cut in half becomes a space, a short row is padded")
+ok(all(common.cw(strip(r)) == w for w in (79, 80) for r in render.help_overlay(["你" * 40] * 30, "report", w, 30)[ot : ot + hn]),
+   "Key help overlay: wide characters under the box edge keep every row at the width (odd and even)")
+left_part, right_part = render.cols_of(ph, 0, ol), render.cols_of(ph, ol + hw, 80)
+ok(left_part.count("\U0010eeee") == ol and right_part.count("\U0010eeee") == 60 - ol - hw and "\x1b[38;2;" in right_part
+   and strip(left_part) + strip(render.cols_of(ph, ol, ol + hw)) + strip(right_part) == strip(render.cols_of(ph, 0, 80)),
+   "Key help overlay: placeholder cells left and right of the box keep their color and marks")
 ok(all(t.startswith("next") for m in ("sidebar", "popup") for k, t in render.HELP[m] if k in ("j k", "J K")),
    "Key help: j / J are listed as next and k / K as prev, the way handle_key moves")
 ok(all("? keys" in strip(render.hint_line(m, w)) for m, w in (("sidebar", 28), ("popup", 28), ("report", 24)))
