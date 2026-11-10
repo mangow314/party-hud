@@ -65,7 +65,7 @@ SP is not shown: OpenAI does not publish a fixed cache lifetime we could count d
 ## agy, Grok
 
 Detected by the pane's command name, or among its child processes as for Codex. Working / idle comes from screen changes, as for Codex. They write no report: the
-report pane shows the pane's last lines instead, and its left column has no prompt, work counts, directory or wait.
+report pane reads their last reply off the screen (the text after the last prompt line, without the input box below it), and its left column has no prompt, work counts, directory or wait.
 
 ## Directory and git branch
 
