@@ -11,7 +11,8 @@ Needs Pillow and the fonts of screenshot.py.
 demo.json: "fixture" (screenshot.json format, with its "reports" by name), "screens" (text beside the sidebar and
 status line, by name), and "steps". A step is one screen shown for "dur" seconds; keys not given stay as in the step before, except
 "flash", "reveal" (step of the report's opening animation) and "set" (a patch of the fixture: "panes" is merged by pane id, a
-dict is merged, anything else replaced), which count for their step only. "view" is window, select or report; "sel" is the
+dict is merged, anything else replaced), which count for their step only. "sidebar": false draws the window without the sidebar (a crew session has none; stays until set to true);
+"view" is window, select or report; "sel" is the
 sidebar selection or the select cursor; "report" the entry of "reports" the select preview or report page shows; "caption" is
 [key, text]. The clock of the fixture runs with the animation, so RUNNING times count up."""
 
@@ -105,7 +106,8 @@ def render_step(cur, state, under, tick, tmp):
         status=status,
         tick=tick if cur["view"] == "window" else under[1],
         flash=cur.get("flash", ()),
-        main_cols=WIN_COLS - 35,
+        main_cols=WIN_COLS - 35 if cur.get("sidebar", True) else WIN_COLS,
+        sidebar=cur.get("sidebar", True),
     )
     els = list(win.body)
     defs = dict(win.defs)

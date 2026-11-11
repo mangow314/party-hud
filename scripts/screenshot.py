@@ -340,9 +340,26 @@ class Canvas:
 
 
 def shot(
-    fixture, sel=None, height=34, main=None, status=None, focus="party", squad=None, tick=3, flash=(), main_cols=62
+    fixture,
+    sel=None,
+    height=34,
+    main=None,
+    status=None,
+    focus="party",
+    squad=None,
+    tick=3,
+    flash=(),
+    main_cols=62,
+    sidebar=True,
 ):
-    """The sidebar, optionally with a pane of text on its right and a tmux status line below."""
+    """The sidebar, optionally with a pane of text on its right and a tmux status line below. Without the sidebar the pane fills the width."""
+    if not sidebar:
+        cv = Canvas(main_cols * CW, (height + (1 if status else 0)) * CH)
+        cv.paint(main, 0, 0)
+        if status:
+            cv.rect(0, height * CH, main_cols * CW, (height + 1) * CH, (36, 44, 74))
+            cv.paint(status, 0, height)
+        return cv
     towns = collect(fixture)["towns"]
     frame = render(towns, 33, sel, None, "sidebar", height, None, focus, squad, tick, True, None, flash)
     cols = 34 + (1 + main_cols if main else 0)

@@ -15,7 +15,8 @@ and a pin marks the session the sidebar itself is in.
 
 - HP is the context window left (`620k/1M`), blinking under 10%.
 - SP counts down the prompt cache (`59/60m`); after it hits 0 the next message re-reads the whole context.
-  A member with no cache data shows no SP row.
+  Only Claude Code members have an SP row; Codex, agy and Grok members, and a Claude Code member with no cache data,
+  show none.
 - The bars are colored underlines. tmux forwards the underline color only when the terminal declares `usstyle`;
   `party.tmux` adds it for Ghostty and Kitty. For another terminal, add it yourself:
   `set -as terminal-features ',<TERM>:usstyle'`.

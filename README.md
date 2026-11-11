@@ -3,29 +3,27 @@
 [繁體中文](README.zh-TW.md)
 
 A tmux plugin that draws the coding agents you have running as an RPG party. At a glance you see who is waiting for
-you, who has finished and how much context each one has left; from there you can jump to its pane or read its report.
+you, who has finished and how much context is left; from there you can jump to its pane or read its report.
 It only reads, stays on your machine and uses little CPU and memory.
 
-Each tmux session is a **squad**, each agent in it (Claude Code, Codex, agy, Grok) is a **member**
-with a portrait, a status, **HP** (context left) and **SP** (prompt cache minutes left).
+Each tmux session is a **squad**, each agent in it is a **member**. The author's main agent is Claude Code, which has
+**HP** (context left) and **SP** (prompt cache minutes left). Codex has HP; agy and Grok show whether they are busy and
+their last reply.
 
 <img src="docs/img/window.svg" width="780" alt="A tmux window: the party-hud sidebar on the left with four squads and four member cards (a waiting codex crew member indented under its lead), an agent working in the pane on the right">
 
 - **See who needs you**: a squad turns orange when a member waits for you, green when one finished. `n` selects the
   next waiting member, `Enter` switches to its pane.
-- **Know when to compact**: HP and SP show context and prompt cache left for each member.
-- **Read what it did**: `prefix R` opens the Party Select screen with a preview of each member; pick one to open its
-  last report with its Markdown styled. This only reads, like the sidebar.
+- **Know when to compact**: HP shows context left; SP shows prompt cache left (Claude Code only).
+- **Read what it did**: `prefix R` opens the Party Select screen: the leads and waiting crew, and in a wide enough pane a
+  report preview of the one under the cursor. `Enter` opens its report with the Markdown formatted. This only reads.
 - **Optional: agents ask agents**: an add-on. One agent can open another, send it a question and read the answer back.
 - **Cheap and local**: Python standard library only, no daemon, no network; it never writes to the agents' files.
   Measured numbers: [Footprint](#footprint).
 
-Install with TPM (`set -g @plugin 'mangow314/party-hud'`), then press `prefix C-t`. Details: [Install](#install).
+After [installing](#install), press `prefix C-t` to open the sidebar.
 
 ## See who needs you
-
-A Claude Code member stops to ask a question in another window: its squad turns orange, `n` selects it and `Enter`
-jumps there.
 
 Orange means waiting for you, green means done and not seen yet, purple `zzz 1` means a prompt cache expired, gray `·1`
 counts idle members. A bell rings in windows you are not looking at. More: [docs/sidebar.md](docs/sidebar.md).
@@ -43,10 +41,10 @@ The whole flow, from the sidebar to a report and back:
 | 1 | Agent: claude, codex, agy or grok |
 | 2 | Portrait: one of 8 classes, picked from the session id; up to 8 members of one squad do not repeat |
 | 3 | Class icon and name: the Claude Code session name (`/rename` or its automatic title), else the tmux window name; other agents show their kind |
-| 4 | Status: busy, idle, wait (waiting for you), done |
-| 5 | HP: context left (`620k/1M`), blinking under 10% |
+| 4 | Status: busy, idle, wait (waiting for you), done, zzz (idle, prompt cache expired) |
+| 5 | HP: context left (`620k/1M`), blinking at 10% or less |
 | 6 | Model |
-| 7 | SP: prompt cache minutes left (`59/60m`); at 0 the next message re-reads the whole context |
+| 7 | SP (Claude Code only): prompt cache minutes left (`59/60m`); at 0 the next message re-reads the whole context |
 | 8 | Subagents running |
 
 The frame blinks when the member turns done or waiting, and a big HP or SP change shows next to the number for a few seconds.
@@ -68,7 +66,7 @@ keys. To go to a member's pane, open its report and press `Enter` there.
 <img src="docs/img/select.svg" width="780" alt="The Party Select screen of `prefix R`: a pixel-art Party Select banner on top; on the left numbered member cards with portraits, a waiting codex crew member as one indented row under auth-refactor; on the right the time and directory, the crew state, the ASKED text and a cut-off preview of the working member under the cursor; key hints on the last row">
 
 The report page opens in the same pane. In a wide pane the left column shows how long it took, how long it has waited,
-what you asked, the files it edited and where it runs; the right side is the report with its Markdown styled.
+what you asked, the files it edited and where it runs; the right side is the report with its Markdown formatted.
 
 <img src="docs/img/report.svg" width="780" alt="The quest report page of a finished member in a wide pane: Quest Complete banner and a framed left column with portrait, name, TOOK, WAITED, ASKED, FILES and WHERE; on the right a Markdown report with headings, a list, a small table and a code block">
 
@@ -95,22 +93,19 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE --wait --after TIM
 python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 ```
 
-`--summon` opens the member in a background tmux session `crew-<your pane number>` (no sidebar); `--window` opens a new window in your session, `--here` a split beside you.
-The sidebar lists crew under its lead. A crew member that finishes does not ring, light the squad or count as unread, but one that waits for input does.
-`--read-only` makes codex read-only through its sandbox; claude, grok and agy use their own plan mode, which the agent enforces itself. agy in plan mode still asks permission to run shell commands; the HUD then shows it as waiting.
-`--report-text` exits 7 when the member waits for input. `--dismiss` closes a member you summoned once it is not working or waiting and you read its report.
-A summoned member cannot summon: it reports to its lead, and the lead brings someone in.
+`--summon` opens the member in a background tmux session, listed under its lead in the sidebar.
+`--read-only` makes codex read-only through its sandbox; claude, grok and agy use their own plan mode, which the agent enforces itself.
 
 The path is the TPM install path; with a clone, use your checkout. With the bundled `party-crew` skill you can tell Claude Code "ask codex for a second opinion on this diff".
-Exit codes, saved rounds, the skill and the sandbox setting: [docs/crew.md](docs/crew.md).
+Placement options, exit codes, dismissing, saved rounds, the skill and the sandbox setting: [docs/crew.md](docs/crew.md).
 
 ## Footprint
 
 All numbers are from one machine (AMD Ryzen 9 5900XT, Linux, Python 3.14); how to measure on yours and the full
 tables: [docs/performance.md](docs/performance.md).
 
-- Sidebars in real use: 0.22 % of one core and 32.4 MB of memory on average, all sidebar processes together, over
-  300 s with 24 windows (24 sidebar panes), 4 agents and normal window switching (`bench/live.sh`). A sidebar out of
+- Sidebars in real use: 0.18 % of one core and 23.2 MB of memory on average, all sidebar processes together, over
+  60 s with 18 sidebar panes, 2 agents and normal use (`bench/live.sh`). A sidebar out of
   view stops its process after 2 s, so only the windows you look at run one.
 - One sidebar frame on fake data: collecting 0.056 ms and drawing 0.294 ms for 5 agents (`bench/bench.py`, median of
   200 runs).
@@ -126,7 +121,7 @@ tables: [docs/performance.md](docs/performance.md).
 - A [Nerd Font](https://www.nerdfonts.com/) in your terminal.
 - For portraits and crests: [Ghostty](https://ghostty.org/) or [Kitty](https://sw.kovidgoyal.net/kitty/)
   (Kitty graphics protocol with Unicode placeholders). Other terminals get the text version automatically.
-- Optional: `jq`, for the Claude Code HP integration below. Without it the integration does nothing and HP stays estimated.
+- Optional: `jq`, for the Claude Code HP integration below. Without it HP stays estimated.
 
 ## Install
 
@@ -154,7 +149,7 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 # ... the rest of your statusline, using "$input" ...
 ```
 
-This needs `jq`. Without it, HP is estimated from the transcript. Details: [docs/integrations.md](docs/integrations.md).
+This needs `jq`. Without the statusline setup or `jq`, HP is estimated from the transcript. Details: [docs/integrations.md](docs/integrations.md).
 
 ### Terminal tips
 
@@ -174,7 +169,7 @@ This needs `jq`. Without it, HP is estimated from the transcript. Details: [docs
 |---|---|
 | `prefix C-t` | Open / close the sidebar in every window |
 | `prefix a` | Jump to the next member that is waiting or done, without opening anything |
-| `prefix R` | Party Select screen: leads across squads (waiting, done, working, idle, sleep) with a preview; pick one to open its report, `h` in the report comes back |
+| `prefix R` | Party Select: preview a member or open its report |
 | `j` / `k` | Next / previous member in this squad (stops at the ends) |
 | `J` / `K` | Next / previous squad |
 | `1`–`9` | Member N of this squad |

@@ -5,25 +5,23 @@
 party-hud 是 tmux 外掛：把同時在跑的 coding agent 畫成一隊 RPG 隊員，讓你一眼看出誰在等你、誰做完了、context 還剩多少，
 並能直接跳過去或讀它的報告。只讀、純本機、佔用很低。
 
-每個 tmux session 是一個**小隊**，裡面跑的 agent（Claude Code、Codex、agy、Grok）是**隊員**：
-有頭像、狀態、**HP**（剩餘 context）和 **SP**（prompt cache 還剩幾分鐘）。
+每個 tmux session 是一個**小隊**，裡面跑的 agent 是**隊員**：作者的主力是 Claude Code，它有 **HP**（剩餘 context）和 **SP**（prompt cache 還剩幾分鐘）。
+Codex 有 HP；agy、Grok 看得到忙不忙，也讀得到最後的回覆。
 
 <img src="docs/img/window.svg" width="780" alt="一個 tmux window：左邊是 party-hud 側欄，有四個小隊和四張隊員卡（一位等待中的 codex crew 縮排在它的 lead 底下）；右邊的 pane 有 agent 在工作">
 
 - **一眼看出誰在等你**：有隊員等你回應，小隊變橘色；有隊員做完，小隊變綠色。
   `n` 選到下一個等你的隊員，`Enter` 切到它的 pane。
-- **知道什麼時候該 compact**：HP 和 SP 顯示每個隊員剩下的 context 和快取時間。
-- **看它做了什麼**：`prefix R` 開選隊畫面，每位隊員都有預覽；選一位就打開它最後交出的報告，Markdown 會上色。
-  這部分和側欄一樣只讀。
+- **知道什麼時候該 compact**：HP 顯示剩下的 context；SP 顯示快取時間（只有 Claude Code 有）。
+- **看它做了什麼**：`prefix R` 開選隊畫面，列出各小隊的 lead 與等待中的 crew，畫面夠寬時右邊預覽游標所在成員的報告；
+  `Enter` 開報告，Markdown 會上色。這部分只讀。
 - **選用：agent 找 agent 幫忙**：附加功能。一個 agent 可以開另一個 agent、送出問題，再讀回答案。
 - **省資源、只在本機**：只用 Python 標準函式庫，沒有常駐服務，不連網，不會寫入 agent 的檔案。
   實測數字見[佔用](#佔用)。
 
-用 TPM 安裝（`set -g @plugin 'mangow314/party-hud'`），再按 `prefix C-t`。細節見[安裝](#安裝)。
+[安裝](#安裝)好後，按 `prefix C-t` 打開側欄。
 
 ## 一眼看出誰在等你
-
-另一個 window 的 Claude Code 停下來問你問題：它的小隊變成橘色，按 `n` 選到它，再按 `Enter` 跳過去。
 
 橘色是在等你，綠色是做完但你還沒看，紫色 `zzz 1` 是有人的快取過期，灰色 `·1` 是閒置的隊員數。
 你沒在看的 window 會響鈴。更多細節見 [docs/sidebar.md](docs/sidebar.md)。
@@ -41,10 +39,10 @@ party-hud 是 tmux 外掛：把同時在跑的 coding agent 畫成一隊 RPG 隊
 | 1 | agent 種類：claude、codex、agy 或 grok |
 | 2 | 頭像：8 種職業之一，依 session id 分配，同一小隊 8 人以內不重複 |
 | 3 | 職業圖示和名稱：Claude Code 的 session 名稱（`/rename` 或自動標題），沒有才用 tmux window 名稱；其他 agent 顯示種類 |
-| 4 | 狀態：busy（工作中）、idle（閒置）、wait（等你）、done（做完） |
-| 5 | HP：剩餘的 context（`620k/1M`），剩不到 10% 會閃爍 |
+| 4 | 狀態：busy（工作中）、idle（閒置）、wait（等你）、done（做完）、zzz（快取過期的閒置成員） |
+| 5 | HP：剩餘的 context（`620k/1M`），10% 以下會閃爍 |
 | 6 | 模型 |
-| 7 | SP：prompt cache 還剩幾分鐘（`59/60m`）；歸零後，下一句話會重新讀入整段 context |
+| 7 | SP（只有 Claude Code 有）：prompt cache 還剩幾分鐘（`59/60m`）；歸零後，下一句話會重新讀入整段 context |
 | 8 | 正在跑的子代理數量 |
 
 隊員變成做完或等你時，卡片框線會閃爍；HP 或 SP 大幅變化時，數字旁會短暫顯示變化量。
@@ -89,22 +87,19 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE --wait --after TIM
 python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 ```
 
-`--summon` 預設把隊員開在背景的 tmux session `crew-<你的 pane 數字>`（不開側欄）；`--window` 改開在你的 session 的新 window，`--here` 改成在你旁邊分割。
-側欄把 crew 列在召喚它的隊員底下。crew 做完不會響鈴、不點亮小隊、也不算未讀；等輸入時照常提醒。
-`--read-only` 讓 codex 用沙箱唯讀；claude、grok、agy 用自己的 plan 模式，由 agent 自己擋改檔。agy 在 plan 模式跑 shell 指令仍會問權限，這時 HUD 顯示它是 waiting。
-`--report-text` 在隊員等輸入時回退出碼 7。`--dismiss` 關掉你召喚的隊員，條件是它沒在工作也沒在等輸入，而且你已讀過它的報告。
-被召喚的隊員不能再召喚：需要協助時回報給召喚它的 lead，由 lead 找人。
+`--summon` 預設把隊員開在背景的 tmux session，側欄把它列在召喚它的隊員底下。
+`--read-only` 讓 codex 用沙箱唯讀；claude、grok、agy 用自己的 plan 模式，由 agent 自己擋改檔。
 
 路徑是 TPM 的安裝位置；用 clone 的話換成你的 checkout 路徑。裝好內附的 `party-crew` skill 後，可以直接跟 Claude Code 說「找 codex 給這個 diff 第二意見」。
-退出碼、問答紀錄、skill 安裝和沙箱設定見 [docs/crew.md](docs/crew.md)（英文）。
+位置選項、退出碼、解散條件、問答紀錄、skill 安裝和沙箱設定見 [docs/crew.md](docs/crew.md)（英文）。
 
 ## 佔用
 
 以下數字都在同一台機器上量測（AMD Ryzen 9 5900XT、Linux、Python 3.14）；完整表格和在你的機器上怎麼量，見
 [docs/performance.md](docs/performance.md)（英文）。
 
-- 實際使用時的側欄：全部側欄行程合計平均佔一顆核心的 0.22 %、記憶體平均 32.4 MB；條件是 24 個 window（24 個側欄 pane）、
-  4 位 agent、正常切換 window，量 300 秒（`bench/live.sh`）。看不到的側欄 2 秒後就結束行程，所以只有你在看的 window 會跑。
+- 實際使用時的側欄：全部側欄行程合計平均佔一顆核心的 0.18 %、記憶體平均 23.2 MB；條件是 18 個側欄 pane、
+  2 位 agent、一般使用，量 60 秒（`bench/live.sh`）。看不到的側欄 2 秒後就結束行程，所以只有你在看的 window 會跑。
 - 用假資料畫一格側欄：5 位 agent 時收集 0.056 ms、繪製 0.294 ms（`bench/bench.py`，200 次的中位數）。
 - 選隊畫面與報告頁：在 179 × 47 的 pty 裡、5 位 lead、開圖片，跑 27.5 秒的固定按鍵腳本，佔一顆核心的 0.84 %
   （`bench/use.py`，3 次的中位數）。
@@ -116,7 +111,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 - tmux 的 `PATH` 上的 `python3` 要是 3.10 以上。macOS 內建的是 3.9：請裝 Homebrew 的版本，並確認 tmux 先找到它，否則按鍵沒有反應。
 - 終端機要用 [Nerd Font](https://www.nerdfonts.com/)。
 - 頭像和隊徽要用 [Ghostty](https://ghostty.org/) 或 [Kitty](https://sw.kovidgoyal.net/kitty/)，因為要支援 Kitty 圖片協定的 Unicode 佔位字元。其他終端機會自動改用文字版。
-- 選用：`jq`，給下面的 Claude Code HP 整合用。沒有 jq 時整合不會動作，HP 維持推估值。
+- 選用：`jq`，給下面的 Claude Code HP 整合用。沒有 jq 時 HP 維持推估值。
 
 ## 安裝
 
@@ -142,7 +137,7 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 # …你原本的 statusline，改用 "$input"…
 ```
 
-這需要 `jq`。沒有設定的話，HP 會從 transcript 推估。細節見 [docs/integrations.md](docs/integrations.md)。
+這需要 `jq`。沒設定 statusline 整合或沒裝 `jq` 時，HP 會從 transcript 推估。細節見 [docs/integrations.md](docs/integrations.md)。
 
 ### 終端機小提示
 
@@ -161,7 +156,7 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 |---|---|
 | `prefix C-t` | 在所有 window 開／關側欄 |
 | `prefix a` | 不開任何東西，直接跳到下一個等你或做完的隊員 |
-| `prefix R` | 任務回報：選隊畫面，跨小隊列出 lead（waiting、done、working、idle、sleep）並預覽，選一位開它的報告，報告頁按 `h` 回來 |
+| `prefix R` | 選隊畫面：預覽隊員或開它的報告 |
 | `j`／`k` | 同一隊的下一位／上一位（到頭尾就停） |
 | `J`／`K` | 下一隊／上一隊 |
 | `1`–`9` | 這隊第 N 位 |

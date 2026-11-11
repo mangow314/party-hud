@@ -150,7 +150,8 @@ It samples every 5 s. The first six lines are the sidebars: panes, agents, runni
 their CPU together (100% = one core), average and peak memory (RSS), and how many snapshots were collected.
 The next three lines (`running other screens`, `other screens CPU`, `other screens RSS`) are the same measures for
 `--select`, `--menu`, `--report` and `--report-text --wait` processes; they are 0 when none is open.
-These lines are new, so there are no earlier numbers.
+Measured 2026-11-11 on the same machine, 60 s with some interaction: on average 0.6 of these processes ran at a
+time, CPU 0.20 %, RSS average 13.3 MB. There are no earlier numbers.
 
 Do not leave another copy of `party.py` running while you measure (for example the plugin directory and a development
 checkout at once): copies do not share a snapshot, so collections come out too high. `bench/live.sh` prints a warning
@@ -158,8 +159,18 @@ when it sees more than one `party.py` path.
 
 ### Now: only visible sidebars run
 
-AMD Ryzen 9 5900XT, Linux, tmux 3.8, Python 3.14, 24 windows (24 sidebar panes), 4 agents, 300 s,
-normal use with window switching:
+Measured 2026-11-11 (`bash bench/live.sh 60`): AMD Ryzen 9 5900XT, Linux, tmux 3.8, Python 3.14, 18 sidebar panes,
+2 agents, 60 s, Party Select screen open, normal use:
+
+| measure | result |
+|---|---|
+| running sidebar processes | average 1.1, max 2 |
+| CPU, all sidebar processes | 0.18 % of one core |
+| memory (RSS), all sidebars | average 23.2 MB, peak 42.3 MB |
+| snapshots collected | 31 in 60 s |
+
+Earlier measurement, 24 windows (24 sidebar panes), 4 agents, 300 s, normal use with window switching (many windows
+visited, so higher peaks):
 
 | measure | result |
 |---|---|
