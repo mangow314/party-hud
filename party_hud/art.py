@@ -43,15 +43,16 @@ BANNER_ID, BANNER_MAX_COLS = 0x7A0300, 80
 BANNER_RATIOS = (4, 5, 6, 7, 8)
 BIG_PORTRAIT_ID = 0x7A0400
 LABEL_ID = 0x7A0500
+SELECT_BANNER_ID = 0x7A0600
 LABEL_COLS = {"took": 8, "waited": 10, "asked": 9, "files": 9, "work": 8, "where": 9, "running": 11}  # one row tall
 SPLIT_MIN_WIDTH, SPLIT_SIDE_COLS, SPLIT_GAP, SPLIT_PORTRAIT_COLS = 100, 30, 2, 24
-SPLIT_BIG_PORTRAIT_COLS = 20
+SPLIT_BIG_PORTRAIT_COLS = 14
 PORTRAIT_PX = (192, 216)
 ART_MIN_WIDTH = 30
 
 
 def load_art():
-    """art/ -> {image id: (PNG bytes, cols, rows)}; banners have only (PNG bytes,), or None if any of the 51 images is missing."""
+    """art/ -> {image id: (PNG bytes, cols, rows)}; banners have only (PNG bytes,), or None if any of the 56 images is missing."""
     art = {}
     for base, prefix, names, cells in (
         (PORTRAIT_ID, "portrait", PORTRAIT_FILES, PORTRAIT_CELLS),
@@ -60,6 +61,7 @@ def load_art():
         (BANNER_ID, "banner", BANNER_FILES, ()),
         (LABEL_ID, "label", list(LABEL_COLS), ()),
         *((BANNER_ID + 4 * (k - 4), "banner", [f"{n}-{k}x1" for n in BANNER_FILES], ()) for k in BANNER_RATIOS[1:]),
+        (SELECT_BANNER_ID, "banner", ["select"] + [f"select-{k}x1" for k in BANNER_RATIOS[1:]], ()),
     ):
         for k, name in enumerate(names):
             try:
@@ -98,6 +100,10 @@ def banner_id(status, has_report, has_summons, k=4):
     else:
         name = "quest-complete" if status == "done" else "report"
     return BANNER_ID + 4 * (k - 4) + BANNER_FILES.index(name)
+
+
+def select_banner_id(k=4):
+    return SELECT_BANNER_ID + k - 4
 
 
 def label_id(name):

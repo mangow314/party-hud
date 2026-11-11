@@ -238,5 +238,17 @@
   "steps": 4,
   "sampler": "euler",
   "cfg": 1.0
+ },
+ {
+  "name": "banner-select",
+  "text": "no text, no letters, no logo, no watermark, no border, wide panoramic banner. Pixel art: four tiny pixel heroes standing side by side in front of a large wooden notice board covered with pinned parchment notes on the right third of the frame, inside a guild hall with cloth banners hanging from wooden beams, warm lantern light, dim stone hall fading into shadow on the left, depth of field.",
+  "seed": 23,
+  "width": 1280,
+  "height": 320,
+  "batch": 1,
+  "pick": 0,
+  "steps": 4,
+  "sampler": "euler",
+  "cfg": 1.0
  }
 ]

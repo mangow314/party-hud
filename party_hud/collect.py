@@ -11,6 +11,7 @@ import time
 import unicodedata
 import zlib
 from datetime import datetime, timedelta
+from itertools import takewhile
 from typing import Any
 
 from .common import (
@@ -51,7 +52,12 @@ TMUX_FIELDS = [
 ]
 # wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
-READ_ONLY_CMDS = {"codex": "codex -s read-only"}
+READ_ONLY_CMDS = {
+    "claude": "claude --permission-mode plan",
+    "codex": "codex -s read-only",
+    "agy": "agy --mode plan",
+    "grok": "grok --permission-mode plan",
+}
 
 
 HAVE_PROC = os.path.isdir("/proc/self")
@@ -258,13 +264,10 @@ def paired_rollout(cwd, start, peer_starts, root=CODEX_SESSIONS):
 
 def codex_usage(path):
     """Last token_count in a rollout -> (context tokens used, context window), or None."""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 256 * 1024))
-            lines = f.read().splitlines()
-    except OSError:
-        return None
+    return _codex_usage(_tail_lines(path))
+
+
+def _codex_usage(lines):
     for raw in reversed(lines):
         if b'"token_count"' not in raw:
             continue
@@ -274,6 +277,24 @@ def codex_usage(path):
         except (ValueError, KeyError, TypeError):
             continue
     return None
+
+
+def codex_turn_done(path):
+    """True when the newest turn event in a rollout's tail is task_complete (no task_started after it)."""
+    return _turn_done(_tail_lines(path))
+
+
+def _turn_done(lines):
+    for raw in reversed(lines):
+        if b'"task_complete"' not in raw and b'"task_started"' not in raw:
+            continue
+        try:
+            kind = json.loads(raw)["payload"].get("type")
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if kind in ("task_complete", "task_started"):
+            return kind == "task_complete"
+    return False
 
 
 def _tail_lines(path, size=256 * 1024):
@@ -423,7 +444,7 @@ ACTIVE_WINDOW = 4.0  # screen changed this recently = working (spinners and time
 
 
 def screen_changed(panes, now):
-    """{pane: screen changed recently}, for agents without a status file.
+    """{pane: screen changed recently; (changed, True) while an agy permission menu is shown}, for agents without a status file.
     Only a CRC32 of each screen is kept, in activity.json."""
     path = os.path.join(PARTY_DIR, "activity.json")
     try:
@@ -433,11 +454,15 @@ def screen_changed(panes, now):
         seen = {}
     out, keep = {}, {}
     for pid in panes:
-        digest = zlib.crc32(tmux("capture-pane", "-p", "-t", pid).encode())
+        screen = tmux("capture-pane", "-p", "-t", pid)
+        digest = zlib.crc32(screen.encode())
         old = seen.get(pid)
         changed_at = now if not old or old[0] != digest else old[1]
         keep[pid] = [digest, changed_at]
         out[pid] = bool(old) and now - changed_at < ACTIVE_WINDOW
+        tail = [ln for ln in screen.splitlines() if ln.strip()][-15:]
+        if any("Requesting permission for:" in ln for ln in tail):
+            out[pid] = (out[pid], True)
     try:
         os.makedirs(PARTY_DIR, exist_ok=True)
         tmp = f"{path}.{os.getpid()}"
@@ -606,22 +631,46 @@ def _epoch(ts):
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
 
 
-def _records_backwards(f, limit=None):
-    """Parsed (record, content) of a JSONL transcript from the end, at most limit bytes of it when given; lines that are not records are skipped."""
-    pos, carry = f.seek(0, os.SEEK_END), b""
-    floor = max(0, pos - limit) if limit else 0
-    while pos > floor:
-        start = max(floor, pos - 256 * 1024)
+def _lines_backwards(f, lo, hi, complete=False):
+    """(offset, raw line) of a JSONL file in [lo, hi), newest first; a line cut by lo is skipped.
+    With complete, hi may fall inside a line: the rest of that line is read too."""
+    carry = b""
+    if complete:
+        f.seek(hi)
+        while chunk := f.read(64 * 1024):
+            end = chunk.find(b"\n")
+            carry += chunk if end < 0 else chunk[:end]
+            if end >= 0:
+                break
+    pos = hi
+    while pos > lo:
+        start = max(lo, pos - 256 * 1024)
         f.seek(start)
         lines = (f.read(pos - start) + carry).split(b"\n")
+        offsets, off = [], start
+        for line in lines:
+            offsets.append(off)
+            off += len(line) + 1
         carry = lines.pop(0) if start else b""
+        if start:
+            offsets.pop(0)
         pos = start
-        for raw in reversed(lines):
-            try:
-                rec = json.loads(raw)
-                yield rec, rec["message"]["content"]
-            except (ValueError, KeyError, TypeError):
-                continue
+        yield from reversed(list(zip(offsets, lines)))
+
+
+def _parsed(lines):
+    for _, raw in lines:
+        try:
+            rec = json.loads(raw)
+            yield rec, rec["message"]["content"]
+        except (ValueError, KeyError, TypeError):
+            continue
+
+
+def _records_backwards(f, limit=None):
+    """Parsed (record, content) of a JSONL transcript from the end, at most limit bytes of it when given; lines that are not records are skipped."""
+    end = f.seek(0, os.SEEK_END)
+    return _parsed(_lines_backwards(f, max(0, end - limit) if limit else 0, end))
 
 
 def claude_report(path, sidechain=False):
@@ -778,17 +827,88 @@ def claude_task(path):
 
 
 LIVE_TAIL = 1024 * 1024  # a working turn can be long: look further back than the 256 KB of a finished one
+LONG_TURN_LOOKBACK = 32 * 1024 * 1024
+LONG_TURN_PREV = 2 * 1024 * 1024
+LONG_TURN_CACHE = 16
+HEAD_BYTES = 512
+USER_LINE = re.compile(rb'"type"\s*:\s*"user"')
+_long_turns: dict[str, tuple[int, int, int, int, bytes, Any]] = {}
+
+
+def _search_long_turn(f, lo):
+    """Look for the prompt of the turn that began before byte lo -> ((start, ask, prev), anchor offset), or (None, 0) when not within LONG_TURN_LOOKBACK.
+    Only lines that contain a user type are parsed, and _claude_turn decides which one is."""
+    floor = max(0, lo - LONG_TURN_LOOKBACK)
+    lines = _lines_backwards(f, floor, lo, complete=True)
+    at = [0]
+
+    def prompts():
+        for off, raw in lines:
+            if USER_LINE.search(raw):
+                try:
+                    rec = json.loads(raw)
+                    content = rec["message"]["content"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+                at[0] = off
+                yield rec, content
+
+    task, start, _, _ = _claude_turn(prompts(), live=True)
+    if not task["ask"]:
+        return None, 0
+    stop = at[0] - LONG_TURN_PREV
+    prev = _claude_answer(_parsed(takewhile(lambda ol: ol[0] >= stop, lines)))
+    return (start, task["ask"], prev), at[0]
+
+
+def _complete_end(f, end):
+    pos = end
+    while pos > 0:
+        start = max(0, pos - 4096)
+        f.seek(start)
+        cut = f.read(pos - start).rfind(b"\n")
+        if cut >= 0:
+            return start + cut + 1
+        pos = start
+    return 0
+
+
+def _long_turn(f, path, end, lo):
+    """(start, ask, prev) of a turn that began before the LIVE_TAIL window, or None.
+    Remembered per log: the entry says no later prompt exists before byte `seen`, so it holds only while the window parses every line from `seen` on (a line cut by the window start is dropped, so lo < seen), the file only grew (same inode) and the line at the anchor is unchanged."""
+    st = os.fstat(f.fileno())
+    hit = _long_turns.pop(path, None)
+    if hit:
+        dev, ino, seen, anchor, head, found = hit
+        f.seek(anchor)
+        if (dev, ino) == (st.st_dev, st.st_ino) and lo < seen <= end and f.read(len(head)) == head:
+            _long_turns[path] = (dev, ino, _complete_end(f, end), anchor, head, found)
+            return found
+    found, anchor = _search_long_turn(f, lo)
+    f.seek(anchor)
+    head = f.read(HEAD_BYTES)
+    _long_turns[path] = (st.st_dev, st.st_ino, _complete_end(f, end), anchor, head, found)
+    if len(_long_turns) > LONG_TURN_CACHE:
+        del _long_turns[next(iter(_long_turns))]
+    return found
 
 
 def claude_live(path):
     """The turn in progress -> {"live": True, "task", "start", "end": None, "tool", "said", "prev"}, or None when the log is unreadable.
     start = when the prompt was typed (epoch seconds), tool = newest tool call as one row, said = newest assistant text, prev = claude_report-shaped answer of the turn before (or None).
-    Only the last LIVE_TAIL bytes are read, so a turn longer than that has no ask, start or prev."""
+    A turn that began before the last LIVE_TAIL bytes is searched for up to LONG_TURN_LOOKBACK further back (remembered per log): ask and start come from there, but files, cmds and agents count only the tail, and prev is None when its answer is not within LONG_TURN_PREV before the prompt. Past the lookback the turn has no ask, start or prev."""
     try:
         with open(path, "rb") as f:
-            records = _records_backwards(f, LIVE_TAIL)
+            end = f.seek(0, os.SEEK_END)
+            lo = max(0, end - LIVE_TAIL)
+            records = _parsed(_lines_backwards(f, lo, end))
             task, start, tool, said = _claude_turn(records, live=True)
             prev = _claude_answer(records) if task["ask"] else None
+            if not task["ask"] and lo:
+                found = _long_turn(f, path, end, lo)
+                if found:
+                    start, ask, prev = found
+                    task = {**task, "ask": ask}
             if not task["ask"]:
                 task = {}
     except OSError:
@@ -993,11 +1113,13 @@ def wait_channel(pane):
     return "party-" + pane.lstrip("%")
 
 
-def report_text(pane, wait=False, timeout=600, after=None):
-    """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent.
+def report_text(pane, wait=False, timeout=600, after=None, read=None):
+    """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent, 7 waiting for input.
     While the member works, sleep in tmux wait-for (woken by the collector) for up to 2 s, then read the snapshot again.
     With after (epoch seconds, from --ask) it also keeps waiting until the snapshot is newer than after + SNAP_MAX_AGE
-    and, for Claude and Codex, the report ends after after."""
+    and, for Claude and Codex, the report ends after after. If the member is waiting for input by then and has no such
+    report (agy and grok never have one), it returns 7 at once with the last 20 non-empty lines of its screen.
+    A dict passed as read gets read["round"] = the round of the member data the returned report came from."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
     if not math.isfinite(timeout):
@@ -1021,10 +1143,19 @@ def report_text(pane, wait=False, timeout=600, after=None):
         if rep and rep.get("live"):
             rep = rep["prev"]
         if after is not None and not busy:
-            busy = snap["t"] <= after + SNAP_MAX_AGE or (
-                a["kind"] in ("claude", "codex") and (not rep or not rep["end"] or rep["end"] <= after)
-            )
+            stale = snap["t"] <= after + SNAP_MAX_AGE
+            timed = a["kind"] in ("claude", "codex")
+            unreported = timed and (not rep or not rep["end"] or rep["end"] <= after)
+            if a["status"] == "waiting" and not stale and (unreported or not timed):
+                rc, screen, err = tmux_run(["capture-pane", "-p", "-t", pane])
+                if rc != 0:
+                    return 2, "", err or f"cannot read the screen of {pane}\n"
+                tail = [ln for ln in screen.splitlines() if ln.strip()][-20:]
+                return 7, "".join(ln + "\n" for ln in tail), f"{pane} is waiting for input\n"
+            busy = stale or unreported
         if not busy:
+            if rep and read is not None:
+                read["round"] = a["round"]
             return 0, (str(rep["text"]) + "\n") if rep else "", "" if rep else f"no report for {pane}\n"
         left = deadline - time.monotonic()
         if left <= 0:
@@ -1063,6 +1194,22 @@ def group_under_leads(agents, owners):
     return out
 
 
+def adopt_crews(towns, owners):
+    """Move members whose @party_lead is a live agent of another squad into the lead's squad; drop squads that empties."""
+    home = {a["pane"]: t for t in towns.values() for a in t["agents"]}
+    emptied = []
+    for t in towns.values():
+        for a in list(t["agents"]):
+            dest = home.get(owners.get(a["pane"], ("", False, ""))[0])
+            if dest is not None and dest is not t:
+                t["agents"].remove(a)
+                dest["agents"].append(a)
+                emptied.append(t["name"])
+    for name in emptied:
+        if name in towns and not towns[name]["agents"]:
+            del towns[name]
+
+
 def collect(fixture=None, now=None):
     """Snapshot: {"t": time, "towns": squads with their members, "panes": {pane_id: window info}}."""
     now = now or time.time()
@@ -1080,20 +1227,24 @@ def collect(fixture=None, now=None):
         children = data.get("children", {})
         get_cmdlines = lambda pid: children.get(pid, [])
         get_changed = lambda ps, now: {p: p in data.get("screen_changed", []) for p in ps}
-        get_codex = lambda pane, pid, cwd: tuple(data["codex"][pane]) if pane in data.get("codex", {}) else None
+        get_codex = lambda pane, pid, cwd: (
+            tuple(data["codex"][pane]) if pane in data.get("codex", {}) else None,
+            pane in data.get("codex_done", []),
+        )
     else:
         get_cmdlines, get_changed = child_cmdlines, screen_changed
 
         def get_codex(pane, pid, cwd):
             path = codex_rollout(pid, cwd, panes)
-            return codex_usage(path) if path else None
+            lines = _tail_lines(path) if path else []
+            return _codex_usage(lines), _turn_done(lines)
 
         panes = read_tmux()
         pane_pids = {p["pane_id"]: p["pane_pid"] for p in panes}
         sessions = {k: v for k, v in read_claude_sessions().items() if v["pid"] in proc_tree(pane_pids.get(k))}
         get_party, get_cache, get_transcript, get_summons = read_party, cache_info, transcript_for, summons_for
 
-    towns, meta, here, owners = {}, {}, None, {}
+    towns, meta, here, owners, finished = {}, {}, None, {}, set()
     for p in panes:
         attached = p["session_attached"] not in ("", "0")
         if here is None and attached and p["window_active"] == "1":
@@ -1123,7 +1274,7 @@ def collect(fixture=None, now=None):
         # workmux keeps 🤖 until Claude's notification hook fires, seconds after Claude itself reports waiting
         if status == "working" and native == "waiting":
             status = "waiting"
-        info = get_party(p["pane_id"])
+        info = get_party(p["pane_id"]) if kind == "claude" else {}
         sid = sess.get("sid") or info.get("session_id") or ""
         if info.get("session_id") and sid and info["session_id"] != sid:
             info = {}
@@ -1146,7 +1297,9 @@ def collect(fixture=None, now=None):
         if fresh and hp is None:
             hp = 100
         if kind == "codex":
-            usage = get_codex(p["pane_id"], p.get("pane_pid", ""), p.get("pane_current_path", ""))
+            usage, done = get_codex(p["pane_id"], p.get("pane_pid", ""), p.get("pane_current_path", ""))
+            if done:
+                finished.add(p["pane_id"])
             if usage and usage[1]:
                 hp = max(0, round(100 - usage[0] * 100 / usage[1]))
                 left, hp_max = max(0, usage[1] - usage[0]), usage[1]
@@ -1168,6 +1321,7 @@ def collect(fixture=None, now=None):
                 "transcript": tx,
                 "cwd": p.get("pane_current_path", ""),
                 "focus": p["window_active"] == "1" and p["pane_active"] == "1" and t["attached"],
+                "round": 0,
             }
         )
 
@@ -1175,8 +1329,16 @@ def collect(fixture=None, now=None):
     if others:
         changed = get_changed([a["pane"] for a in others], now)
         for a in others:
-            if changed.get(a["pane"]):
+            c = changed.get(a["pane"])
+            if isinstance(c, tuple):
+                c, menu = c
+                if menu and a["kind"] == "agy":
+                    a["status"] = "waiting"
+                    continue
+            # codex redraws its screen after task_complete; that is not a new turn
+            if c and a["pane"] not in finished:
                 a["status"] = "working"
+    adopt_crews(towns, owners)
     for t in towns.values():
         t["agents"].sort(key=lambda a: STATUS_ORDER.index(a["status"]))
         t["agents"] = group_under_leads(t["agents"], owners)
@@ -1190,22 +1352,50 @@ SNAP_MAX_AGE = 2.0
 SNAP_VERSION = int(max(os.stat(p).st_mtime for p in glob.glob(os.path.join(ROOT, "party_hud", "*.py"))))
 
 
-def mark_unseen(towns, state):
-    """Mark members "done" when they stop working while you are not looking, until you look.
-    state = last round's {pane: {"status", "unseen"}}. Changes towns in place; returns the new state."""
+def read_seen():
+    """{pane: round} of the last report read, from seen.json (written by mark_seen); empty when missing or broken."""
+    try:
+        with open(os.path.join(PARTY_DIR, "seen.json")) as f:
+            seen = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return seen if isinstance(seen, dict) else {}
+
+
+def mark_unseen(towns, state, seen=None):
+    """Mark members "done" when they stop working while you are not looking, until you look or read the report of that round.
+    state = last round's {pane: {"status", "unseen", "round"}} (older files lack round: 0); seen = {pane: round}. Changes towns in place; returns the new state."""
+    seen = seen or {}
     out = {}
     for t in towns:
         for a in t["agents"]:
             prev = state.get(a["pane"], {})
             raw = a["status"]
             settled = raw in ("idle", "sleep")
-            unseen = settled and not a["focus"] and (prev.get("unseen") or prev.get("status") == "working")
-            out[a["pane"]] = {"status": raw, "unseen": unseen}
+            rnd = prev.get("round", 0) + (settled and prev.get("status") == "working")
+            unseen = (
+                settled
+                and not a["focus"]
+                and (prev.get("unseen") or prev.get("status") == "working")
+                and seen.get(a["pane"], -1) < rnd
+            )
+            out[a["pane"]] = {"status": raw, "unseen": unseen, "round": rnd}
+            a["round"] = rnd
             if unseen:
                 a["status"] = "done"
         order = {a["pane"]: STATUS_ORDER.index(a["status"]) for a in t["agents"]}
         t["agents"].sort(key=lambda a: order[a.get("lead") or a["pane"]])
+    for pane, prev in state.items():
+        out.setdefault(pane, {"status": "", "unseen": False, "round": prev.get("round", 0)})
     return out
+
+
+def alerts(a, status):
+    return a["status"] == status and (status == "waiting" or not a.get("lead"))
+
+
+def unread_count(statuses, quiet):
+    return sum(s == "waiting" or (s == "done" and p not in quiet) for p, s in statuses.items())
 
 
 def bell_panes(prev, agents, panes):
@@ -1213,10 +1403,13 @@ def bell_panes(prev, agents, panes):
     prev None = first round, no bells. The collector rings for all: hidden windows have no sidebar process."""
     cur = {a["pane"]: a["status"] for a in agents}
     alert = ("waiting", "done")
+    quiet = {a["pane"] for a in agents if a["status"] == "done" and a.get("lead")}
     if prev is None:
         return [], cur
     ring = [
-        p for p, s in cur.items() if s in alert and prev.get(p) not in alert and not panes.get(p, {}).get("visible")
+        p
+        for p, s in cur.items()
+        if s in alert and prev.get(p) not in alert and not panes.get(p, {}).get("visible") and p not in quiet
     ]
     return ring, cur
 
@@ -1274,7 +1467,7 @@ def get_snapshot(fixture=None):
                 state = json.load(f)
         except (OSError, ValueError):
             state = {}
-        state = mark_unseen(new["towns"], state)
+        state = mark_unseen(new["towns"], state, read_seen())
         with open(f"{seen_path}.{os.getpid()}", "w") as f:
             json.dump(state, f)
         os.replace(f"{seen_path}.{os.getpid()}", seen_path)
@@ -1286,7 +1479,9 @@ def get_snapshot(fixture=None):
                 prev = json.load(f)
         except (OSError, ValueError):
             prev = None
-        ring, cur = bell_panes(prev, [a for t in new["towns"] for a in t["agents"]], new["panes"])
+        members = [a for t in new["towns"] for a in t["agents"]]
+        quiet = {a["pane"] for a in members if a.get("lead")}
+        ring, cur = bell_panes(prev, members, new["panes"])
         for pane in ring:
             try:  # O_NOCTTY: do not make this tty our controlling terminal
                 fd_tty = os.open(new["panes"][pane]["tty"], os.O_WRONLY | os.O_NOCTTY)
@@ -1298,11 +1493,11 @@ def get_snapshot(fixture=None):
                 pass
         for pane in status_changed(prev, cur):
             tmux("wait-for", "-S", wait_channel(pane))
-        unread = sum(s in ("waiting", "done") for s in cur.values())
-        if prev is None or unread != sum(s in ("waiting", "done") for s in prev.values()):
+        unread = unread_count(cur, quiet)
+        if unread != (prev or {}).get("reports"):
             tmux("set-option", "-g", "@party_reports", str(unread))
         with open(f"{bell_path}.{os.getpid()}", "w") as f:
-            json.dump(cur, f)
+            json.dump({**cur, "reports": unread}, f)
         os.replace(f"{bell_path}.{os.getpid()}", bell_path)
         # collection count (read by tests and bench/live.sh), kept outside the snapshot for the same reason
         seq_path = os.path.join(PARTY_DIR, "collections")

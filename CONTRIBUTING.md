@@ -7,7 +7,8 @@ Issues and pull requests are welcome, especially support for more agents and ter
 - No dependencies: `party.py` and `party_hud/` use only the Python standard library (3.10+). Pillow and NumPy are fine in
   `scripts/art/` and `scripts/screenshot.py`, which users never run.
 - Performance matters: the sidebar runs all day. If a change adds work per frame or per collection, include
-  `bench/bench.py` numbers before and after.
+  `bench/bench.py` numbers before and after (the table covers the sidebar, select screen and report page; the "in use"
+  part plays a fixed key script and gives CPU as a share of one core, target under 1 %).
 - Read only. party-hud never writes to an agent's files and never sends data anywhere.
 - No comments by default; see [Comments](#comments).
 
@@ -69,4 +70,11 @@ New art must be CC0-compatible and must not imitate a specific existing game, ch
 python3 scripts/screenshot.py scripts/screenshot.json docs/img
 ```
 
-Writes `docs/img/window.svg`, `card.svg`, `report.svg`, `report-working.svg` and `help.svg` from the fixture (no tmux needed; the report pages come from the `reports` key).
+Writes `docs/img/window.svg`, `card.svg`, `report.svg`, `report-working.svg`, `help.svg`, `banners.svg` and `select.svg` from the fixture (no tmux needed; the report pages come from the `reports` key).
+
+```bash
+python3 scripts/demo.py scripts/demo.json docs/img/demo.svg
+```
+
+Writes `docs/img/demo.svg`, the animated demo, from `scripts/demo.json` (a fixture plus a script of steps; the same drawing code, CSS animation inside the SVG, no external tools).
+In dark mode the images have a transparent background and in light mode a black one; the SVG's own `prefers-color-scheme` rule decides.

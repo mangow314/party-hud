@@ -3,19 +3,20 @@
 ## Squad colors
 
 - Orange: someone is waiting for you.
-- Green: someone finished and you have not looked yet.
+- Green: someone finished and you have not looked yet. A member with a lead (crew) finishing does not turn the squad green; waiting still does.
 - Purple `zzz 1`: a member's prompt cache has expired.
 - Gray `·1`: counts idle members.
-- A bell rings in windows you are not looking at.
+- A bell rings in windows you are not looking at. It does not ring for a finished crew member; waiting still rings. Once the lead is gone, crew count again.
 
-Each tmux session is a squad with its own crest. The squad you are looking at has a gold background and bar,
+Each tmux session is a squad with its own crest. Crew members (`crew-<N>` sessions) are listed in their lead's squad; a `crew-<N>` session never gets a sidebar. While the lead's pane exists it has no squad of its own; once the lead is gone it shows as an ordinary squad. The squad you are looking at has a gold background and bar,
 and a pin marks the session the sidebar itself is in.
 
 ## HP and SP
 
 - HP is the context window left (`620k/1M`), blinking under 10%.
 - SP counts down the prompt cache (`59/60m`); after it hits 0 the next message re-reads the whole context.
-  A member with no cache data shows no SP row.
+  Only Claude Code members have an SP row; Codex, agy and Grok members, and a Claude Code member with no cache data,
+  show none.
 - The bars are colored underlines. tmux forwards the underline color only when the terminal declares `usstyle`;
   `party.tmux` adds it for Ghostty and Kitty. For another terminal, add it yourself:
   `set -as terminal-features ',<TERM>:usstyle'`.
@@ -39,6 +40,4 @@ and a pin marks the session the sidebar itself is in.
 ## Images and passthrough
 
 Images leave tmux through `allow-passthrough`, which party-hud turns on for its own sidebar and report panes only: a program in any
-other pane still cannot send escape sequences straight to your terminal. The `prefix P` popup is not a pane, so it shows images only if
-you set `allow-passthrough on` globally in `~/.tmux.conf` yourself (then every pane can bypass tmux); otherwise it uses
-the text version. Details: [architecture.md](architecture.md#images).
+other pane still cannot send escape sequences straight to your terminal. Details: [architecture.md](architecture.md#images).

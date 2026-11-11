@@ -16,9 +16,8 @@ opt() { # opt <name> <default>
 # Colored underlines are the HP / SP bars. tmux only forwards underline color when the terminal declares usstyle.
 tmux set -as terminal-features ',xterm-ghostty:usstyle,xterm-kitty:usstyle'
 
-tmux bind-key "$(opt @party_key_popup P)" display-popup -E -w 36 -h 85% -T " Party " "$party --watch"
 tmux bind-key "$(opt @party_key_toggle C-t)" run-shell -b "$party --toggle"
 tmux bind-key "$(opt @party_key_next a)" run-shell -b "$party --next"
-tmux bind-key "$(opt @party_key_report R)" run-shell -b "$party --open-report"
+tmux bind-key "$(opt @party_key_report R)" run-shell -b "$party --menu"
 # After dragging a pane border: if it was a sidebar, remember the width and apply it to every sidebar
 tmux bind-key -n MouseDragEnd1Border run-shell -b "$party --remember-width"

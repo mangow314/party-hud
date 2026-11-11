@@ -3,17 +3,20 @@
 
 Modes (started by tmux; see party.tmux):
   party.py                    print once
-  party.py --watch            popup (prefix P)
   party.py --sidebar          sidebar UI, one per window
   party.py --toggle           open / close the sidebars in every window (prefix C-t)
   party.py --next             jump to the next waiting / done member (prefix a)
-  party.py --open-report [PANE]  open the report pane, floating on tmux 3.8+ else a split (prefix R, sidebar r)
+  party.py --menu             open the select screen in a pane (prefix R); --select runs it here
+  party.py --open-report [PANE]  open the report pane, floating on tmux 3.8+ else a split (sidebar r)
   party.py --report [PANE]    what runs in the report pane: the last report of waiting / done members
   party.py --report-text PANE [--wait [--after EPOCH]] [--timeout SEC]  print a member's last report; --wait until it stops working;
                               --after EPOCH (the time --ask printed) also waits for a report that ends after it
   party.py --ask PANE TEXT    type TEXT into an agent's pane and press Enter (several lines: one paste); print the time sent
-  party.py --summon AGENT [--cwd DIR] [--window] [--read-only] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id;
-                              --read-only starts it in an enforced read-only sandbox (codex only)
+  party.py --summon AGENT [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id (exit 6 if you are crew yourself: report to your lead);
+                              default: a window in your detached session crew-<your pane number> (no sidebar);
+                              --window: a new window in your session; --here: a split beside you;
+                              --read-only: codex runs in a read-only sandbox; claude, grok and agy start in their own plan mode (agy still asks permission to run shell commands; the HUD then shows it as waiting)
+  party.py --dismiss PANE     close a member you summoned, once it is not working or waiting and its report was read (exit 6 otherwise)
   party.py --ensure WID       add a sidebar to a window (hook)
   party.py --reflow WID       put the sidebar width back (hook)
   party.py --nudge [WID]      restart a stopped sidebar and redraw now (hook)
@@ -23,6 +26,8 @@ Modes (started by tmux; see party.tmux):
 
 --ask, --report-text and --summon save each round under ${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/ (kept 14 days);
 exit 5 means the action was done but the save failed (details on stderr).
+--report-text exits 7 when the member is waiting for input and has no reply newer than --after: stdout is the last
+20 non-empty lines of its screen. A failed save is then reported on stderr and the exit stays 7.
 
 Design: docs/architecture.md. What is read for each agent: docs/integrations.md.
 """
@@ -40,7 +45,9 @@ from party_hud.sidebars import (
     crew_asked,
     crew_replied,
     crew_summoned,
+    dismiss,
     ensure,
+    mark_seen,
     nudge,
     open_report_pane,
     reflow,
@@ -49,7 +56,7 @@ from party_hud.sidebars import (
     tidy,
     toggle,
 )
-from party_hud.ui import jump_next, run_report, run_ui
+from party_hud.ui import jump_next, open_select, run_menu, run_report, run_ui
 
 
 def ask(pane, text):
@@ -65,12 +72,11 @@ def ask(pane, text):
     if agent is None:
         return 4, "", f"not a known agent: {pane}\n"
     sent = time.time()
-    r = subprocess.run(
-        ["tmux", "load-buffer", "-b", "party-ask", "-"], input=text, capture_output=True, text=True, check=False
-    )
+    buf = f"party-ask-{pane[1:]}"
+    r = subprocess.run(["tmux", "load-buffer", "-b", buf, "-"], input=text, capture_output=True, text=True, check=False)
     rc, err = r.returncode, r.stderr
     if rc == 0:
-        rc, _, err = tmux_run(["paste-buffer", "-p", "-d", "-b", "party-ask", "-t", pane])
+        rc, _, err = tmux_run(["paste-buffer", "-p", "-d", "-b", buf, "-t", pane])
     if rc == 0:
         rc, _, err = tmux_run(["send-keys", "-t", pane, "Enter"])
     if rc != 0:
@@ -83,9 +89,10 @@ def main():
     ap = argparse.ArgumentParser(
         description="tmux party sidebar: sessions as squads, agents as members",
         epilog="--ask, --report-text and --summon save each round under ${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/ "
-        "(kept 14 days). Exit code 5: the action was done but saving failed (see stderr).",
+        "(kept 14 days). Exit code 5: the action was done but saving failed (see stderr). "
+        "--report-text exit code 7: the member is waiting for input, stdout is the end of its screen. "
+        "Exit code 6: the rules do not allow it (stderr says which one).",
     )
-    ap.add_argument("--watch", action="store_true")
     ap.add_argument("--sidebar", action="store_true")
     ap.add_argument("--toggle", action="store_true")
     ap.add_argument("--ensure", metavar="WINDOW_ID")
@@ -94,15 +101,25 @@ def main():
     ap.add_argument("--nudge", nargs="?", const="", metavar="WINDOW_ID")
     ap.add_argument("--tidy", action="store_true")
     ap.add_argument("--next", action="store_true")
+    ap.add_argument("--menu", action="store_true")
+    ap.add_argument("--select", action="store_true")
     ap.add_argument("--open-report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report-text", metavar="PANE")
     ap.add_argument("--ask", nargs=2, metavar=("PANE", "TEXT"))
+    ap.add_argument("--dismiss", metavar="PANE")
     ap.add_argument("--after", type=float, metavar="EPOCH")
-    ap.add_argument("--summon", metavar="AGENT")
+    ap.add_argument(
+        "--summon", metavar="AGENT", help="open a pane running AGENT (exit 6 if the caller is itself a summoned member)"
+    )
     ap.add_argument("--cwd", metavar="DIR")
     ap.add_argument("--window", action="store_true")
-    ap.add_argument("--read-only", action="store_true", help="with --summon: enforced read-only sandbox, codex only")
+    ap.add_argument("--here", action="store_true")
+    ap.add_argument(
+        "--read-only",
+        action="store_true",
+        help="with --summon: codex runs in an enforced read-only sandbox; claude, grok and agy start in their own plan mode (the agent refuses edits itself, the system does not enforce it; agy still asks permission to run shell commands, and the HUD then shows it as waiting)",
+    )
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--timeout", type=float)
     ap.add_argument("--width", type=int)
@@ -122,18 +139,31 @@ def main():
         tidy()
     elif args.next:
         jump_next()
+    elif args.menu:
+        open_select()
+    elif args.select:
+        run_menu(args.fixture)
     elif args.open_report is not None:
         open_report_pane("", args.open_report)
     elif args.report is not None:
         run_report(args.report or None, args.fixture)
     elif args.report_text is not None:
+        read = {}
         rc, out, err = report_text(
-            args.report_text, args.wait, 600 if args.timeout is None else args.timeout, args.after
+            args.report_text, args.wait, 600 if args.timeout is None else args.timeout, args.after, read
         )
-        if rc == 0 and out:
+        record_seen = rc == 0 and bool(out) and "round" in read
+        if rc in (0, 7) and out:
             save_err = crew_replied(args.report_text, out, rc)
-            rc, err = (5, err + save_err) if save_err else (rc, err)
+            if save_err:
+                rc, err = (5 if rc == 0 else rc), err + save_err
         sys.stdout.write(out)
+        sys.stdout.flush()
+        if record_seen:
+            try:
+                mark_seen(args.report_text, read["round"])
+            except OSError as e:
+                err += f"could not record the report as read: {e}\n"
         sys.stderr.write(err)
         sys.exit(rc)
     elif args.ask is not None:
@@ -141,9 +171,14 @@ def main():
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)
+    elif args.dismiss is not None:
+        rc, out, err = dismiss(args.dismiss)
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+        sys.exit(rc)
     elif args.summon is not None:
         rc, out, err = summon(
-            args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout, args.read_only
+            args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout, args.read_only, args.here
         )
         if rc == 0:
             save_err = crew_summoned(out.strip())
@@ -151,8 +186,8 @@ def main():
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)
-    elif args.watch or args.sidebar:
-        run_ui("sidebar" if args.sidebar else "popup", args.fixture)
+    elif args.sidebar:
+        run_ui(args.fixture)
     else:
         towns = get_snapshot(args.fixture)["towns"]
         print(render(towns, args.width or shutil.get_terminal_size().columns - 1))

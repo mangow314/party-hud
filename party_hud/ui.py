@@ -1,7 +1,8 @@
-"""The interactive loop of the sidebar and the popup: input, cursor, redraws."""
+"""The interactive loop of the sidebar: input, cursor, redraws."""
 
 import contextlib
 import fcntl
+import math
 import os
 import re
 import select
@@ -27,13 +28,15 @@ from .art import (
     banner_id,
     big_portrait_id,
     crest_ids,
+    image_row,
     kitty_delete,
     kitty_image,
     label_id,
     load_art,
     portrait_id,
+    select_banner_id,
 )
-from .collect import get_snapshot, report_for
+from .collect import alerts, get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
 from .render import (
     help_overlay,
@@ -41,13 +44,28 @@ from .render import (
     is_final,
     render,
     render_no_report,
+    render_select,
     report_frames,
     report_parts,
     report_view,
+    select_cards,
+    select_layout,
+    select_roster,
+    select_widths,
+    set_tick,
     side_labels,
     sp_points,
 )
-from .sidebars import EXE, install_hooks, mark_sidebar, open_report_pane
+from .sidebars import (
+    EXE,
+    REPORT_BANNER_MAX_ROWS,
+    SELECT_BANNER_MAX_ROWS,
+    fit_report_pane,
+    install_hooks,
+    mark_seen,
+    mark_sidebar,
+    open_report_pane,
+)
 
 
 def follow_here(st, towns, here):
@@ -132,8 +150,8 @@ def help_toggle(key, shown):
     return key == "?", key == "?"
 
 
-def handle_key(key, st, towns, mode):
-    """Apply a key to the cursor st. Returns None, "jump", "jump_squad", "close", "back" or "hide"."""
+def handle_key(key, st, towns):
+    """Apply a key to the cursor st. Returns None, "jump", "jump_squad", "back" or "hide"."""
     agents = [a for t in towns for a in t["agents"]]
     panes = [a["pane"] for a in agents]
     home = current_squad(st, towns)
@@ -153,7 +171,7 @@ def handle_key(key, st, towns, mode):
         st["focus"] = "party"
     elif key == "v":
         st["peek"] = not st["peek"]
-    elif key == "r" and mode == "sidebar" and st["sel"]:
+    elif key == "r" and st["sel"]:
         return "report"
     elif key in ("\r", "\n"):
         if st["focus"] == "squad" and towns:
@@ -161,8 +179,6 @@ def handle_key(key, st, towns, mode):
         if st["sel"]:
             return "jump"
     elif key in ("q", "\x1b", "P"):
-        if mode == "popup":
-            return "close"
         return "hide" if key == "q" else "back"
     return None
 
@@ -171,9 +187,9 @@ def next_waiting(agents, cur):
     """Next pane after cur (wrapping) that is waiting, else done; cur if only it matches; else None."""
     panes = [a["pane"] for a in agents]
     i = panes.index(cur) if cur in panes else -1
-    status = {a["pane"]: a["status"] for a in agents}
+    by_pane = {a["pane"]: a for a in agents}
     order = panes[i + 1 :] + panes[: i + 1]
-    return next((p for s in ("waiting", "done") for p in order if status[p] == s), None)
+    return next((p for s in ("waiting", "done") for p in order if alerts(by_pane[p], s)), None)
 
 
 def current_squad(st, towns):
@@ -215,11 +231,221 @@ def jump_next():
     tmux("switch-client", "-t", target)
 
 
+def open_select():
+    if not any(t["agents"] for t in get_snapshot()["towns"]):
+        tmux("display-message", "no party members")
+        return
+    open_report_pane("", "", select=True)
+
+
+def select_key(key, panes, sel):
+    """(new sel, action) for a key on the select screen: action is None, "open" or "close". panes: pane ids in roster order."""
+    if key in ("q", "\x1b"):
+        return sel, "close"
+    if sel not in panes:
+        return sel, None
+    i = panes.index(sel)
+    if key in ("j", "k"):
+        return panes[max(0, min(len(panes) - 1, i + (1 if key == "j" else -1)))], None
+    if len(key) == 1 and key in "123456789":
+        return (panes[int(key) - 1], "open") if int(key) <= len(panes) else (sel, None)
+    if key in ("\r", "\n", "l"):
+        return sel, "open"
+    return sel, None
+
+
+def select_reread(cached, a, mono):
+    """True when the preview data cached as (key, report, peek, read at) must be read again: another member or round, or a member that works (its turn moves on)."""
+    return cached[0] != (a["pane"], a["round"]) or (a["status"] == "working" and mono - cached[3] >= LIVE_REFRESH)
+
+
+TICK_MARGIN = 0.01
+ROUND_HALF = 0.5  # fmt_took rounds, so a shown time turns at timestamp + n + 0.5
+SECOND = (0.0, 1.0)
+SNAP_AGE = 0.9
+SNAP_MAX = 1.9
+
+
+def time_anchor(ts, now):
+    """(anchor, period) of a time shown through fmt_took: seconds and minutes turn at ts + n + ROUND_HALF every second; from 3600 s on only the minute shows, and it turns at ts + 60 n - ROUND_HALF."""
+    return (ts - ROUND_HALF, 60.0) if round(now - ts) >= 3600 else (ts + ROUND_HALF, 1.0)
+
+
+def tick_wait(now, anchors):
+    """Seconds from now until the first on-screen time value changes: an anchor is (time, period) and its value changes at time + n * period; the caller picks it (SECOND for the spinner, time_anchor for a time shown through fmt_took). Infinite without anchors (nothing on screen moves with time)."""
+    return min(p - (now - a) % p for a, p in anchors) + TICK_MARGIN if anchors else math.inf
+
+
+def select_wait(fetched, mono, tick_at, wall):
+    """Seconds until the select screen is next due: tick_at (wall-clock time a shown time value changes) when that wake still comes within SNAP_MAX of the last snapshot read (it reads then), else one second after the read."""
+    tick_in = tick_at - wall
+    return max(0.0, tick_in if mono + tick_in - fetched <= SNAP_MAX else fetched + 1 - mono)
+
+
+def select_image_plan(cards, art):
+    """(id, cols, rows) of the small portrait of each card on screen. Empty without art."""
+    return [(portrait_id(a), *art[portrait_id(a)][1:]) for a in cards] if art else []
+
+
+def select_title_plan(art, banner, show):
+    """(id, cols, rows) of the select screen's banner: only with art and when the title block is drawn."""
+    return [(select_banner_id(banner[2]), *banner[:2])] if art and banner and show else []
+
+
+def select_images_due(plan, sent):
+    """The images of plan not yet sent at these cells: sent maps id -> (cols, rows)."""
+    return [img for img in plan if sent.get(img[0]) != img[1:]]
+
+
+def select_images_out(plan, art, sent, shared):
+    """Kitty sequences for the images of plan not sent yet; an id this pane never sent is deleted first so an older image under it is gone (not the shared ones, the sidebars show those)."""
+    due = select_images_due(plan, sent)
+    return "".join(kitty_delete(i) for i, _, _ in due if i not in sent and i not in shared) + "".join(
+        kitty_image(i, art[i][0], c, r) for i, c, r in due
+    )
+
+
+def run_select(sel=None, fixture=None):
+    """Select screen (prefix R): the member cards beside the report preview of the member under the cursor. Returns the pane whose report to open, or None when it was closed.
+    With images, the banner and the portraits of the cards on screen are sent once the window size has settled; the banner is deleted on exit."""
+    art = (
+        load_art()
+        if not fixture
+        and art_supported(
+            tmux("show-option", "-gqv", "@party_art").strip(),
+            tmux("display-message", "-p", "#{client_termname}").strip(),
+        )
+        else None
+    )
+    sent: dict[int, tuple[int, int]] = {}
+    queue: list = []
+    last_winch, shown = 0.0, 0.0
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    sys.stdout.write("\033[?1049h\033[?25l" + MOUSE_ON)
+    wake_r, wake_w = os.pipe()
+    os.set_blocking(wake_r, False)
+    os.set_blocking(wake_w, False)
+    signal.signal(signal.SIGWINCH, lambda *_: None)
+    signal.set_wakeup_fd(wake_w)
+    last_frame, helping, cached = None, False, (None, None, [], 0.0)
+    towns, fetched = [], -1.0
+    try:
+        tty.setcbreak(fd)
+        while True:
+            if time.monotonic() - fetched >= SNAP_AGE:
+                towns, fetched = get_snapshot(fixture)["towns"], time.monotonic()
+            roster = select_roster(towns)
+            queue = [(squad, a) for squad, a, _ in roster]
+            shared = {portrait_id(a) for _, a in queue}
+            panes = [a["pane"] for _, a, _ in roster]
+            if sel not in panes:
+                sel = panes[0] if panes else None
+            size = os.get_terminal_size(sys.stdout.fileno())
+            width, now = size.columns - 1, time.time()
+            set_tick(int(now))
+            plan, title, report = [], None, None
+            head_rows = 1
+            banner = select_banner(width, size.lines, cell_ratio()) if art else None
+            if banner:
+                head_rows = banner[1]
+                pad = " " * banner[3]
+                title = [pad + image_row(select_banner_id(banner[2]), r, banner[0]) for r in range(head_rows)]
+                plan = select_title_plan(art, banner, select_layout(size.lines, head_rows)[2])
+            body_h = select_layout(size.lines, head_rows)[3]
+            lw, preview = select_widths(width)
+            if sel and preview:
+                a = next(m for _, m, _ in roster if m["pane"] == sel)
+                if select_reread(cached, a, time.monotonic()):
+                    report = None if fixture else report_for(a)
+                    peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
+                    cached = ((a["pane"], a["round"]), report, peek, time.monotonic())
+                report = cached[1]
+            plan += select_image_plan(select_cards(roster, sel, lw, body_h, art is not None), art)
+            rows = render_select(roster, towns, sel, width, size.lines, report, now, title, art is not None, cached[2])
+            if helping:
+                rows = help_overlay(rows, "select", width, size.lines)
+            frame = "\n".join(rows)
+            anchors = (
+                [SECOND]
+                if any(m["status"] == "working" or (m["hp"] is not None and m["hp"] <= 10) for _, m, _ in roster)
+                else []
+            )
+            if sel and preview and report:
+                cur = next(m for _, m, _ in roster if m["pane"] == sel)
+                if cur["status"] == "waiting" and report.get("end"):
+                    anchors.append(time_anchor(report["end"], now))
+                elif cur["status"] == "working" and report.get("live") and report.get("start"):
+                    anchors.append(time_anchor(report["start"], now))
+            tick_at = now + tick_wait(now, anchors)
+            if frame != last_frame:
+                sys.stdout.write("\033[H" + "\033[K\n".join(frame.split("\n")) + "\033[K\033[J")
+                sys.stdout.flush()
+                last_frame = frame
+                shown = time.monotonic()
+            due = bool(art) and bool(select_images_due(plan, sent))
+            if art and due and time.monotonic() - last_winch >= RESIZE_SETTLE:
+                time.sleep(max(0.0, report_art_wait(sent or None) - (time.monotonic() - shown)))
+                sys.stdout.write(select_images_out(plan, art, sent, shared))
+                sys.stdout.flush()
+                sent.update((i, (c, r)) for i, c, r in plan)
+                due = False
+            while True:
+                wait = select_wait(fetched, time.monotonic(), tick_at, time.time())
+                if due:
+                    wait = min(wait, max(0.0, last_winch + RESIZE_SETTLE - time.monotonic()))
+                ready = select.select([fd, wake_r], [], [], wait)[0]
+                if wake_r in ready:
+                    with contextlib.suppress(BlockingIOError):
+                        os.read(wake_r, 1024)
+                    last_winch = time.monotonic()
+                    last_frame = None
+                if fd in ready or not ready or last_frame is None:
+                    break
+            if fd not in ready:
+                continue
+            data = os.read(fd, 1024)
+            if not data:
+                return None
+            for kind, key in parse_input(data.decode(errors="ignore")):
+                if kind != "key":
+                    continue
+                helping, eaten = help_toggle(key, helping)
+                if eaten:
+                    continue
+                sel, action = select_key(key, panes, sel)
+                if action == "open":
+                    return sel
+                if action == "close":
+                    return None
+    finally:
+        signal.set_wakeup_fd(-1)
+        signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+        os.close(wake_r)
+        os.close(wake_w)
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write(MOUSE_OFF + "\033[?25h" + report_exit_deletes(sent, queue) + "\033[?1049l")
+        sys.stdout.flush()
+
+
+def run_menu(fixture=None):
+    host = "" if fixture else os.environ.get("TMUX_PANE", "")
+    pane = run_select(None, fixture)
+    while pane:
+        if host:
+            fit_report_pane(host, False)
+        pane = run_report(pane, fixture, back=True)
+        if pane:
+            if host:
+                fit_report_pane(host, True)
+            pane = run_select(pane, fixture)
+
+
 def report_queue(towns, pane=None, window=None):
     """[(squad name, member)] to read: pane (any status) first when given, then waiting, done, working with running subagents,
     then everyone else, members in window before the rest."""
     members = [(t["name"], a) for t in towns for a in t["agents"]]
-    queue = [m for s in ("waiting", "done") for m in members if m[1]["status"] == s]
+    queue = [m for s in ("waiting", "done") for m in members if alerts(m[1], s)]
     queue += [m for m in members if m[1]["status"] == "working" and m[1].get("summons")]
     rest = [m for m in members if m not in queue]
     here = [m for m in rest if window and m[1].get("window") == window]
@@ -243,23 +469,35 @@ def cell_ratio():
     return xpix * lines / (ypix * columns) if xpix and ypix and lines and columns else 0.5
 
 
-BANNER_MAX_ROWS = 10
+def fit_banner(cols, max_rows, ratio):
+    """(cols, rows, k) of a banner in at most cols x max_rows cells: rows follow the width, k is the k:1 image (k = 4..8) closest to the cells' pixel shape, cols cut to the image's width only when more than one column is left over."""
+    rows = max(1, min(max_rows, round(cols * ratio / 4)))
+    a = cols * ratio / rows
+    k = min(BANNER_RATIOS, key=lambda k: (abs(k - a), k))
+    if cols - rows * k / ratio > 1:
+        cols = round(rows * k / ratio)
+    return cols, rows, k
 
 
 def banner_cells(width, ratio):
-    """(cols, rows, k) of the report banner, using the k:1 image (k = 4..8) closest to its pixel shape, at most BANNER_MAX_ROWS tall.
-    Narrow: 4:1, as wide as the text up to BANNER_MAX_COLS, a capped height narrows it. Split: as wide as the right column (up to the placeholder diacritics); flatter than 8:1 narrows it to 8:1."""
+    """(cols, rows, k) of the report banner, using the k:1 image (k = 4..8) closest to its pixel shape, at most REPORT_BANNER_MAX_ROWS tall.
+    Narrow: 4:1, as wide as the text up to BANNER_MAX_COLS, a capped height narrows it. Split: as wide as the right column (up to the placeholder diacritics); a cell shape the images do not fill is cut to the nearest image."""
     if width < SPLIT_MIN_WIDTH:
         cols = min(BANNER_MAX_COLS, max(28, width))
         rows = max(1, round(cols * ratio / 4))
-        if rows > BANNER_MAX_ROWS:
-            rows, cols = BANNER_MAX_ROWS, min(cols, round(BANNER_MAX_ROWS * 4 / ratio))
+        if rows > REPORT_BANNER_MAX_ROWS:
+            rows, cols = REPORT_BANNER_MAX_ROWS, min(cols, round(REPORT_BANNER_MAX_ROWS * 4 / ratio))
         return cols, rows, 4
-    cols = min(len(DIAC), width - SPLIT_SIDE_COLS - SPLIT_GAP)
-    rows = max(1, min(BANNER_MAX_ROWS, round(cols * ratio / 4)))
-    if cols * ratio / rows > BANNER_RATIOS[-1]:
-        cols = round(rows * BANNER_RATIOS[-1] / ratio)
-    return cols, rows, min(BANNER_RATIOS, key=lambda k: abs(cols * ratio / rows - k))
+    return fit_banner(min(len(DIAC), width - SPLIT_SIDE_COLS - SPLIT_GAP), REPORT_BANNER_MAX_ROWS, ratio)
+
+
+def select_banner(width, height, ratio):
+    """(cols, rows, k, left_pad) of the select screen's banner, as wide as the whole screen (up to the placeholder diacritics) and centered; None when it would leave the roster fewer than 8 rows."""
+    cols, rows, k = fit_banner(min(len(DIAC), width), SELECT_BANNER_MAX_ROWS, ratio)
+    layout = select_layout(height, rows)
+    if not layout[2] or layout[3] < 8:
+        return None
+    return cols, rows, k, (width - cols) // 2
 
 
 def portrait_cells(ratio):
@@ -411,16 +649,19 @@ def refresh_live(queue, i):
 
 
 def draw_report(left, right, height, offset, screen=None):
+    """Writes the page and returns the rows written."""
     rows = screen or report_view(left, right, height, offset)[0]
     # no newline after the last row: it would scroll the pane
     sys.stdout.write("\033[H" + "\n".join(row + "\033[K" for row in rows) + "\033[J")
     sys.stdout.flush()
+    return rows
 
 
-def run_report(pane=None, fixture=None):
+def run_report(pane=None, fixture=None, back=False):
     """Report pane (prefix R, or r in the sidebar): draws one member's last report on the alternate screen and scrolls it itself
     (j/k, arrows, wheel, PgUp/PgDn, g/G): in the split page only the right column moves. Rows are overwritten in place, also on a
-    resize (at most one redraw per RESIZE_INTERVAL), and never scroll the pane. Images follow a resize only once it has settled."""
+    resize (at most one redraw per RESIZE_INTERVAL), and never scroll the pane. Images follow a resize only once it has settled.
+    With back (opened from the select screen) h ends it and returns the pane id of the member on screen; every other exit returns None."""
     here = os.environ.get("TMUX_PANE", "")
     window = tmux("display-message", "-p", "-t", here, "#{window_id}").strip() if here and not fixture else ""
     queue = report_queue(get_snapshot(fixture)["towns"], pane, window)
@@ -435,6 +676,7 @@ def run_report(pane=None, fixture=None):
     )
     anim = not fixture and report_anim_enabled(tmux("show-option", "-gqv", "@party_anim"))
     reports, peeks, i = {}, {}, 0
+    read_rounds: dict[str, int] = {}
     fresh, cut, helping = True, False, False
     drawn: dict[int, tuple[int, int]] | None = None
     sent: dict[int, tuple[int, int]] = {}
@@ -448,6 +690,8 @@ def run_report(pane=None, fixture=None):
     signal.signal(signal.SIGWINCH, lambda *_: None)
     signal.set_wakeup_fd(wake_w)
     resized, art_pending, last_winch = False, False, 0.0
+    next_live, tick_at, cause = 0.0, None, ""
+    written: list[str] | None = None
     try:
         tty.setcbreak(fd)
         if not queue:
@@ -461,9 +705,18 @@ def run_report(pane=None, fixture=None):
             if a["pane"] not in reports:
                 reports[a["pane"]] = None if fixture else report_for(a)
             report = reports[a["pane"]]
+            if is_final(report) and read_rounds.get(a["pane"]) != a["round"]:
+                read_rounds[a["pane"]] = a["round"]
+                try:
+                    mark_seen(a["pane"], a["round"])
+                except OSError:
+                    log_error()
             peek = report_peek(peeks, a["pane"], report, fixture, lambda p: capture(p, color=True))
             live = bool(report and report.get("live"))
-            next_live = time.monotonic() + LIVE_REFRESH
+            ticked = cause == "tick"
+            if not ticked:
+                next_live = time.monotonic() + LIVE_REFRESH
+            cause = ""
             last_draw = time.monotonic()
             size = os.get_terminal_size(sys.stdout.fileno())
             width, ratio = size.columns - 1, cell_ratio()
@@ -484,6 +737,7 @@ def run_report(pane=None, fixture=None):
                 size.lines,
                 now,
                 True,
+                "report_back" if back else "report",
             )
             limit = max(0, len(right) - size.lines)
             offset = min(offset, limit)
@@ -496,14 +750,23 @@ def run_report(pane=None, fixture=None):
             frames = report_frames(right, size.lines, tail=0 if left else 2) if fresh and anim else [right]
             fresh = False
             names = side_labels(report, now)
+            anchors = []
+            if live and report.get("start"):
+                anchors.append(time_anchor(report["start"], now))
+            if left and report and report["end"]:
+                anchors.append(time_anchor(report["end"], now))
+            tick_at = now + tick_wait(now, anchors) if anchors else None
             if art and drawn is None:
                 sys.stdout.write(report_first_deletes(a, is_final(report), art, width, banner, big, sent, names))
             if len(frames) > 1:
                 cut = play_report_anim(frames, left, size.lines, fd, wake_r)
+                written = None
                 if cut and os.get_terminal_size(sys.stdout.fileno()) == size:
-                    draw_report(left, right, size.lines, offset, screen)
+                    written = draw_report(left, right, size.lines, offset, screen)
             else:
-                draw_report(left, right, size.lines, offset, screen)
+                rows = screen or report_view(left, right, size.lines, offset)[0]
+                if not (ticked and rows == written):
+                    written = draw_report(left, right, size.lines, offset, rows)
             art_pending = bool(art)
             while True:
                 if art and art_pending and not resized and not cut:
@@ -518,9 +781,9 @@ def run_report(pane=None, fixture=None):
                     sent.update(drawn)
                     art_pending = False
                 timeout = max(0.0, RESIZE_SETTLE - (time.monotonic() - last_winch)) if art_pending else None
-                if live:
-                    due = max(0.0, next_live - time.monotonic())
-                    timeout = due if timeout is None else min(timeout, due)
+                dues = ([next_live - time.monotonic()] if live else []) + ([tick_at - time.time()] if tick_at else [])
+                if dues:
+                    timeout = max(0.0, min(dues) if timeout is None else min(timeout, *dues))
                 ready = select.select([fd, wake_r], [], [], timeout)[0]
                 cut = False
                 if wake_r in ready:
@@ -539,6 +802,10 @@ def run_report(pane=None, fixture=None):
                     reports[a["pane"]] = new
                     if is_final(new):
                         drawn = None
+                    cause = "live"
+                    break
+                if tick_at and time.time() >= tick_at:
+                    cause = "tick"
                     break
                 if art_pending and time.monotonic() - last_winch >= RESIZE_SETTLE:
                     resized = False
@@ -561,11 +828,23 @@ def run_report(pane=None, fixture=None):
                         if helping
                         else None
                     )
-                    draw_report(left, right, size.lines, offset, screen)
+                    written = draw_report(left, right, size.lines, offset, screen)
                 if "n" in keys or "N" in keys:
                     i = report_step("N" if "N" in keys and "n" not in keys else "n", i, len(queue))
                     peeks.pop(queue[i][1]["pane"], None)
                     reports.pop(queue[i][1]["pane"], None)
+                    if not fixture:
+                        cur = next(
+                            (
+                                m
+                                for t in get_snapshot()["towns"]
+                                for m in t["agents"]
+                                if m["pane"] == queue[i][1]["pane"]
+                            ),
+                            None,
+                        )
+                        if cur is not None:
+                            queue[i] = (queue[i][0], cur)
                     drawn = None
                     resized = False
                     fresh = True
@@ -579,6 +858,8 @@ def run_report(pane=None, fixture=None):
                     sent.clear()
                     tmux("switch-client", "-t", a["pane"])
                     return
+                if back and "h" in keys:
+                    return a["pane"]
                 if "q" in keys or "\x1b" in keys:
                     return
                 new = offset
@@ -586,7 +867,7 @@ def run_report(pane=None, fixture=None):
                     new = report_scroll(key, new, limit, size.lines)
                 if new != offset:
                     offset = new
-                    draw_report(left, right, size.lines, offset, screen)
+                    written = draw_report(left, right, size.lines, offset, screen)
     finally:
         signal.set_wakeup_fd(-1)
         signal.signal(signal.SIGWINCH, signal.SIG_DFL)
@@ -601,10 +882,10 @@ HIDE_AFTER = 2.0
 ART_SETTLE = 1.0
 
 
-def run_ui(mode, fixture=None):
-    """Main loop of the popup and the sidebar: read the snapshot every second, redraw only on change."""
+def run_ui(fixture=None):
+    """Main loop of the sidebar: read the snapshot every second, redraw only on change."""
     me = os.environ.get("TMUX_PANE", "")
-    if mode == "sidebar" and not fixture:
+    if not fixture:
         # tmux-resurrect restores neither pane options nor hooks
         mark_sidebar(me)
         install_hooks()
@@ -616,7 +897,6 @@ def run_ui(mode, fixture=None):
     last_frame, row_map, frame_lines = None, [], []
     pending, due = None, False
     last_here = None
-    # a popup is not a pane: tmux 3.8 forwards its passthrough only when allow-passthrough is on globally (the user's tmux.conf)
     art = (
         load_art()
         if not fixture
@@ -624,7 +904,6 @@ def run_ui(mode, fixture=None):
             tmux("show-option", "-gqv", "@party_art").strip(),
             tmux("display-message", "-p", "#{client_termname}").strip(),
         )
-        and (mode == "sidebar" or tmux("show-option", "-gqv", "allow-passthrough").strip() in ("on", "all"))
         else None
     )
     sent, was_visible = set(), False
@@ -663,7 +942,7 @@ def run_ui(mode, fixture=None):
                 st["sel"] = next((a["pane"] for a in agents if a["focus"]), agents[0]["pane"] if agents else None)
             if st["squad"] is not None and st["squad"] >= len(towns):
                 st["squad"] = len(towns) - 1 if towns else None
-            info = snap["panes"].get(me) if mode == "sidebar" else None
+            info = snap["panes"].get(me)
             if info and info["window_panes"] <= 1:
                 tmux("kill-pane", "-t", me)  # under remain-on-exit, exiting alone would leave the pane
                 break
@@ -705,7 +984,7 @@ def run_ui(mode, fixture=None):
             busy = False
             try:
                 if helping:
-                    frame = "\n".join(help_screen(mode, size.columns - 1, size.lines))
+                    frame = "\n".join(help_screen("sidebar", size.columns - 1, size.lines))
                     row_map[:] = []
                 else:
                     shown = towns
@@ -719,7 +998,7 @@ def run_ui(mode, fixture=None):
                         size.columns - 1,
                         st["sel"],
                         lines,
-                        mode,
+                        "sidebar",
                         size.lines,
                         row_map,
                         st["focus"],
@@ -776,16 +1055,14 @@ def run_ui(mode, fixture=None):
                     helping, eaten = help_toggle(value, helping)
                     if eaten:
                         continue
-                    action = handle_key(value, st, towns, mode)
+                    action = handle_key(value, st, towns)
                 if action in ("jump", "jump_squad"):
                     save_cursor(st)  # save first, so the destination sidebar wakes up with the same selection
                 if action == "jump":
                     # a pane id target switches session, window and pane together
                     tmux("switch-client", "-t", st["sel"])
-                    done = mode == "popup"
                 elif action == "jump_squad":
                     tmux("switch-client", "-t", "=" + towns[st["squad"]]["name"])  # =: exact name match
-                    done = mode == "popup"
                 elif action == "report":
                     open_report(st["sel"])
                 elif action == "back":
@@ -793,8 +1070,6 @@ def run_ui(mode, fixture=None):
                 elif action == "hide":
                     # let the server do it: killing panes from here would kill this sidebar first
                     tmux("run-shell", "-b", f"{EXE} --toggle")
-                    done = True
-                elif action == "close":
                     done = True
                 if done:
                     break
@@ -805,7 +1080,7 @@ def run_ui(mode, fixture=None):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         # no newline: the pane keeps this frame (remain-on-exit) and a newline on the last row would scroll it
-        sys.stdout.write(MOUSE_OFF + "\033[?7h\033[?25h" + ("" if mode == "sidebar" else "\n"))
+        sys.stdout.write(MOUSE_OFF + "\033[?7h\033[?25h")
         sys.stdout.flush()
 
 

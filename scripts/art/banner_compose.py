@@ -1,6 +1,6 @@
-"""Turn the raw banner scenes into the four report-page banners.
+"""Turn the raw banner scenes into the five banners: four for the report page and one for the select screen.
 
-The model draws only the scene (hill, camp, tavern map, scout ridge); the title is drawn here on the 320x80 pixel grid, then everything is
+The model draws only the scene (hill, camp, tavern map, scout ridge, guild hall); the title is drawn here on the 320x80 pixel grid, then everything is
 enlarged x3 with nearest neighbour. Output: art/banner-<slug>.png, 960x240 (4:1).
 The flatter art/banner-<slug>-<k>x1.png (k = 5..8, 960 wide, 320/k grid rows tall) cut rows off the scene at a per-scene offset and centre the title.
 Needs Noto Serif Bold (Arch: noto-fonts); used only here, never shipped.
@@ -23,8 +23,9 @@ BANNERS = {
     "waiting": ("Waiting for You", "banner-camp"),
     "report": ("Report", "banner-map"),
     "last-output": ("Last Output", "banner-scout"),
+    "select": ("Party Select", "banner-select"),
 }
-CENTER = {"quest-complete": 40, "waiting": 58, "report": 44, "last-output": 26}
+CENTER = {"quest-complete": 40, "waiting": 58, "report": 44, "last-output": 26, "select": 60}
 
 
 def background(name):

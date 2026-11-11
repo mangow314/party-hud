@@ -83,6 +83,21 @@
    "@workmux_pane_status": "",
    "pane_pid": "",
    "window_id": "@6"
+  },
+  {
+   "session_name": "crew-1",
+   "window_index": "1",
+   "window_name": "review",
+   "window_active": "0",
+   "session_attached": "1",
+   "pane_id": "%7",
+   "pane_active": "1",
+   "pane_current_command": "codex",
+   "pane_current_path": "/work",
+   "@workmux_pane_status": "💬",
+   "@party_lead": "%1",
+   "pane_pid": "",
+   "window_id": "@7"
   }
  ],
  "now": 10000,
@@ -175,6 +190,10 @@
  "codex": {
   "%3": [
    160000,
+   400000
+  ],
+  "%7": [
+   90000,
    400000
   ]
  },

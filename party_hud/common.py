@@ -1,5 +1,6 @@
 """Shared by every module: colors, status names, classes, text width, tmux calls, state files."""
 
+import functools
 import json
 import os
 import subprocess
@@ -67,9 +68,16 @@ CLAUDE_PROJECTS = os.path.expanduser("~/.claude/projects")
 SUMMON_ICON = "\U000f03e9"  # md-paw
 
 
+@functools.lru_cache(maxsize=4096)
+def _char_width(ch):
+    return 0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in "WF" else 1
+
+
 def cw(s):
     """Display width: wide CJK = 2, combining marks (placeholder row/column) = 0, everything else = 1."""
-    return sum(0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in s)
+    if s.isascii():
+        return len(s)
+    return sum(map(_char_width, s))
 
 
 def printable(s):
