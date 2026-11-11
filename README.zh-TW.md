@@ -6,12 +6,12 @@
 每個 tmux session 是一個**小隊**，裡面跑的 agent（Claude Code、Codex、agy、Grok）是**隊員**：
 有頭像、狀態、**HP**（剩餘 context）和 **SP**（prompt cache 還剩幾分鐘）。
 
-<img src="docs/img/window.svg" width="780" alt="一個 tmux window：左邊是 party-hud 側欄，有四個小隊和三張隊員卡；右邊的 pane 有 agent 在工作">
+<img src="docs/img/window.svg" width="780" alt="一個 tmux window：左邊是 party-hud 側欄，有四個小隊和四張隊員卡（一位等待中的 codex crew 縮排在它的 lead 底下）；右邊的 pane 有 agent 在工作">
 
 - **一眼看出誰在等你**：有隊員等你回應，小隊變橘色；有隊員做完，小隊變綠色。
 - **直接跳過去**：`n` 選到下一個等你的隊員，`Enter` 切到它的 pane。
 - **知道什麼時候該 compact**：HP 和 SP 顯示每個隊員剩下的 context 和快取時間。
-- **看它做了什麼**：`prefix R` 開隊員選單，選一位就打開它最後交出的報告，Markdown 會上色。
+- **看它做了什麼**：`prefix R` 開選隊畫面，選一位就打開它最後交出的報告，Markdown 會上色。
 - **agent 找 agent 幫忙**：一個 agent 可以開另一個 agent、送出問題，再讀回答案。
 - **省資源、只在本機**：只用 Python 標準函式庫，沒有常駐服務，不連網，不會寫入 agent 的檔案。
 
@@ -47,7 +47,10 @@
 
 <img src="docs/img/report.svg" width="780" alt="寬 pane 裡已完成隊員的任務回報頁：上方 Quest Complete 橫幅，左邊粗線框有頭像、名稱、TOOK、WAITED、ASKED、FILES、WHERE；右邊是 Markdown 報告，有標題、條列、小表格和程式碼區塊">
 
-`prefix R` 會開一份依小隊分組的隊員選單。同一隊裡的順序是 waiting、done、working、idle、sleep；被別人召喚的隊員縮排在召喚者底下。選一位（快捷鍵先 `1`–`9`，再 `a`–`z`）就開它最後交出的報告；沒有隊員時只顯示一則提示。報告 pane 裡按 `n` 會依序輪到：等你的、做完的、正在工作且有 subagent 在跑的，最後是其餘隊員（同視窗的排前面）。
+`prefix R` 會在 pane 裡開選隊畫面（和報告頁一樣是浮動 pane，不是 tmux 選單，但比較窄：約 80 欄，視窗更窄時跟著縮，橫幅才完整；開報告時 pane 會放大成報告頁的大小，按 `h` 回來再縮回；舊版 tmux 用的 split 沒有這個縮放）。名單每位 lead 一個項目，跨小隊照 waiting、done、working、idle、sleep 排；lead 是一張隊員卡（和側欄同一張）；被召喚的隊員（crew）只在等輸入時列出，是它的 lead 卡片底下縮排的一行，整行用等待色，右邊寫 `waiting for you`；前九項有數字鍵。名單旁邊會顯示游標那位的時間與目錄、它的 lead 底下各 crew 的狀態、你問的話，以及報告預覽，放不下時寫還剩幾行（工作中的成員顯示進行中的內容，而且預覽會跟著更新；還沒有完成報告的成員顯示 pane 最後幾行）。pane 太窄時只畫名單。看預覽不算已讀。`j`/`k` 或方向鍵移動，`1`–`9`、`Enter`、`l` 開報告，`q`/`Esc` 關閉，`?` 看全部按鍵；沒有隊員時只顯示一則提示。要去某位的 pane：先開它的報告，在報告頁再按 `Enter`。從這裡進去的報告頁按 `h` 會回選隊畫面，游標停在剛才看的那位；用其他方式開的報告頁按 `h` 沒有作用。圖片的條件和報告頁相同（沒有圖時是文字標題）；選隊畫面開在 pane 裡，不需要 `allow-passthrough`。報告 pane 裡按 `n` 會依序輪到：等你的、做完的、正在工作且有 subagent 在跑的，最後是其餘隊員（同視窗的排前面）。
+
+<img src="docs/img/select.svg" width="780" alt="`prefix R` 開的選隊畫面：上方是 Party Select 像素風橫幅；左邊是編號的隊員卡（附頭像），一位等待中的 codex crew 縮排成 auth-refactor 底下的一行；右邊是游標所在、工作中的成員的時間與目錄、crew 狀態、ASKED 內容與被截斷的報告預覽；最後一列是按鍵提示">
+
 pane 夠寬時，左欄顯示花了多久、等了你多久、你問了什麼、改了哪些檔、在哪個目錄；右邊是報告本文，Markdown 會上色。
 還在工作的隊員則顯示它現在正在做什麼：
 
@@ -128,7 +131,7 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 | `prefix C-t` | 在所有 window 開／關側欄 |
 | `prefix P` | popup 版 |
 | `prefix a` | 不開任何東西，直接跳到下一個等你或做完的隊員 |
-| `prefix R` | 任務回報：依小隊分組的隊員選單（waiting、done、working、idle、sleep），選一位開它的報告 |
+| `prefix R` | 任務回報：選隊畫面，跨小隊列出 lead（waiting、done、working、idle、sleep）並預覽，選一位開它的報告，報告頁按 `h` 回來 |
 | `j`／`k` | 同一隊的下一位／上一位（到頭尾就停） |
 | `J`／`K` | 下一隊／上一隊 |
 | `1`–`9` | 這隊第 N 位 |

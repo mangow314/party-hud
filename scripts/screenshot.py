@@ -4,8 +4,8 @@ Parses ANSI colors, underline colors, wide characters and Kitty Unicode placehol
   python3 scripts/screenshot.py scripts/screenshot.json docs/img
 
 writes window.svg (the sidebar beside a pane), card.svg (one card with a legend), report.svg and report-working.svg
-(the split report page of a finished and of a working member) and help.svg (the report page in faint text with the key help box over it, as `?` draws it) and
-banners.svg (the four report banners, each with the case that shows it).
+(the split report page of a finished and of a working member) and help.svg (the report page in faint text with the key help box over it, as `?` draws it)
+banners.svg (the four report banners, each with the case that shows it) and select.svg (the select screen of `prefix R`: banner, member cards with a crew under its lead, the report preview of the member under the cursor beside them).
 Text is <text> with one x per character, lines and blocks are <rect>, Kitty images and Nerd Font icons are embedded
 PNGs (data URIs only), so GitHub shows the files without the fonts.
 Needs Pillow and a Nerd Font for the icons: set PARTY_FONT to a TTF path containing {} for the style
@@ -26,10 +26,30 @@ from PIL import Image, ImageDraw, ImageFont
 
 S = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(S, ".."))
-from party_hud.art import DIAC, banner_id, image_row, load_art
+from party_hud.art import DIAC, banner_id, image_row, load_art, select_banner_id
 from party_hud.collect import collect
-from party_hud.render import help_overlay, is_final, render, report_parts, report_view, side_labels
-from party_hud.ui import banner_cells, portrait_cells, report_image_plan
+from party_hud.render import (
+    help_overlay,
+    is_final,
+    render,
+    render_select,
+    report_parts,
+    report_view,
+    select_cards,
+    select_layout,
+    select_roster,
+    select_widths,
+    side_labels,
+)
+from party_hud.sidebars import SELECT_PANE_COLS
+from party_hud.ui import (
+    banner_cells,
+    portrait_cells,
+    report_image_plan,
+    select_banner,
+    select_image_plan,
+    select_title_plan,
+)
 
 loaded = load_art()
 assert loaded, "art/ is incomplete"
@@ -57,7 +77,7 @@ DIAC_INDEX = {d: i for i, d in enumerate(DIAC)}
 ESC = re.compile(r"\x1b\[[0-9;:]*m")
 
 MX, MY, DD = CW // 2, CH // 2, 3
-LIGHT = {"─": "LR", "│": "UD", "╭": "RD", "╮": "LD", "╰": "RU", "╯": "LU", "┼": "LRUD"}
+LIGHT = {"─": "LR", "│": "UD", "╭": "RD", "╮": "LD", "╰": "RU", "╯": "LU", "└": "RU", "┼": "LRUD"}
 HEAVY = {"━": "LR", "┃": "UD", "┏": "RD", "┓": "LD", "┗": "RU", "┛": "LU"}
 
 
@@ -438,6 +458,24 @@ def report_page(fixture, data, entry, helping=False):
     return cv
 
 
+def select_page(fixture, data, entry, sel):
+    """The select screen the way run_select draws it, from a fixture entry for the report of the member under the cursor."""
+    towns = collect(fixture)["towns"]
+    roster = select_roster(towns)
+    cols = SELECT_PANE_COLS
+    width, now = cols - 1, data["now"]
+    banner = select_banner(width, REPORT_ROWS, RATIO)
+    assert banner, "select banner does not fit"
+    title = [" " * banner[3] + image_row(select_banner_id(banner[2]), r, banner[0]) for r in range(banner[1])]
+    layout = select_layout(REPORT_ROWS, banner[1])
+    plan = select_title_plan(art, banner, layout[2])
+    plan += select_image_plan(select_cards(roster, sel, select_widths(width)[0], layout[3], True), art)
+    rows = render_select(roster, towns, sel, width, REPORT_ROWS, entry["report"], now, title, True)
+    cv = Canvas(cols * CW, REPORT_ROWS * CH, {img: (c, r) for img, c, r in plan})
+    cv.paint("\n".join(rows), 0, 0)
+    return cv
+
+
 BANNERS = [
     ("Quest Complete", ("done", True, False), ["The member finished and no subagent is still running."]),
     ("Waiting for You", ("waiting", True, False), ["The member is waiting for your answer or approval."]),
@@ -465,12 +503,13 @@ if __name__ == "__main__":
     with open(fixture) as f:
         data = json.load(f)
     pages = {
-        "window.svg": shot(fixture, "%1", height=27, main=MAIN, status=STATUS),
+        "window.svg": shot(fixture, "%1", height=32, main=MAIN, status=STATUS),
         "card.svg": card(fixture, "%2"),
         "report.svg": report_page(fixture, data, data["reports"]["done"]),
         "report-working.svg": report_page(fixture, data, data["reports"]["working"]),
         "help.svg": report_page(fixture, data, data["reports"]["done"], True),
         "banners.svg": banners(),
+        "select.svg": select_page(fixture, data, data["reports"]["working"], "%1"),
     }
     for name, cv in pages.items():
         path = os.path.join(outdir, name)

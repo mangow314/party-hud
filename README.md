@@ -6,12 +6,12 @@ A tmux plugin that shows your coding agents as an RPG party, in a sidebar.
 Each tmux session is a **squad**, each agent in it (Claude Code, Codex, agy, Grok) is a **member**
 with a portrait, a status, **HP** (context left) and **SP** (prompt cache minutes left).
 
-<img src="docs/img/window.svg" width="780" alt="A tmux window: the party-hud sidebar on the left with four squads and three member cards, an agent working in the pane on the right">
+<img src="docs/img/window.svg" width="780" alt="A tmux window: the party-hud sidebar on the left with four squads and four member cards (a waiting codex crew member indented under its lead), an agent working in the pane on the right">
 
 - **See who needs you**: a squad turns orange when a member waits for you, green when one finished.
 - **Jump there**: `n` selects the next waiting member, `Enter` switches to its pane.
 - **Know when to compact**: HP and SP show context and prompt cache left for each member.
-- **Read what it did**: `prefix R` opens a menu of members; pick one to open its last report with its Markdown styled.
+- **Read what it did**: `prefix R` opens the Party Select screen; pick a member to open its last report with its Markdown styled.
 - **Agents ask agents**: one agent can open another, send it a question and read the answer back.
 - **Cheap and local**: Python standard library only, no daemon, no network; it never writes to the agents' files.
 
@@ -48,7 +48,10 @@ The frame blinks when the member turns done or waiting, and a big HP or SP chang
 
 <img src="docs/img/report.svg" width="780" alt="The quest report page of a finished member in a wide pane: Quest Complete banner and a framed left column with portrait, name, TOOK, WAITED, ASKED, FILES and WHERE; on the right a Markdown report with headings, a list, a small table and a code block">
 
-`prefix R` opens a menu of all members, grouped by squad. In a squad the order is waiting, done, working, idle, sleep, and a member summoned by another sits indented under its lead. Pick one (keys `1`–`9`, then `a`–`z`) to open its last report; with no members it only says so. `n` in the report pane cycles through members: waiting first, then done, then working with subagents running, then the rest (this window's first).
+`prefix R` opens the Party Select screen in a pane (a floating pane like the report page's, not a tmux menu, but narrower: about 80 columns, less in a narrower window, so the banner is whole; it grows to the report page's size when you open a report and shrinks back on `h`; the split used on older tmux has no such resizing). It lists one item per lead, across squads, in the order waiting, done, working, idle, sleep; a lead is a member card, the same one the sidebar draws. A summoned member (crew) is listed only while it waits for input, as one indented row under its lead's card, drawn in the waiting color with `waiting for you` at the right; the first nine items have number keys. Beside the list, the member under the cursor shows the time and directory, the crew states of its lead, what you asked, and a preview of its report, cut with the number of lines left when it does not fit (a working member shows what it is doing now and the preview keeps updating while it works; a member with no finished report yet shows the last lines of its pane). In a pane too narrow for it, only the list is drawn. Previewing does not mark a report as read. Move with `j`/`k` or the arrow keys, open a report with `1`–`9`, `Enter` or `l`, close with `q`/`Esc`, and `?` shows the keys. With no members it only says so. To go to a member's pane, open its report and press `Enter` there. When the report was opened from here, `h` goes back to the select screen with the cursor on the member just shown; in a report opened any other way `h` does nothing. The images follow the same rules as the report page (a text title where there are none), and the screen runs in a pane, so it does not need `allow-passthrough`. `n` in the report pane cycles through members: waiting first, then done, then working with subagents running, then the rest (this window's first).
+
+<img src="docs/img/select.svg" width="780" alt="The Party Select screen of `prefix R`: a pixel-art Party Select banner on top; on the left numbered member cards with portraits, a waiting codex crew member as one indented row under auth-refactor; on the right the time and directory, the crew state, the ASKED text and a cut-off preview of the working member under the cursor; key hints on the last row">
+
 In a wide pane the left column shows how long it took, how long it has waited, what you asked, the files it edited and where it runs; the right
 side is the report with its Markdown styled. A member that is still working shows what it is doing now:
 
@@ -135,7 +138,7 @@ This needs `jq`. Without it, HP is estimated from the transcript. Details: [docs
 | `prefix C-t` | Open / close the sidebar in every window |
 | `prefix P` | Popup version |
 | `prefix a` | Jump to the next member that is waiting or done, without opening anything |
-| `prefix R` | Menu of members by squad (waiting, done, working, idle, sleep); pick one to open its report |
+| `prefix R` | Party Select screen: leads across squads (waiting, done, working, idle, sleep) with a preview; pick one to open its report, `h` in the report comes back |
 | `j` / `k` | Next / previous member in this squad (stops at the ends) |
 | `J` / `K` | Next / previous squad |
 | `1`–`9` | Member N of this squad |

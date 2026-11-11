@@ -113,18 +113,48 @@ def report_host(target):
     return next((r[0] for r in plain if r[1] == "1"), plain[0][0] if plain else target)
 
 
-def open_report_pane(target, pane):
-    """Open the quest report (of pane, or of whoever waits first) as a floating pane on tmux 3.8+, else beside the pane in target's window."""
-    cmd = f"{EXE} --report {shlex.quote(pane)}" if pane else f"{EXE} --report"
+SELECT_PANE_COLS = 82  # run_select draws one column less, so the banner is the 10-row 4:1 image
+
+
+def select_span(win_w):
+    """(width, left column) of the select screen's floating pane: SELECT_PANE_COLS wide at most, centred."""
+    cols = min(SELECT_PANE_COLS, win_w)
+    return cols, (win_w - cols) // 2
+
+
+def open_report_pane(target, pane, select=False):
+    """Open the quest report (of pane, or of whoever waits first) as a floating pane on tmux 3.8+, else beside the pane in target's window. With select, the pane runs the select screen instead, narrower than the report."""
+    cmd = f"{EXE} --select" if select else f"{EXE} --report {shlex.quote(pane)}" if pane else f"{EXE} --report"
     host = report_host(target)
     where = ("-t", host) if host else ()
     if has_new_pane():
-        args = ["new-pane", "-x80%", "-y80%", "-X10%", "-Y10%", "-T", " Report ", *where]
+        size = ("-x80%", "-X10%")
+        if select:
+            win_w = tmux("display-message", "-p", *where, "#{window_width}").strip()
+            if win_w.isdigit() and int(win_w) > 0:
+                cols, left = select_span(int(win_w))
+                size = (f"-x{cols}", f"-X{left}")
+        args = ["new-pane", size[0], "-y80%", size[1], "-Y10%", "-T", " Party " if select else " Report ", *where]
     else:
         args = ["split-window", "-h", "-l", "50%", *where]
     pid = tmux(*args, "-P", "-F", "#{pane_id}", cmd).strip()
     if pid:
         mark_report(pid)
+
+
+def fit_report_pane(pane, select):
+    """Give a floating pane the select screen's size and place (select) or the report page's (80% of the window, from 10% / 10%). Anything else: nothing."""
+    if not has_new_pane():
+        return
+    info = tmux("display-message", "-p", "-t", pane, "#{pane_floating_flag} #{window_width} #{window_height}").split()
+    if len(info) != 3 or info[0] != "1" or not all(v.isdigit() for v in info[1:]):
+        return
+    win_w, win_h = int(info[1]), int(info[2])
+    cols, left = select_span(win_w) if select else (win_w * 8 // 10, win_w // 10)
+    tmux(
+        "resize-pane", "-t", pane, "-x", str(cols), "-y", str(win_h * 8 // 10),
+        ";", "move-pane", "-t", pane, "-X", str(left), "-Y", str(win_h // 10),
+    )  # fmt: skip
 
 
 SUMMON_POLL = 1.0

@@ -263,13 +263,10 @@ def paired_rollout(cwd, start, peer_starts, root=CODEX_SESSIONS):
 
 def codex_usage(path):
     """Last token_count in a rollout -> (context tokens used, context window), or None."""
-    try:
-        with open(path, "rb") as f:
-            f.seek(0, os.SEEK_END)
-            f.seek(max(0, f.tell() - 256 * 1024))
-            lines = f.read().splitlines()
-    except OSError:
-        return None
+    return _codex_usage(_tail_lines(path))
+
+
+def _codex_usage(lines):
     for raw in reversed(lines):
         if b'"token_count"' not in raw:
             continue
@@ -279,6 +276,24 @@ def codex_usage(path):
         except (ValueError, KeyError, TypeError):
             continue
     return None
+
+
+def codex_turn_done(path):
+    """True when the newest turn event in a rollout's tail is task_complete (no task_started after it)."""
+    return _turn_done(_tail_lines(path))
+
+
+def _turn_done(lines):
+    for raw in reversed(lines):
+        if b'"task_complete"' not in raw and b'"task_started"' not in raw:
+            continue
+        try:
+            kind = json.loads(raw)["payload"].get("type")
+        except (ValueError, KeyError, TypeError, AttributeError):
+            continue
+        if kind in ("task_complete", "task_started"):
+            return kind == "task_complete"
+    return False
 
 
 def _tail_lines(path, size=256 * 1024):
@@ -1116,20 +1131,24 @@ def collect(fixture=None, now=None):
         children = data.get("children", {})
         get_cmdlines = lambda pid: children.get(pid, [])
         get_changed = lambda ps, now: {p: p in data.get("screen_changed", []) for p in ps}
-        get_codex = lambda pane, pid, cwd: tuple(data["codex"][pane]) if pane in data.get("codex", {}) else None
+        get_codex = lambda pane, pid, cwd: (
+            tuple(data["codex"][pane]) if pane in data.get("codex", {}) else None,
+            pane in data.get("codex_done", []),
+        )
     else:
         get_cmdlines, get_changed = child_cmdlines, screen_changed
 
         def get_codex(pane, pid, cwd):
             path = codex_rollout(pid, cwd, panes)
-            return codex_usage(path) if path else None
+            lines = _tail_lines(path) if path else []
+            return _codex_usage(lines), _turn_done(lines)
 
         panes = read_tmux()
         pane_pids = {p["pane_id"]: p["pane_pid"] for p in panes}
         sessions = {k: v for k, v in read_claude_sessions().items() if v["pid"] in proc_tree(pane_pids.get(k))}
         get_party, get_cache, get_transcript, get_summons = read_party, cache_info, transcript_for, summons_for
 
-    towns, meta, here, owners = {}, {}, None, {}
+    towns, meta, here, owners, finished = {}, {}, None, {}, set()
     for p in panes:
         attached = p["session_attached"] not in ("", "0")
         if here is None and attached and p["window_active"] == "1":
@@ -1182,7 +1201,9 @@ def collect(fixture=None, now=None):
         if fresh and hp is None:
             hp = 100
         if kind == "codex":
-            usage = get_codex(p["pane_id"], p.get("pane_pid", ""), p.get("pane_current_path", ""))
+            usage, done = get_codex(p["pane_id"], p.get("pane_pid", ""), p.get("pane_current_path", ""))
+            if done:
+                finished.add(p["pane_id"])
             if usage and usage[1]:
                 hp = max(0, round(100 - usage[0] * 100 / usage[1]))
                 left, hp_max = max(0, usage[1] - usage[0]), usage[1]
@@ -1218,7 +1239,8 @@ def collect(fixture=None, now=None):
                 if menu and a["kind"] == "agy":
                     a["status"] = "waiting"
                     continue
-            if c:
+            # codex redraws its screen after task_complete; that is not a new turn
+            if c and a["pane"] not in finished:
                 a["status"] = "working"
     adopt_crews(towns, owners)
     for t in towns.values():

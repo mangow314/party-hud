@@ -2,7 +2,7 @@
 
 ## Images in `art/`: CC0 1.0, AI-generated
 
-All 51 images (8 portraits, 8 big portraits, 8 squad crests, 4 report banners in five shapes, 7 heading labels) were generated locally with an open-weight image model,
+All 56 images (8 portraits, 8 big portraits, 8 squad crests, 4 report banners and 1 select-screen banner, each in five shapes, 7 heading labels) were generated locally with an open-weight image model,
 then post-processed by the scripts in `scripts/art/`. They are dedicated to the public domain under
 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/) (full text: `art/LICENSE`).
 Use them for anything; no credit required.
@@ -17,10 +17,10 @@ plainly either way. This file is a record of how the images were made, not legal
 | 1. Generate | Text-to-image only. No reference image, photo or screenshot was used as input (empty latent). | `scripts/art/generate.py` + `scripts/art/prompts.json` (exact prompt, seed, sampler, batch index of every image) |
 | 2. Portraits | Crop to 8:9, cut the character out of its plain background, paint a new background (glow, rays, bokeh, stars), add a gold cut-corner octagon frame with corner gems and a translucent class-colored glow, outside it transparent (RGBA, 256 colors stored as PNG type 6; 192x216, simplified for the sidebar: 4 bevel bands, thin margin, no rivets or stars). The same steps at 2x size with the full frame (8 bevel bands, rivets, four-point stars in a wide transparent margin; 384x432) give `portrait-big-<class>.png` for the report page | `scripts/art/decor.py` |
 | 3. Crests | The model draws a black silhouette only; the shield, colors and shadow are drawn by code | `scripts/art/crest_compose.py` |
-| 4. Banners | The model draws one scene per banner (hill, camp, tavern map, scout ridge; 1280x320 each); code shrinks it to 320x80, reduces it to 48 colors, draws the title in gold pixel letters, and enlarges the result x3 (nearest) to 960x240 (`banner-<slug>.png`, 4:1). `banner-<slug>-<k>x1.png` (k = 5..8, 960 wide, 192/159/138/120 high) are the same scene with rows cut off at a per-scene offset and the title centered in the new height; the report page picks the shape closest to the right column | `scripts/art/banner_compose.py` |
+| 4. Banners | The model draws one scene per banner (hill, camp, tavern map, scout ridge, guild hall notice board; 1280x320 each); code shrinks it to 320x80, reduces it to 48 colors, draws the title in gold pixel letters, and enlarges the result x3 (nearest) to 960x240 (`banner-<slug>.png`, 4:1). `banner-<slug>-<k>x1.png` (k = 5..8, 960 wide, 192/159/138/120 high) are the same scene with rows cut off at a per-scene offset and the title centered in the new height; the report page picks the shape closest to the right column. The party select screen uses its own set, `banner-select` (titled `Party Select`, guild hall notice board) with the same five shapes | `scripts/art/banner_compose.py` |
 | 5. Labels | Not model-generated: code draws the 7 small-heading labels of the report page's left column (`label-took`, `waited`, `asked`, `files`, `work`, `where`, `running`) from a hand-drawn 5x7 pixel font defined in the script, with a dark outline, a glow in the label's color, a pixel gem and a fading tab plate. One terminal row tall, 44 px high and 20 px per cell wide (8, 10, 9, 9, 8, 9, 11 cells), RGBA | `scripts/art/labels.py` |
 
-Steps 2 to 4 reproduce `art/` byte-for-byte from the raw images; step 5 needs no raw images. The raw images (20 PNGs) are kept
+Steps 2 to 4 reproduce `art/` byte-for-byte from the raw images; step 5 needs no raw images. The raw images (21 PNGs) are kept
 out of the repository so plugin installs stay small. Each GitHub release attaches them as
 `party-hud-raw-art.tar.gz`; extract it into `scripts/art/` to rerun steps 2 to 5 without ComfyUI, or regenerate
 them with step 1. Regenerating on different hardware or ComfyUI versions may give slightly different pictures.

@@ -25,6 +25,11 @@ SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
 _tick = 0
 
 
+def set_tick(tick):
+    global _tick
+    _tick = tick
+
+
 def status_icon(status):
     icon = STATUS_TAG[status][0]
     return SPINNER[_tick % len(SPINNER)] if icon is None else icon
@@ -207,7 +212,9 @@ HINTS = {
     "popup": [("⏎", "go"), ("n", "next"), ("?", "keys"), ("q", "close")],
     "sidebar": [("⏎", "go"), ("n", "next"), ("?", "keys"), ("q", "hide")],
     "report": [("⏎", "go"), ("n/N", "report"), ("?", "keys"), ("q", "close")],
+    "report_back": [("⏎", "go"), ("n/N", "report"), ("h", "back"), ("?", "keys"), ("q", "close")],
     "help": [("?/Esc/q", "back")],
+    "select": [("j/k", "move"), ("1-9", "open"), ("⏎", "report"), ("q", "close")],
 }
 
 HELP = {
@@ -218,6 +225,7 @@ HELP = {
         ("PgUp PgDn", "page"),
         ("g / G", "top / bottom"),
         ("⏎", "go to agent"),
+        ("h", "back (select screen only)"),
         ("q Esc", "close"),
         ("?", "this help"),
     ],
@@ -241,6 +249,13 @@ HELP = {
         ("v", "peek output"),
         ("⏎", "go to agent"),
         ("q Esc P", "close"),
+        ("?", "this help"),
+    ],
+    "select": [
+        ("j k ↑ ↓", "move"),
+        ("1-9", "open that member's report"),
+        ("⏎ l", "open the report"),
+        ("q Esc", "close"),
         ("?", "this help"),
     ],
 }
@@ -344,6 +359,11 @@ def peek_rows(lines, width, height):
 
 
 REPORT_TITLE = {"done": "Quest complete", "waiting": "Waiting for you"}
+
+
+def report_state(a, report):
+    """The state word the report page titles itself with."""
+    return REPORT_TITLE.get(a["status"], "Report") if is_final(report) else "Working" if report else "Last output"
 
 
 def fmt_took(sec):
@@ -602,11 +622,12 @@ def is_final(report):
     return bool(report) and not report.get("live")
 
 
-def live_rows(report, width, wide, now):
-    """Page of a member still working: status row with the time so far, the "Now" block (newest tool call, tail of the newest text), then the previous round's report."""
+def live_rows(report, width, wide, now, status_row=True):
+    """Page of a member still working: status row (unless status_row is False) with the time so far, the "Now" block (newest tool call, tail of the newest text), then the previous round's report."""
     gold = fg("gold", True)
     status = "Working" + (f" · {fmt_took(now - report['start'])}" if now is not None and report.get("start") else "")
-    rows = [gold + clip(status, width) + RESET, "", gold + "Now" + RESET]
+    rows = [gold + clip(status, width) + RESET, ""] if status_row else []
+    rows.append(gold + "Now" + RESET)
     if report.get("tool"):
         rows.append(fg("fg", True) + clip(report["tool"], width) + RESET)
     said = [r for r in wrap_lines(report.get("said") or "", width) if r.strip()]
@@ -627,12 +648,12 @@ def wrap_lines(text, width):
     return [r for line in printable_lines(text) for r in wrap(line, width)]
 
 
-def report_rows(report, peek, summons, width, wide=None, now=None):
+def report_rows(report, peek, summons, width, wide=None, now=None, status_row=True):
     """Report body rows: the Markdown (or the pane's last lines), running branch tasks, finished subagents; code and pane lines may use wide columns (default width)."""
     wide = wide or width
     rows = []
     if report and report.get("live"):
-        rows += live_rows(report, width, wide, now)
+        rows += live_rows(report, width, wide, now, status_row)
     elif report:
         rows += render_markdown(report["text"], width, wide)
     else:
@@ -727,7 +748,19 @@ def side_labels(report, now):
     return names
 
 
-def report_side_rows(a, squad, report, pos, total, portrait, rows_total=0, now=None, labels=False, fit=False):
+def report_side_rows(
+    a,
+    squad,
+    report,
+    pos,
+    total,
+    portrait,
+    rows_total=0,
+    now=None,
+    labels=False,
+    fit=False,
+    hints: str = "report",
+):
     """Left column of the split report: framed portrait (portrait = cols, rows; centered), name, status tag, kind · squad, TOOK (RUNNING while it works), how long it has waited (when now is given), the prompt, work done, directory and branch, key hints on the last row. Every row is SPLIT_SIDE_COLS wide; the frame is padded down to rows_total rows and takes its color from the status. Headings are pixel label images (labels=True) or colored text. With fit, content taller than rows_total is cut from the bottom to a dim … row above the hint (a portrait the cut would split is dropped whole)."""
     w = SPLIT_PORTRAIT_COLS
     hot = a["status"] == "waiting"
@@ -792,19 +825,22 @@ def report_side_rows(a, squad, report, pos, total, portrait, rows_total=0, now=N
     if total > 1:
         text = f"report {pos}/{total}"
         rows += [line(), line(fg("dim") + text + RESET, len(text))]
-    hint = hint_line("report", w)
-    if fit and len(rows) > rows_total - 3:
-        keep = max(0, rows_total - 4)
+    reserve = 3
+    if fit and len(rows) > rows_total - reserve:
+        keep = max(0, rows_total - reserve - 1)
         if keep < pr:
             rows = rows[pr:]
         more = "…"
         rows = [*rows[:keep], line(fg("dim") + more + RESET, cw(more))]
-    rows += [line()] * (rows_total - 3 - len(rows))
+    rows += [line()] * (rows_total - reserve - len(rows))
+    hint = hint_line(hints, w)
     rows.append(line(hint, cw(ESCAPE.sub("", hint))))
     return box(None, rows, SPLIT_SIDE_COLS, SIDE_FRAME.get(a["status"], "blue"), heavy=True)
 
 
-def report_split_parts(a, squad, report, peek, width, pos, total, banner, portrait, height, now=None, fixed=False):
+def report_split_parts(
+    a, squad, report, peek, width, pos, total, banner, portrait, height, now=None, fixed=False, hints="report"
+):
     rw = width - SPLIT_SIDE_COLS - SPLIT_GAP
     summons = a.get("summons", [])
     bid = banner_id(a["status"], is_final(report), bool(summons), *banner[2:])
@@ -815,7 +851,7 @@ def report_split_parts(a, squad, report, peek, width, pos, total, banner, portra
     bw = min(banner[0], rw)
     right += ["", *report_rows(report, peek, summons, bw, rw, now)]
     rows_total = height if fixed else max(len(right) + 2, height - 1)
-    return report_side_rows(a, squad, report, pos, total, portrait, rows_total, now, True, fixed), right
+    return report_side_rows(a, squad, report, pos, total, portrait, rows_total, now, True, fixed, hints), right
 
 
 def report_join(left, right):
@@ -889,6 +925,7 @@ def report_parts(
     height=0,
     now=None,
     fixed=False,
+    hints="report",
 ):
     """(left, right) rows of the report page; left is empty unless the page splits. With fixed the left frame is exactly height rows instead of growing with the text.
     Report pane text: who, how long, HP, then the whole report as Markdown, or the pane's last lines (peek) when there is no report.
@@ -896,7 +933,9 @@ def report_parts(
     With art and width >= SPLIT_MIN_WIDTH the page splits: a framed side column (portrait = cols, rows) left, banner and text right, and the frame reaches the last row, or row height - 1 when the report is shorter."""
     width = max(28, width)
     if art and width >= SPLIT_MIN_WIDTH:
-        return report_split_parts(a, squad, report, peek, width, pos, total, banner, portrait, height, now, fixed)
+        return report_split_parts(
+            a, squad, report, peek, width, pos, total, banner, portrait, height, now, fixed, hints
+        )
     facts = []
     if report and report["start"] and report["end"]:
         facts.append(f"took {fmt_took(report['end'] - report['start'])}")
@@ -907,7 +946,7 @@ def report_parts(
     if total > 1:
         facts.append(f"report {pos}/{total}")
     summons = a.get("summons", [])
-    title = REPORT_TITLE.get(a["status"], "Report") if is_final(report) else "Working" if report else "Last output"
+    title = report_state(a, report)
     if is_final(report) and summons:
         title = running_title(len(summons))
     pid = portrait_id(a)
@@ -927,7 +966,7 @@ def report_parts(
         rows.append(f"{image_row(pid, r, PORTRAIT_CELLS[0])} {line}" if art else line)
     rows.append("")
     rows += report_rows(report, peek, summons, width, None, now)
-    return [], rows + ["", hint_line("report", width)]
+    return [], rows + ["", hint_line(hints, width)]
 
 
 def render_no_report(width, height):
@@ -963,6 +1002,230 @@ def seg_row(segs, width):
         out += f"{fg(color)}{text}{RESET} "
         used += w
     return out + " " * (width - used)
+
+
+SELECT_ORDER = ["waiting", "done", "working", "idle", "sleep"]
+SELECT_CARD = 33
+SELECT_KEYS = 3
+SELECT_LIST = SELECT_KEYS + SELECT_CARD
+SELECT_CARD_ROWS = 5
+SELECT_PREVIEW_MIN = 40
+SELECT_ASK_ROWS = 3
+CREW_MARK = "└"
+
+
+def pad_to(row, width):
+    return row + " " * (width - cw(ESCAPE.sub("", row)))
+
+
+def select_roster(towns):
+    """[(squad name, member, is_crew)]: leads by SELECT_ORDER, each followed by its waiting crew. A lead with waiting crew ranks as waiting."""
+    members = [(t["name"], a) for t in towns for a in t["agents"]]
+    leads = {a["pane"] for _, a in members if not a.get("lead")}
+    crew = {}
+    for squad, a in members:
+        if a.get("lead") in leads and a["status"] == "waiting":
+            crew.setdefault(a["lead"], []).append((squad, a))
+    rank = lambda m: 0 if m[1]["pane"] in crew else SELECT_ORDER.index(m[1]["status"])
+    out = []
+    for squad, a in sorted((m for m in members if not m[1].get("lead")), key=rank):
+        out.append((squad, a, False))
+        out += [(s, c, True) for s, c in crew.get(a["pane"], [])]
+    return out
+
+
+def select_crew_line(member, towns, width):
+    """The name and status of every crew of this lead, whatever its status; None when it has none."""
+    crew = [a for t in towns for a in t["agents"] if a.get("lead") == member["pane"] and a["pane"] != member["pane"]]
+    if member.get("lead") or not crew:
+        return None
+    out, used = f"{fg('dim')}crew{RESET}", 4
+    for a in crew:
+        w = 2 + cw(a["name"]) + 1 + cw(a["status"])
+        if used + w > width:
+            break
+        out += f"  {fg('fg')}{a['name']}{RESET} {fg(STATUS_TAG[a['status']][2])}{a['status']}{RESET}"
+        used += w
+    return out + " " * (width - used)
+
+
+def select_summary(roster, towns, width):
+    leads = [a for t in towns for a in t["agents"] if not a.get("lead")]
+    crew = sum(is_crew for _, _, is_crew in roster)
+    need = sum(a["status"] in ("waiting", "done") for a in leads) + crew
+    n = len(leads)
+    segs = [
+        (f"{n} lead{'s' if n != 1 else ''}", "fg"),
+        (f"{need} need you", "warn"),
+        (f"{crew} crew waiting", "warn"),
+    ]
+    return seg_row([s for s, k in zip(segs, (n, need, crew)) if k], width)
+
+
+def select_layout(height, head_rows):
+    """(show_hint, show_sum, show_title, body_h) of the select screen: blocks drop in the order title, summary, hint when the height is short; the list keeps at least one row."""
+    room = height - 1
+    show_hint = room >= 1
+    room -= show_hint
+    show_sum = room >= 1
+    room -= show_sum
+    show_title = room >= head_rows
+    room -= head_rows if show_title else 0
+    return show_hint, show_sum, show_title, room + 1
+
+
+def select_widths(width):
+    """(list width, preview width): the preview is 0 when it would be narrower than SELECT_PREVIEW_MIN; the list then takes the whole width when that is narrower than a card."""
+    preview = width - SELECT_LIST - SPLIT_GAP
+    if preview >= SELECT_PREVIEW_MIN:
+        return SELECT_LIST, preview
+    return min(width, SELECT_LIST), 0
+
+
+def select_card_rows(a, art):
+    """Rows of a's card: not every card has the same height (a card without art and without SP is shorter)."""
+    return len(card(a, SELECT_CARD, False, art))
+
+
+def select_view(roster, sel, lw, body_h, art=False):
+    """(compact, spans, top, shown) of the list: spans[i] is the (start, end) row of roster[i] in the whole list; rows from top on are on screen, whole items only, the cursor's included; shown = indexes of those items. Cards need SELECT_LIST columns and SELECT_CARD_ROWS rows of room, else every item is one row."""
+    compact = lw < SELECT_LIST or body_h < SELECT_CARD_ROWS
+    spans, n = [], 0
+    for _, a, is_crew in roster:
+        card = not compact and not is_crew
+        n += card and n > 0
+        spans.append((n, n + (select_card_rows(a, art) if card else 1)))
+        n = spans[-1][1]
+    at = next((i for i, (_, a, _) in enumerate(roster) if a["pane"] == sel), 0)
+    top = min((s for s, _ in spans if s >= spans[at][1] - body_h), default=0)
+    cut = max((e for _, e in spans if e <= top + body_h), default=top)
+    return compact, spans, top, [i for i, (s, e) in enumerate(spans) if s >= top and e <= cut]
+
+
+def select_cards(roster, sel, lw, body_h, art=False):
+    """Members whose card is on screen."""
+    compact, _, _, shown = select_view(roster, sel, lw, body_h, art)
+    return [] if compact else [roster[i][1] for i in shown if not roster[i][2]]
+
+
+def select_key_cell(n, cursor):
+    """The SELECT_KEYS-wide cell with the key of the n-th item (1-9; blank after the ninth)."""
+    if n > 9:
+        return " " * SELECT_KEYS
+    return f" {fg('gold', True) if cursor else fg('dim')}{n}{RESET} "
+
+
+SELECT_WAIT_TEXT = "waiting for you"
+SELECT_WAIT_NAME = 4
+
+
+def select_row(n, a, is_crew, sel, width):
+    """One-row item, exactly width cells: key, status icon, crew connector, name. A crew row is all in the waiting color, bold, with "waiting for you" at the right end when the width allows."""
+    key = select_key_cell(n, a["pane"] == sel)
+    icon = status_icon(a["status"])
+    indent = f"  {CREW_MARK} " if is_crew else ""
+    room = width - SELECT_KEYS - 2 - cw(indent)
+    if is_crew:
+        tail = room - cw(a["name"]) - 1 >= len(SELECT_WAIT_TEXT) + 1
+        shrunk = clip(a["name"], room - len(SELECT_WAIT_TEXT) - 2)
+        if not tail and cw(shrunk) >= min(SELECT_WAIT_NAME, cw(a["name"])):
+            name, tail = shrunk, True
+        else:
+            name = clip(a["name"], max(0, room))
+        body = f"{icon} {indent}{name}"
+        gap = width - SELECT_KEYS - cw(body) - len(SELECT_WAIT_TEXT) - 1
+        row = key + fg(STATUS_TAG[a["status"]][2], True) + body + (" " * gap + SELECT_WAIT_TEXT if tail else "") + RESET
+    else:
+        name = clip(a["name"], max(0, room))
+        row = f"{key}{fg(STATUS_TAG[a['status']][2])}{icon}{RESET} {fg('dim')}{indent}{RESET}{fg('fg')}{name}{RESET}"
+    row = pad_to(row, width)
+    return highlight(row) if a["pane"] == sel else row
+
+
+def select_card(n, a, sel, art):
+    """The member's side-bar card with its key in the column on the left of the first row."""
+    rows = card(a, SELECT_CARD, a["pane"] == sel, art)
+    return [(select_key_cell(n, a["pane"] == sel) if r == 0 else " " * SELECT_KEYS) + l for r, l in enumerate(rows)]
+
+
+def select_preview(roster, towns, at, width, height, report, now, peek=()):
+    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… N more lines" row."""
+    _, a, _ = roster[at]
+    task = (report or {}).get("task") or {}
+    rows = []
+    stamp = None
+    if a["status"] == "waiting" and report and report.get("end") and now is not None:
+        stamp = ("waited", fmt_took(now - report["end"]))
+    elif a["status"] == "working" and report and report.get("live") and report.get("start") and now is not None:
+        stamp = ("running", fmt_took(now - report["start"]))
+    elif report and report.get("start") and report.get("end"):
+        stamp = ("took", fmt_took(report["end"] - report["start"]))
+    where = clip(printable(task["dir"]), width) if task.get("dir") else ""
+    if stamp:
+        label, value = stamp
+        row = fg(LABEL_COLOR[label], True) + LABEL_TEXT[label] + RESET + " " + fg("fg", True) + value + RESET
+        left = cw(LABEL_TEXT[label]) + 1 + cw(value)
+        if where and left + 3 < width:
+            row += fg("dim") + " · " + RESET + fg("fg") + clip(where, width - left - 3) + RESET
+        rows.append(row)
+    elif where:
+        rows.append(fg("fg") + where + RESET)
+    lead = a if not a.get("lead") else next((m for _, m, _ in roster if m["pane"] == a["lead"]), None)
+    crew = select_crew_line(lead, towns, width) if lead else None
+    if crew:
+        rows.append(crew)
+    ask = [r for r in wrap(task["ask"], width - 2) if r.strip()] if task.get("ask") else []
+    if ask:
+        if len(ask) > SELECT_ASK_ROWS:
+            ask = [*ask[: SELECT_ASK_ROWS - 1], clip(ask[SELECT_ASK_ROWS - 1] + "…", width - 2)]
+        rows += ["", fg(LABEL_COLOR["asked"], True) + LABEL_TEXT["asked"] + RESET]
+        rows += [f"  {fg('fg', True)}{r}{RESET}" for r in ask]
+    rows += [
+        "",
+        fg("gold", True) + report_state(a, report) + RESET + fg("dim") + "  preview · not marked read" + RESET,
+        fg("line") + "─" * width + RESET,
+    ]
+    body = report_rows(report, peek, a.get("summons", []), width, width, now, False)
+    room = height - len(rows)
+    if len(body) > room > 0:
+        left = len(body) - (room - 1)
+        body = [*body[: room - 1], fg("dim") + f"… {left} more line{'s' * (left != 1)} · ⏎ to read" + RESET]
+    return [pad_to(r, width) for r in (rows + body)[:height]] + [" " * width] * (height - len(rows) - len(body))
+
+
+def render_select(roster, towns, sel, width, height, report=None, now=None, title=None, art=False, peek=()):
+    """Exactly height rows of width cells: title, summary, the member cards (crew as a row under their lead) with the preview of the member under the cursor beside them when the width allows, hint. Blocks that do not fit are left out; the list scrolls by whole items to keep the cursor in view."""
+    if height <= 0:
+        return []
+    head = (
+        title
+        if title is not None
+        else [fg("gold", True) + " " * ((width - 12) // 2) + clip("PARTY SELECT", width) + RESET]
+    )
+    show_hint, show_sum, show_title, body_h = select_layout(height, len(head))
+    lw, rw = select_widths(width)
+    compact, spans, top, shown = select_view(roster, sel, lw, body_h, art)
+    whole = [" " * lw] * (spans[-1][1] if spans else 0)
+    for i in shown:
+        _, a, is_crew = roster[i]
+        s, e = spans[i]
+        whole[s:e] = [select_row(i + 1, a, is_crew, sel, lw)] if compact or is_crew else select_card(i + 1, a, sel, art)
+    left = whole[top : top + body_h]
+    left += [" " * lw] * (body_h - len(left))
+    if not roster:
+        empty = clip("no party members", lw)
+        left[body_h // 2] = pad_to(" " * ((lw - cw(empty)) // 2) + fg("dim") + empty + RESET, lw)
+    if rw and roster:
+        at = next((i for i, (_, a, _) in enumerate(roster) if a["pane"] == sel), 0)
+        right = select_preview(roster, towns, at, rw, body_h, report, now, peek)
+        left = [left[j] + " " * SPLIT_GAP + right[j] for j in range(body_h)]
+    out = [pad_to(t, width) for t in head] if show_title else []
+    if show_sum:
+        out.append(select_summary(roster, towns, width))
+    out += [pad_to(l, width) for l in left]
+    if show_hint:
+        out.append(pad_to(hint_line("select", width - 1), width))
+    return out
 
 
 def squad_rows_art(t, pid, width, lit, cursor=False, home=False, pulse=False):

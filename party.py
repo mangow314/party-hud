@@ -7,7 +7,7 @@ Modes (started by tmux; see party.tmux):
   party.py --sidebar          sidebar UI, one per window
   party.py --toggle           open / close the sidebars in every window (prefix C-t)
   party.py --next             jump to the next waiting / done member (prefix a)
-  party.py --menu             pick a member from a menu, then open its report (prefix R)
+  party.py --menu             open the select screen in a pane (prefix R); --select runs it here
   party.py --open-report [PANE]  open the report pane, floating on tmux 3.8+ else a split (sidebar r)
   party.py --report [PANE]    what runs in the report pane: the last report of waiting / done members
   party.py --report-text PANE [--wait [--after EPOCH]] [--timeout SEC]  print a member's last report; --wait until it stops working;
@@ -57,7 +57,7 @@ from party_hud.sidebars import (
     tidy,
     toggle,
 )
-from party_hud.ui import jump_next, open_menu, run_report, run_ui
+from party_hud.ui import jump_next, open_select, run_menu, run_report, run_ui
 
 
 def ask(pane, text):
@@ -104,6 +104,7 @@ def main():
     ap.add_argument("--tidy", action="store_true")
     ap.add_argument("--next", action="store_true")
     ap.add_argument("--menu", action="store_true")
+    ap.add_argument("--select", action="store_true")
     ap.add_argument("--open-report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report-text", metavar="PANE")
@@ -141,7 +142,9 @@ def main():
     elif args.next:
         jump_next()
     elif args.menu:
-        open_menu()
+        open_select()
+    elif args.select:
+        run_menu(args.fixture)
     elif args.open_report is not None:
         open_report_pane("", args.open_report)
     elif args.report is not None:

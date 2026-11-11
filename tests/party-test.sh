@@ -483,54 +483,43 @@ ok(ui.report_queue([]) == [] and ui.report_queue([{"name": "A", "agents": []}], 
 ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") == "report"
    and ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "popup") is None,
    "r in the sidebar opens the report pane (not inside the P popup)")
-real_exe = ui.EXE
-ui.EXE = "/x/party.py"
 mm = lambda pane, name, status, lead=None: dict(mk(pane, status), name=name, **({"lead": lead} if lead else {}))
 mt = [{"name": "Studio", "agents": [mm("%1", "a", "idle"), mm("%2", "b", "working"), mm("%3", "c", "waiting"), mm("%4", "d", "done")]},
       {"name": "Empty", "agents": []}, {"name": "Lab", "agents": [mm("%5", "lead", "working"), mm("%6", "w1", "idle", "%5"), mm("%7", "w2", "waiting", "%5"), mm("%8", "e", "waiting")]}]
-cmd = lambda p: f'run-shell -b "/x/party.py --open-report {p}"'
-ok(ui.menu_args(mt) == ["-Studio ", "", "",
-                        "#[default]c · waiting", "1", cmd("%3"), "#[default]d · done", "2", cmd("%4"),
-                        "#[default]b · working", "3", cmd("%2"), "#[default]a · idle", "4", cmd("%1"),
-                        "-Lab ", "", "",
-                        "#[default]e · waiting", "5", cmd("%8"),
-                        "#[default]lead · working", "6", cmd("%5"), "  w2 · waiting", "7", cmd("%7"), "  w1 · idle", "8", cmd("%6")],
-   "menu: a disabled title per squad (empty squads skipped), members waiting > done > working > idle, crew indented right after its lead, keys 1-9 then a-z")
-ok(ui.menu_args([]) == [] and ui.menu_args([{"name": "A", "agents": []}]) == [], "menu: no members, no items (the caller says so)")
-ok(ui.menu_args([{"name": "A", "agents": [mm("%1", "w", "done", "%9")]}])[3:] == ["#[default]w · done", "1", cmd("%1")],
-   "menu: a member whose lead is not in the squad is a plain row")
-odd = ui.menu_args([{"name": "A", "agents": [mm("%1", "g", "idle", "%2"), mm("%2", "p", "idle", "%3"), mm("%3", "L", "idle"), mm("%4", "self", "idle", "%4"),
-                                               mm("%5", "cy1", "idle", "%6"), mm("%6", "cy2", "idle", "%5")]}])
-ok([odd[i] for i in range(3, len(odd), 3)] == ["#[default]g · idle", "#[default]L · idle", "  p · idle", "#[default]self · idle", "#[default]cy1 · idle", "#[default]cy2 · idle"],
-   "menu: every member shows exactly once; a lead pointing at itself, at a crew member, or at each other is a plain row, only one level is indented")
-big = ui.menu_args([{"name": "A", "agents": [mm(f"%{i}", f"m{i}", "idle") for i in range(37)]}])
-ok([big[i] for i in range(4, len(big), 3)] == list("123456789abcdefghijklmnopqrstuvwxyz") + ["", ""] and big[-1] == cmd("%36"),
-   "menu: after 1-9 and a-z the shortcut is empty, the item still opens the report")
-ev = ui.menu_args([{"name": "S#1,x};", "agents": [mm("%1", "#(touch x)#{pane_id},}", "idle"), mm("%2", '"q" $(id) \'x\'; ', "idle")]}])
-ok(ev[0] == "-S##1#,x#}; " and ev[3] == "#[default]##(touch x)##{pane_id#}#,#} · idle" and ev[6] == "#[default]\"q\" $(id) 'x';  · idle"
-   and ev[5] == cmd("%1") and ev[8] == cmd("%2"),
-   "menu: # , } in squad and member names are escaped for the tmux format (so #( #{ run nothing); a trailing ; of a title does not end the argument")
-ui.EXE = "'/a b/\"p$q#.py' --x"
-ev = ui.menu_args([{"name": "A", "agents": [mm("%1", "a", "idle")]}])
-ok(ev[5] == "run-shell -b \"'/a b/\\\"p\\$q####.py' --x --open-report %1\"",
-   "menu: the command quotes the path for the shell, tmux (\" \\ $) and the format (#), so a path with spaces, quotes or # still runs")
-ui.EXE = real_exe
-bad = ui.menu_args([{"name": "A", "agents": [mm("%1", "a", "idle"), mm("1", "x", "idle"), mm("%1;kill-server", "y", "idle"), mm("%1\n", "z", "idle"), mm("%\u0661", "k", "idle"), mm("%2", "b", "sleep")]}])
-ok([bad[i] for i in range(3, len(bad), 3)] == ["#[default]a · idle", "-#[default]x · idle", "-#[default]y · idle", "-#[default]z · idle", "-#[default]k · idle", "#[default]b · sleep"]
-   and [bad[i] for i in range(4, len(bad), 3)] == ["1", "", "", "", "", "2"] and [bad[i] for i in range(5, len(bad), 3)][1:5] == [""] * 4,
-   "menu: a member whose pane id is not % and digits is a disabled row with no key and no command")
-real_tmux, real_snap = ui.tmux, ui.get_snapshot
+sk = ["%1", "%2", "%3"]
+ok(ui.select_key("j", sk, "%1") == ("%2", None) and ui.select_key("k", sk, "%3") == ("%2", None)
+   and ui.select_key("k", sk, "%1") == ("%1", None) and ui.select_key("j", sk, "%3") == ("%3", None),
+   "select keys: j and k move one row and stop at the first and last row")
+ok(ui.select_key("1", sk, "%3") == ("%1", "open") and ui.select_key("3", sk, "%1") == ("%3", "open")
+   and ui.select_key("4", sk, "%2") == ("%2", None) and ui.select_key("9", sk, "%2") == ("%2", None) and ui.select_key("0", sk, "%2") == ("%2", None),
+   "select keys: a digit opens that row's member, a digit past the last row or 0 does nothing")
+ok(ui.select_key("\r", sk, "%2") == ("%2", "open") and ui.select_key("\n", sk, "%2") == ("%2", "open") and ui.select_key("l", sk, "%2") == ("%2", "open")
+   and ui.select_key("q", sk, "%2") == ("%2", "close") and ui.select_key("\x1b", sk, "%2") == ("%2", "close"),
+   "select keys: Enter and l open, q and Esc close")
+ok(all(ui.select_key(k, sk, "%2") == ("%2", None) for k in ("h", "x", "J", "PgUp", " ", "n", "g"))
+   and ui.select_key("j", [], None) == (None, None) and ui.select_key("\r", [], None) == (None, None) and ui.select_key("q", [], None) == (None, "close"),
+   "select keys: g, h and other keys do nothing; an empty roster only closes")
+real_tmux, real_snap, real_sb_tmux = ui.tmux, ui.get_snapshot, sidebars.tmux
 calls = []
 ui.tmux = lambda *a: calls.append(a)
-ui.get_snapshot = lambda f=None: {"towns": mt}
-ui.open_menu()
-ok(calls == [("display-menu", "--", *ui.menu_args(mt))],
-   "open_menu: display-menu gets '--' first so a title starting with '-' is not parsed as a tmux flag")
+sidebars.tmux = lambda *a: calls.append(a) or ("%9\n" if a[0] in ("new-pane", "split-window") else "")
+ui.get_snapshot = lambda f=None: {"towns": [{"name": "A", "agents": []}]}
+ui.open_select()
+ok(calls == [("display-message", "no party members")], "--menu: no members, only the message and no pane")
 calls.clear()
-ui.get_snapshot = lambda f=None: {"towns": []}
-ui.open_menu()
-ok(calls == [("display-message", "no party members")], "open_menu: no members, only the message and no display-menu")
-ui.tmux, ui.get_snapshot = real_tmux, real_snap
+ui.get_snapshot = lambda f=None: {"towns": mt}
+sidebars._new_pane = False
+ui.open_select()
+opened_cmd = next(c for c in calls if c[0] == "split-window")
+ok(opened_cmd[-1].endswith("party.py --select") and not any("display-menu" in " ".join(c) for c in calls),
+   "--menu: with members a pane is opened that runs --select, and no display-menu is used")
+sidebars._new_pane = True
+calls.clear()
+ui.open_select()
+float_cmd = next(c for c in calls if c[0] == "new-pane")
+ok(float_cmd[float_cmd.index("-T") + 1] == " Party " and float_cmd[-1].endswith("party.py --select"), "--menu: a floating pane is titled Party")
+sidebars._new_pane = None
+ui.tmux, ui.get_snapshot, sidebars.tmux = real_tmux, real_snap, real_sb_tmux
 opened = []
 real_open = ui.open_report_pane
 ui.open_report_pane = lambda *a: opened.append(a)
@@ -538,6 +527,134 @@ os.environ["TMUX_PANE"] = "%5"
 ui.open_report("%7")
 ui.open_report_pane = real_open
 ok(opened == [("%5", "%7")], "r: the report opens beside the sidebar's own window, for the selected member")
+sq = lambda ags: {"name": "S", "agents": ags}
+st = [sq([mm("%1", "idle1", "idle"), mm("%2", "work1", "working"), mm("%3", "done1", "done"), mm("%4", "wait1", "waiting"), mm("%5", "sleep1", "sleep"),
+          mm("%6", "c1", "waiting", "%9"), mm("%7", "c2", "done", "%2"), mm("%8", "cc", "waiting", "%6")]),
+      {"name": "T", "agents": [mm("%9", "far", "idle"), mm("%10", "c3", "waiting", "%9"), mm("%11", "c4", "waiting", "%9"), mm("%12", "c5", "waiting", "%2")]}]
+rs = render.select_roster(st)
+ok([(a["pane"], c) for _, a, c in rs] == [("%2", False), ("%12", True), ("%4", False), ("%9", False), ("%6", True), ("%10", True), ("%11", True),
+                                          ("%3", False), ("%1", False), ("%5", False)],
+   "select roster: leads waiting > done > working > idle > sleep; a lead with waiting crew ranks as waiting; crew only when waiting, right after its lead (also across squads), in snapshot order")
+ok("%7" not in [a["pane"] for _, a, _ in rs] and "%8" not in [a["pane"] for _, a, _ in rs],
+   "select roster: a done crew and a crew pointing at another crew are not listed")
+sm = lambda pane, name, status, lead=None: {**dict(done, pane=pane, name=name, status=status, round=1, summons=[], focus=False), **({"lead": lead} if lead else {})}
+sst = [{"name": "S", "agents": [sm("%1", "idle1", "idle"), sm("%2", "work1", "working"), sm("%3", "done1", "done"), sm("%4", "wait1", "waiting"), sm("%5", "sleep1", "sleep"),
+                               sm("%6", "c1", "waiting", "%9"), sm("%7", "c2", "done", "%2"), sm("%8", "cc", "waiting", "%6")]},
+       {"name": "T", "agents": [sm("%9", "far", "idle"), sm("%10", "c3", "waiting", "%9"), sm("%11", "c4", "waiting", "%9"), sm("%12", "c5", "waiting", "%2")]}]
+srs = render.select_roster(sst)
+srep = {"text": "## Layout\n\nThe list fills the pane.\n\n" + "\n".join(f"- point {i}" for i in range(80)), "start": 100.0, "end": 400.0, "live": False,
+        "task": {"ask": "fix the menu size", "files": [], "cmds": 0, "agents": 0, "dir": "~/work/app", "branch": None, "cwd": "/w"}}
+PH = chr(0x10EEEE)
+srows_of = lambda w, h, sel, rep=srep, art=False, ro=srs, tw=sst: render.render_select(ro, tw, sel, w, h, rep, 4000.0, None, art)
+seen_all = True
+for w, h in [(180, 47), (100, 30), (78, 20), (77, 20), (36, 12), (35, 12), (34, 8), (30, 6), (80, 5), (80, 4), (80, 3), (80, 2), (80, 1), (30, 1), (80, 60)]:
+    for art_ in (False, True):
+        for rep_ in (srep, None):
+            out = srows_of(w, h, "%9", rep_, art_)
+            seen_all = seen_all and len(out) == h and all(common.cw(strip(r)) == w for r in out)
+ok(seen_all, "select screen: exactly height rows of exactly width cells, wide and narrow panes, tiny heights, with and without art and report")
+wide_r, wider_r = srows_of(100, 40, "%2"), srows_of(180, 40, "%2")
+rule_w = lambda out: len(strip(out[next(i for i, r in enumerate(out) if "not marked read" in strip(r)) + 1])[38:].rstrip())
+ok(rule_w(wide_r) == 100 - 36 - 2 and rule_w(wider_r) == 180 - 36 - 2,
+   "select screen: the preview column is the pane width minus the list and the gap, so it grows with the pane")
+ok("not marked read" in "".join(strip(r) for r in srows_of(78, 40, "%2")) and "not marked read" not in "".join(strip(r) for r in srows_of(77, 40, "%2"))
+   and all(strip(r).startswith(" ") and common.cw(strip(r)) == 77 for r in srows_of(77, 40, "%2")) and strip(srows_of(77, 40, "%2")[2])[3] in "╭╔",
+   "select screen: a pane too narrow for the preview draws only the list, flush left")
+cur = srows_of(180, 40, "%4")
+ok(sum("❯" in r for r in cur) == 1 and sum("╔" in r for r in cur) == 1 and sum("╭" in r for r in cur) >= 2 and "❯" not in "".join(srows_of(180, 40, "%12")),
+   "select screen: the member under the cursor is the selected card (gold double frame, ❯), the others plain; on a crew row no card is selected")
+lines = [strip(r) for r in srows_of(180, 40, "%2")]
+top_ = next(i for i, l in enumerate(lines) if "work1" in l)
+ok(lines[top_ - 1][3] in "╭╔" and lines[top_ + 3][3] in "╰╚" and lines[top_ + 3][3] != lines[top_ - 1][3], "select screen: the lead's card is five rows, its name on the second")
+cr = next(i for i, l in enumerate(lines) if "c5" in l and render.CREW_MARK in l)
+ok(("╰" in lines[cr - 1] or "╚" in lines[cr - 1]) and "work1" in lines[cr - 4] and lines[cr].startswith(" 2 ") and render.CREW_MARK in lines[cr],
+   "select screen: a waiting crew is one row right under its lead's card, with its key and connector, not a card")
+art_out = srows_of(180, 47, "%2", srep, True)
+ok("".join(art_out).count(PH) == 18 * sum(1 for r in art_out if "╭" in strip(r) or "╔" in strip(r))
+   and not any(w in strip(r)[40:] for r in srows_of(180, 47, "%2") for w in ("HP ", "SP ", "work1", "Thief", "Cleric")),
+   "select screen: the right column has no portrait, name, class or HP/SP (one small portrait per card only)")
+mo = [strip(r) for r in srows_of(100, 20, "%2")]
+last = max(i for i, l in enumerate(mo) if "to read" in l)
+rule_i = next(i for i, l in enumerate(mo) if "─" * 10 in l)
+ok("more lines" in mo[last] and mo[last].split("…")[1].split()[0] == str(len(render.report_rows(srep, [], [], 100 - 36 - 2, 100 - 36 - 2, 4000.0)) - (last - rule_i - 1)) and last == len(mo) - 2,
+   "select screen: a report that does not fit ends in a '… N more lines · ⏎ to read' row with N the rows left out")
+short = {"text": "short report", "start": 1.0, "end": 2.0, "task": {}}
+ok(not any("more line" in l for l in map(strip, srows_of(180, 40, "%2", short))) and any("no report yet" in strip(r) for r in srows_of(180, 40, "%2", None)),
+   "select screen: a report that fits has no more-lines row; no report shows no report yet")
+cxst = [{"name": "S", "agents": [{**sm(f"%{i}", f"m{i}", st_), **({"kind": "codex", "sp": None} if i % 2 else {})} for i, st_ in enumerate(["waiting", "done", "working", "idle", "waiting", "idle", "done", "sleep"], 20)]}]
+cxro = render.select_roster(cxst)
+ok({len(render.card(a, render.SELECT_CARD, False, False)) for _, a, _ in cxro} == {4, 5}, "select screen: fixture has both 4-row (codex) and 5-row (claude) cards without art")
+cx_ok = True
+for w, h in [(179, 47), (100, 30), (100, 20), (100, 14), (179, 12)]:
+    for _, a, _ in cxro:
+        out = [strip(r) for r in srows_of(w, h, a["pane"], srep, False, cxro, cxst)]
+        cx_ok = cx_ok and len(out) == h and all(common.cw(r) == w for r in out) and "more lines" in out[-2]
+ok(cx_ok, "select screen: with 4-row and 5-row cards mixed the screen is exactly height rows of width cells and the preview still ends in the more-lines row, for every cursor position")
+pk_rows = lambda rep, pk_: [strip(r) for r in render.render_select(srs, sst, "%2", 120, 30, rep, 4000.0, None, False, pk_)]
+ok(any("$ make test" in r for r in pk_rows(None, ["$ make test", "ok"])) and not any("no report yet" in r for r in pk_rows(None, ["$ make test"]))
+   and any("no report yet" in r for r in pk_rows(None, [])) and not any("$ make test" in r for r in pk_rows(srep, ["$ make test"])),
+   "select screen: with no report the preview shows the pane's last lines, and no report yet only when there are none either")
+live_r = {"live": True, "start": 3700.0, "end": None, "text": "", "tool": "Bash make", "said": "building", "prev": None, "task": {}}
+st_of = lambda status, rep, pk_=(): next((strip(r)[38:] for r in render.render_select(srs, sst, {"done": "%3", "waiting": "%4", "idle": "%1", "working": "%2"}[status], 120, 30, rep, 4000.0, None, False, pk_) if "preview · not marked read" in strip(r)), "")
+fin = dict(srep, live=False)
+ok(st_of("done", fin).startswith("Quest complete") and st_of("waiting", fin).startswith("Waiting for you") and st_of("idle", fin).startswith("Report")
+   and st_of("working", live_r).startswith("Working") and st_of("working", None, ["x"]).startswith("Last output"),
+   "select screen: the preview title row opens with the state word the report page uses")
+wk = [strip(r) for r in render.render_select(srs, sst, "%2", 120, 30, live_r, 4000.0, None, False)]
+ok(sum("Working" in r for r in wk) == 1 and any("RUNNING" in r and "5m 00s" in r for r in wk), "select screen: a working preview names the state once (title row) and keeps the time")
+many = [("S", sm(f"%{i}", f"m{i}", "idle"), False) for i in range(12)] + [("S", sm("%30", "crew-a", "waiting", "%11"), True)]
+vis = True
+for k in range(13):
+    for art_ in (False, True):
+        for h in (20, 14, 9):
+            out = [strip(r) for r in srows_of(100, h, many[k][1]["pane"], srep, art_, many, sst)]
+            nm = many[k][1]["name"]
+            i = next((i for i, l in enumerate(out) if nm in l), None)
+            if i is None:
+                vis = False
+            elif not many[k][2] and k != 12:
+                vis = vis and ("╔" in out[i - 1] or "╭" in out[i - 1]) and ("╚" in out[i + 3] or "╰" in out[i + 3])
+    out = [strip(r)[:36] for r in srows_of(100, 20, many[k][1]["pane"], srep, False, many, sst)]
+    vis = vis and sum("╭" in l or "╔" in l for l in out) == sum("╰" in l or "╚" in l for l in out)
+ok(vis, "select screen: a list taller than the pane scrolls by whole cards so the cursor's card or crew row is always fully shown, never half a card")
+ok(any("far" in strip(r) for r in srows_of(100, 6, "%9")) and not any("╭" in r or "╔" in r for r in srows_of(100, 6, "%9")) and any("╔" in r for r in srows_of(100, 9, "%9")),
+   "select screen: with less room than one card every item is one row")
+emp = render.render_select([], [], None, 40, 12)
+ok(len(emp) == 12 and all(common.cw(strip(r)) == 40 for r in emp) and sum("no party members" in r for r in emp) == 1 and "PARTY SELECT" in strip(emp[0]),
+   "select screen: an empty roster shows one centered no party members row")
+ok("PARTY SELECT" in strip(render.render_select(srs, sst, "%4", 80, 20)[0]) and strip(render.render_select(srs, sst, "%4", 80, 20, None, None, ["ban", "ner"])[1]).strip() == "ner"
+   and "j/k" in strip(render.render_select(srs, sst, "%4", 80, 20)[-1]),
+   "select screen: default title, a given title replaces it, the hint is the last row")
+ok(strip(render.select_summary(rs, st, 60)).split() == ["6", "leads", "6", "need", "you", "4", "crew", "waiting"]
+   and strip(render.select_summary([("S", mm("%1", "a", "idle"), False)], [sq([mm("%1", "a", "idle")])], 30)).split() == ["1", "lead"],
+   "select summary: lead, need-you (waiting or done leads plus waiting crew) and waiting-crew counts; zero counts are left out")
+ok("c3 waiting" in strip(render.select_crew_line(st[1]["agents"][0], st, 40)) and "c4 waiting" in strip(render.select_crew_line(st[1]["agents"][0], st, 60))
+   and "c2 done" in strip(render.select_crew_line(st[0]["agents"][1], st, 40))
+   and render.select_crew_line(st[0]["agents"][0], st, 40) is None and common.cw(strip(render.select_crew_line(st[1]["agents"][0], st, 12))) == 12,
+   "select crew line: all crew of the lead with their status, None without crew, exact width")
+ok(not any("crew " in strip(r)[38:] for r in srows_of(180, 40, "%1")) and any(strip(r)[38:].startswith("crew") for r in srows_of(180, 40, "%2")),
+   "select screen: no crew line in the preview of a member without crew, one for a lead with crew")
+ok(ui.select_image_plan([sst[1]["agents"][0]], {art.portrait_id(sst[1]["agents"][0]): (b"x", 6, 3)}) == [(art.portrait_id(sst[1]["agents"][0]), 6, 3)]
+   and ui.select_image_plan([sst[1]["agents"][0]], None) == []
+   and art.kitty_delete(7) not in ui.select_images_out([(7, 6, 3)], {7: (b"x", 6, 3)}, {}, {7}) and art.kitty_delete(8) in ui.select_images_out([(8, 6, 3)], {8: (b"x", 6, 3)}, {}, {7}),
+   "select images: the plan is the small portrait of each card on screen; an id the sidebars share is not deleted before the send")
+cw_row = lambda name, w, sel="%9": render.select_row(2, sm("%20", name, "waiting", "%9"), True, sel, w)
+cw_ok = all(common.cw(strip(cw_row(n, w))) == w for n in ("c1", "建置-worker-with-a-very-long-name", "你好世界") for w in range(12, 60))
+wr = strip(cw_row("c1", 40))
+ok(cw_ok and wr.rstrip().endswith("waiting for you") and render.CREW_MARK in wr and "c1" in wr and strip(cw_row("c1", 40, "%20")).rstrip().endswith("waiting for you")
+   and "\033[1;" in cw_row("c1", 40) and common.fg("warn", True) in cw_row("c1", 40) and common.bg("sel") in cw_row("c1", 40, "%20")
+   and "waiting for you" in strip(cw_row("a-long-crew-name-here", 40)) and "…" in strip(cw_row("a-long-crew-name-here", 40)),
+   "select row: a waiting crew row is bold in the waiting color with 'waiting for you' at the right, exactly width cells, name shortened first, selected style visible")
+ok("waiting for you" not in strip(cw_row("c1", 14)) and "c1" in strip(cw_row("c1", 14)) and "waiting for you" not in strip(render.select_row(2, sm("%21", "idle1", "idle"), False, "%1", 40)),
+   "select row: too narrow for the text it is left out; a lead row has none")
+cache0 = (("%2", 1), None, [], 100.0)
+ok(not ui.select_reread(cache0, sm("%2", "w", "idle"), 200.0) and not ui.select_reread(cache0, sm("%2", "w", "done"), 200.0)
+   and ui.select_reread(cache0, sm("%3", "w", "idle"), 100.0) and ui.select_reread(cache0, dict(sm("%2", "w", "idle"), round=2), 100.0)
+   and ui.select_reread(cache0, sm("%2", "w", "working"), 100.0 + ui.LIVE_REFRESH) and not ui.select_reread(cache0, sm("%2", "w", "working"), 100.0 + ui.LIVE_REFRESH - 0.1),
+   "select preview: a working member is re-read every LIVE_REFRESH seconds; any other is re-read only when the member or its round changes")
+ok(abs(ui.select_wait(True, 10.0, 10.0, 10.1) - (ui.FRAME_SECS - 0.1)) < 1e-9 and abs(ui.select_wait(False, 10.0, 10.0, 10.1) - 0.9) < 1e-9
+   and ui.select_wait(True, 10.0, 10.0, 10.9) == 0.0 and abs(ui.select_wait(True, 10.0, 10.9, 10.95) - 0.05) < 1e-9,
+   "select screen: someone working -> a frame every FRAME_SECS; nobody -> once a second; the snapshot is still read every second")
 real_gs, real_rf = ui.get_snapshot, ui.report_for
 ui.report_for = lambda a: {"status_seen": a["status"]}
 q = [("S", {"pane": "%1", "status": "working"})]
@@ -579,7 +696,45 @@ for usage in ("split-window (splitw) [-bdefhIPvZ] [-c start-directory] [-l size]
     ok(c[0] == "split-window" and c[1:4] == ("-h", "-l", "50%") and "new-pane" not in [x[0] for x in calls] and c[c.index("-t") + 1] == "%2",
        "report pane: tmux without new-pane (" + ("no O flag" if usage else "command unknown") + ") splits the window in half")
 sidebars.tmux = real_tmux
+sidebars._new_pane = True
+def sel_open(win_w, select=True):
+    calls.clear()
+    sidebars.tmux = lambda *a: calls.append(a) or (win_w if a[0] == "display-message" else "%1 1 s r\n" if a[0] == "list-panes" else "%9\n" if a[0] == "new-pane" else "")
+    sidebars.open_report_pane("@1", "", select)
+    sidebars.tmux = real_tmux
+    return open_cmd()
+c = sel_open("200")
+ok(c[c.index("-x" + str(sidebars.SELECT_PANE_COLS)) + 1] == "-y80%" and f"-X{(200 - sidebars.SELECT_PANE_COLS) // 2}" in c and "-Y10%" in c,
+   "select pane: in a 200-column window it is SELECT_PANE_COLS wide, centred, 80% high from 10%")
+c = sel_open("60")
+ok("-x60" in c and "-X0" in c, "select pane: in a 60-column window it is no wider than the window")
+c = sel_open("", select=False)
+ok(c[1:5] == ("-x80%", "-y80%", "-X10%", "-Y10%"), "select pane: the report page keeps -x80% -y80% -X10% -Y10%")
+c = sel_open("n/a")
+ok("-x80%" in c and "-X10%" in c, "select pane: an unreadable window width keeps the 80% / 10% size")
+def fit(flag, select, new=True):
+    calls.clear()
+    sidebars._new_pane = new
+    sidebars.tmux = lambda *a: calls.append(a) or (f"{flag} 200 50" if a[0] == "display-message" else "")
+    sidebars.fit_report_pane("%9", select)
+    sidebars.tmux = real_tmux
+    return [c for c in calls if c[0] != "display-message"]
+ok(fit("1", True) == [("resize-pane", "-t", "%9", "-x", str(sidebars.SELECT_PANE_COLS), "-y", "40", ";", "move-pane", "-t", "%9", "-X", str((200 - sidebars.SELECT_PANE_COLS) // 2), "-Y", "5")],
+   "fit pane: a floating pane is resized and moved to the select screen's size and place")
+ok(fit("1", False) == [("resize-pane", "-t", "%9", "-x", "160", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "20", "-Y", "5")],
+   "fit pane: a floating pane is resized and moved to the report page's 80% size from 10% / 10%")
+ok(fit("0", True) == [] and fit("1", True, new=False) == [], "fit pane: a pane that is not floating, or tmux without new-pane, is left alone")
 sidebars._new_pane = None
+fit_calls = []
+real_fit, real_rs, real_rr = ui.fit_report_pane, ui.run_select, ui.run_report
+ui.fit_report_pane = lambda p, s: fit_calls.append(("fit", p, s))
+ui.run_select = lambda p=None, f=None: fit_calls.append(("select", p)) or ("%1" if p is None else None)
+ui.run_report = lambda p, f=None, back=False: fit_calls.append(("report", p)) or "%1"
+os.environ["TMUX_PANE"] = "%5"
+ui.run_menu()
+ui.fit_report_pane, ui.run_select, ui.run_report = real_fit, real_rs, real_rr
+ok(fit_calls == [("select", None), ("fit", "%5", False), ("report", "%1"), ("fit", "%5", True), ("select", "%1")],
+   "--menu: the pane is enlarged before the report page and shrunk again before the select screen")
 killed = []
 sidebars.tmux = lambda *a: "%1 @1 s1 r\n%2 @1 s r1\n%3 @2 s1 r\n%4 @2 s r\n" if a[0] == "list-panes" else killed.append(a[2]) or ""
 sidebars.tidy()
@@ -597,7 +752,7 @@ ui.tmux = lambda *a: print("TMUX", a, flush=True) or ("off" if "@party_anim" in 
 ui.run_report("%%1")
 print("EXITED", flush=True)
 """
-def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), gap=0.0):
+def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), gap=0.0, hold=0.0):
     m, sl = pty.openpty()
     fcntl.ioctl(sl, _tm.TIOCSWINSZ, struct.pack("HHHH", rows, 60, 0, 0))
     env = dict(os.environ, TMUX_PANE="%99")
@@ -626,6 +781,7 @@ def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), g
     for key, n in zip(keys, draws or range(1, len(keys) + 1)):
         if not resizes:
             read_until(b"\x1b[J", n)
+        time.sleep(hold)
         os.write(m, key)
     read_until(b"EXITED", 1)
     p.wait(timeout=5)
@@ -667,6 +823,47 @@ os.remove(sf)
 ok("TMUX ('switch-client', '-t'" in once and "EXITED" in once, "report pane: Enter jumps to the member's pane and exits")
 seen_win = report_session([b"q"], src=child.replace("ui.run_report", "ui.report_queue = lambda t, p=None, w=None: print('WIN', w, flush=True) or []\nui.run_report", 1))
 ok("TMUX ('display-message', '-p', '-t', '%99', '#{window_id}')" in seen_win, "report pane: the caller's window is asked of tmux by the pane's own $TMUX_PANE")
+select_child = child.replace('ui.run_report("%%1")', "ui.run_menu()")
+names = [a["name"] for t in collect.collect(sys.argv[2])["towns"] for a in t["agents"]]
+if os.path.exists(sf): os.remove(sf)
+sel_q = report_session([b"q"], rows=60, src=select_child)
+ok("EXITED" in sel_q and "Traceback" not in sel_q and all(n[:4] in sel_q for n in names) and "PARTY SELECT" in sel_q,
+   "select screen: the pty run draws every member of the roster and q ends the program")
+ok(not os.path.exists(sf) and sel_q.count("\x1b[?1049h") == 1 and sel_q.count("\x1b[?1049l") == 1 and sel_q.rindex("\x1b[?1003l") > sel_q.index("\x1b[?1003h"),
+   "select screen: only looking records nothing as read; the alternate screen and mouse reporting are restored on exit")
+sel_open = report_session([b"\r", b"q"], src=select_child)
+ok("EXITED" in sel_open and "Traceback" not in sel_open and "L0" in sel_open[sel_open.index("PARTY SELECT"):] and "display-menu" not in sel_open,
+   "select screen: Enter opens the report page in the same process and q on it ends the program")
+trace_child = select_child.replace("ui.run_menu()", """_rs, _rr = ui.run_select, ui.run_report
+ui.run_select = lambda sel=None, fixture=None: print("TRACE_SELECT", sel, flush=True) or _rs(sel, fixture)
+ui.run_report = lambda pane=None, fixture=None, back=False: print("TRACE_REPORT", pane, back, flush=True) or _rr(pane, fixture, back)
+ui.run_menu()""")
+tw = collect.collect(sys.argv[2])["towns"]
+first = render.select_roster(tw)[0][1]["pane"]
+nxt = ui.report_queue(tw, first, "")[1][1]["pane"]
+nxt_expect = nxt if nxt in [a["pane"] for _, a, _ in render.select_roster(tw)] else first
+back_h = report_session([b"\r", b"h", b"q"], src=trace_child)
+ok("EXITED" in back_h and "Traceback" not in back_h and back_h.count("PARTY SELECT") == 2 and f"TRACE_SELECT {first}" in back_h
+   and back_h.index("TRACE_REPORT") < back_h.rindex("PARTY SELECT") and back_h.count("\x1b[?1049h") == 3 and back_h.count("\x1b[?1049l") == 3,
+   "select screen: h on the report page returns to the select screen (terminal restored in between) and q there ends the program")
+again = report_session([b"\r", b"h", b"\r", b"h", b"q"], src=trace_child)
+ok("EXITED" in again and "Traceback" not in again and again.count("TRACE_REPORT") == 2 and again.count("TRACE_SELECT") == 3,
+   "select screen: after h a member can be opened again and h used again")
+nh = report_session([b"\r", b"n", b"h", b"q"], src=trace_child)
+ok("EXITED" in nh and "Traceback" not in nh and f"TRACE_SELECT {nxt_expect}" in nh[nh.index("TRACE_REPORT"):],
+   f"select screen: n then h returns with the cursor on the member n moved to (or the first row when that member is not in the list: {nxt_expect})")
+sel_close = report_session([b"\r", b"q"], src=trace_child)
+ok("EXITED" in sel_close and "Traceback" not in sel_close and sel_close.count("TRACE_SELECT") == 1 and sel_close.count("TRACE_REPORT") == 1 and sel_close.count("PARTY SELECT") == 1,
+   "select screen: q on the report page ends the program, it does not go back")
+direct_h = report_session([b"h", b"q"], rows=80)
+ok("EXITED" in direct_h and "Traceback" not in direct_h and direct_h.count("\x1b[?1049h") == 1 and "close" in strip(direct_h) and "back" not in strip(direct_h),
+   "report pane: h does nothing on a directly opened page, q ends it, and the hint row has no h")
+from_sel = report_session([b"\r", b"q"], rows=80, src=trace_child)
+ok("h back" in strip(from_sel) and "h back" in strip(render.render_report(tw[0]["agents"][0], "S", None, [], 60, hints="report_back")) and any("h back" in strip(r) for r in render.report_parts(tw[0]["agents"][0], "S", None, [], 150, art=True, hints="report_back")[0]) and "h back" not in strip(render.render_report(tw[0]["agents"][0], "S", None, [], 60)),
+   "report page opened from the select screen shows h in its hint row (narrow and split page), a direct one does not")
+sel_g = report_session([b"g", b"q"], src=select_child)
+ok("switch-client" not in sel_g and "EXITED" in sel_g and "L0" not in sel_g, "select screen: g does nothing (no switch to the pane, no report)")
+if os.path.exists(sf): os.remove(sf)
 twice = report_session([b"n", b"q"])
 ok("\x1b[2J" not in twice and twice.count("L0") == 2, "report pane: n draws the next report in place, without clearing the screen")
 rs = report_session([b"q"], rows=30, resizes=[29, 28, 27, 26, 25, 24, 23, 22, 21, 20] * 2, gap=0.005)
@@ -711,6 +908,27 @@ live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5
 lv = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", live_inject, 1))
 ok("a=d,d=I,i=7" in lv and lv.index("a=d,d=I,i=7") > lv.index("\x1b[H") and lv.index("a=d,d=I,i=7") < lv.rindex("\x1b[H"),
    "report pane: when the in-progress page turns into the final report, the new banner id is deleted with the next frame, as for a new page")
+tick_inject = """ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("T" + str(int(r[6] * 10))).ljust(width)] + [("L" + str(n)).ljust(width) for n in range(80)])
+ui.REPORT_TICK = 0.2
+ui.report_for = lambda a: {'live': True, 'text': 'x', 'start': 1, 'end': 2}
+def count_refresh(q, i):
+    print("REFRESH", flush=True)
+    return {'live': True, 'text': 'x', 'start': 1, 'end': 2}
+ui.refresh_live = count_refresh
+ui.run_report"""
+tk = report_session([b"q"], draws=[3], src=child.replace("ui.run_report", "ui.LIVE_REFRESH = 30\n" + tick_inject, 1))
+ok(len(set(re.findall(r"T\d+", tk))) >= 3 and "REFRESH" not in tk and tk.count("\x1b[?1049h") == 1,
+   "report pane: a live page redraws with a new time every REPORT_TICK without waiting for LIVE_REFRESH, and does not re-read")
+tk2 = report_session([b"q"], draws=[4], src=child.replace("ui.run_report", "ui.LIVE_REFRESH = 0.5\n" + tick_inject, 1))
+ok(tk2.count("REFRESH") == 1 and "a=d" not in tk2,
+   "report pane: the per-tick redraws do not add re-reads: one LIVE_REFRESH period reads once")
+idle = report_session([b"q"], draws=[1], hold=0.6, src=child.replace("ui.run_report", "ui.REPORT_TICK = 0.1\nui.run_report", 1))
+ok(idle.count("\x1b[J") == 1, "report pane: a page that is not live is not redrawn on a timer")
+beat_inject = tick_inject.replace("ui.REPORT_TICK = 0.2", "ui.REPORT_TICK = 0.4\nui.LIVE_REFRESH = 0.6\nimport time as _t\nui.report_parts = lambda a, sq, rep, peek, width, *r: print('DRAW', round(_t.monotonic() - T0, 2), flush=True) or ([], [('L' + str(n)).ljust(width) for n in range(80)])").replace("ui.run_report", "T0 = __import__('time').monotonic()\nui.run_report")
+bt = report_session([b"q"], draws=[5], src=child.replace("ui.run_report", beat_inject, 1))
+draws_at = [float(x) for x in re.findall(r"DRAW ([0-9.]+)", bt)]
+ok(len(draws_at) >= 5 and any(abs(x - 0.8) < 0.15 for x in draws_at) and not any(abs(x - 1.0) < 0.1 for x in draws_at),
+   "report pane: a live re-read does not shift the tick: the next tick stays REPORT_TICK after the previous tick")
 ex_src = first_inject.replace("[(7, 10, 5)]", "[(7, 10, 5), (-1, 6, 3)]")
 ex = report_session([b"q"], src=child.replace("ui.run_report", ex_src, 1))
 ok("a=d,d=I,i=7" in ex[ex.index("\x1b[H"):] and ex.rindex("a=d,d=I,i=7") < ex.rindex("\x1b[?1049l") and "a=d,d=I,i=-1" not in ex[ex.index("\x1b[H"):],
@@ -1055,6 +1273,35 @@ for n in (100, 101):
     busy = {a["kind"]: a["status"] for t in collect.collect(now=n)["towns"] for a in t["agents"]}
 collect.read_tmux, collect.read_claude_sessions, collect.tmux = real4
 ok(busy == {"agy": "waiting", "grok": "working", "codex": "working"}, "changing screen with the menu text: agy waiting, others still working")
+def rollout(*events):
+    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as rf:
+        rf.writelines('{"type":"event_msg","payload":{"type":"%s"}}\n' % e for e in events)
+    return rf.name
+done_f, started_f, empty_f = rollout("task_started", "task_complete"), rollout("task_complete", "task_started"), rollout("token_count")
+ok(collect.codex_turn_done(done_f) and not collect.codex_turn_done(started_f) and not collect.codex_turn_done(empty_f)
+   and not collect.codex_turn_done("/nope"), "codex turn done: only when the newest turn event is task_complete")
+cx_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id="%1", pane_pid="1", pane_current_command="codex", session_name="s",
+                 session_attached="1", window_active="1", window_id="@1", window_panes="1")]
+real5 = (collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed)
+collect.read_tmux, collect.read_claude_sessions = (lambda: cx_panes), (lambda: {})
+def cx_status(path, changed=True):
+    collect.codex_rollout, collect.screen_changed = (lambda *a: path), (lambda ps, now: {p: changed for p in ps})
+    return [a for t in collect.collect()["towns"] for a in t["agents"]][0]["status"]
+cx = (cx_status(done_f), cx_status(started_f), cx_status(None), cx_status(empty_f), cx_status(done_f, False))
+ok(cx[0] != "working", "codex: newest event task_complete and screen changed -> not working")
+ok(cx[1] == "working", "codex: newest event task_started and screen changed -> working")
+ok(cx[2] == "working" and cx[3] == "working", "codex: no rollout or no turn event in the tail, screen changed -> working")
+ok(cx[4] == "idle", "codex: task_complete and screen unchanged -> idle")
+towns_cx = []
+for changed in (True, False):
+    cx_status(done_f, changed)
+    towns_cx.append([{"agents": [dict(a, focus=False) for t in collect.collect()["towns"] for a in t["agents"]]}])
+collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed = real5
+st_cx = {"%1": {"status": "idle", "unseen": False, "round": 2}}
+for ts in towns_cx:
+    st_cx = collect.mark_unseen(ts, st_cx)
+ok(st_cx["%1"]["round"] == 2 and towns_cx[1][0]["agents"][0]["status"] == "idle",
+   "codex: redraw after task_complete (changed, then unchanged) does not start a new round")
 for t in towns:
     for a in t["agents"]:
         a["window"] = "@" + a["pane"][1:]  # in the fixture every member has its own window
@@ -1074,10 +1321,20 @@ flat_banners = [f"{n}-{k}x1" for k in range(5, 9) for n in art.BANNER_FILES]
 for i, n in enumerate(art.PORTRAIT_FILES + art.CREST_FILES + art.BANNER_FILES + art.PORTRAIT_FILES + flat_banners + list(art.LABEL_COLS)):
     prefix = "portrait-" if i < 8 else "crest-" if i < 16 else "banner-" if i < 20 or i >= 28 and i < 44 else "label-" if i >= 44 else "portrait-big-"
     open(os.path.join(art.ART_DIR, prefix + n + ".png"), "wb").write(b"PNG" + bytes([i]))
+for j, n in enumerate(["select"] + [f"select-{k}x1" for k in range(5, 9)]):
+    open(os.path.join(art.ART_DIR, "banner-" + n + ".png"), "wb").write(b"PNG" + bytes([51 + j]))
 imgs = art.load_art()
-ok(imgs and len(imgs) == 51 and imgs[art.label_id("running")] == (b"PNG" + bytes([50]),) and imgs[art.banner_id("waiting", True, False, 7)] == (b"PNG" + bytes([28 + 2 * 4 + 1]),) and imgs[art.BIG_PORTRAIT_ID + 3] == (b"PNG\x17",) and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2)
+ok(imgs and len(imgs) == 56 and imgs[art.select_banner_id(7)] == (b"PNG" + bytes([51 + 3]),) and imgs[art.label_id("running")] == (b"PNG" + bytes([50]),) and imgs[art.banner_id("waiting", True, False, 7)] == (b"PNG" + bytes([28 + 2 * 4 + 1]),) and imgs[art.BIG_PORTRAIT_ID + 3] == (b"PNG\x17",) and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2)
    and imgs[art.BANNER_ID + 2] == (b"PNG\x12",),
-   "All 51 images present: portraits 6x3 cells, crests 4x2 cells, 4 banners in 5 ratios, 8 big portraits and 7 heading labels (no cell size stored)")
+   "All 56 images present: portraits 6x3 cells, crests 4x2 cells, 4 banners and the select banner in 5 ratios, 8 big portraits and 7 heading labels (no cell size stored)")
+old_ids = [art.BANNER_ID + 4 * j + i for j in range(5) for i in range(4)] + [art.BIG_PORTRAIT_ID + i for i in range(8)] + [art.LABEL_ID + i for i in range(7)]
+sel_ids = [art.select_banner_id(k) for k in range(4, 9)]
+ok(len(set(sel_ids)) == 5 and not set(sel_ids) & set(old_ids) and not set(sel_ids) & set(range(art.PORTRAIT_ID, art.PORTRAIT_ID + 8))
+   and not set(sel_ids) & set(range(art.CREST_ID, art.CREST_ID + 8)) and art.select_banner_id() == art.SELECT_BANNER_ID == 0x7A0600,
+   "select banner: five image ids of its own, clear of every portrait, crest, report banner, big portrait and label id")
+ok([art.banner_id(s, r, m) for s, r, m in (("done", True, False), ("waiting", True, False), ("working", True, False), ("done", False, False))] == [0x7A0300, 0x7A0301, 0x7A0302, 0x7A0303]
+   and art.banner_id("waiting", True, False, 8) == 0x7A0311,
+   "report banner ids stay as they were: select banner does not change banner_id")
 ok(art.art_supported("", "xterm-ghostty") and art.art_supported("", "xterm-kitty") and not art.art_supported("", "xterm-256color")
    and not art.art_supported("", "wezterm") and art.art_supported("on", "xterm-256color") and not art.art_supported("off", "xterm-ghostty"),
    "Images: auto on for Ghostty / Kitty, text elsewhere; @party_art on / off forces it")
@@ -1517,6 +1774,53 @@ ok(ui.handle_key("PgUp", {"focus": "party", "sel": "%1", "squad": None, "peek": 
    "Sidebar ignores PgUp")
 ok([ui.report_scroll(k, 5, 20, 10) for k in ["k", "j", "PgUp", "PgDn", "g", "G", "b", " ", "x"]] == [4, 6, 0, 14, 0, 20, 5, 5, 5],
    "Report scroll keys -> offset: k / j one row, PgUp / PgDn a page (height - 1), g / G top / bottom; other keys keep it")
+sel_ros, sel_towns = [("Studio", done, False)], [{"name": "Studio", "agents": [done]}]
+other_ = dict(done, cls=(done["cls"] + 1) % 4)
+sel_art = {art.portrait_id(done): (b"G", 6, 3), art.portrait_id(other_): (b"H", 6, 3)}
+plan_a = ui.select_image_plan([done, other_], sel_art)
+ok(plan_a == [(art.portrait_id(done), 6, 3), (art.portrait_id(other_), 6, 3)] and ui.select_image_plan([done], None) == [],
+   "select images: the plan holds the small portrait of each card on screen with its cells; no art -> empty")
+ok(ui.select_images_due(plan_a, {i: (c, r) for i, c, r in plan_a}) == [] and ui.select_images_due(plan_a, {plan_a[0][0]: (7, 3)})[0] == plan_a[0]
+   and ui.select_images_due(plan_a, {}) == plan_a,
+   "select images: same id at the same cells is not sent again, other cells are, an id never sent is")
+same_ = {i: (c, r) for i, c, r in plan_a}
+out_new = ui.select_images_out(plan_a, sel_art, {}, set())
+ok(ui.select_images_out(plan_a, sel_art, same_, set()) == "" and out_new.index(f"a=d,d=I,i={plan_a[0][0]}") < out_new.index(f"a=T,U=1,f=100,i={plan_a[0][0]},c=6,r=3")
+   and "a=d" not in ui.select_images_out(plan_a, sel_art, {**same_, plan_a[0][0]: (7, 3)}, set())
+   and "a=d" not in ui.select_images_out(plan_a, sel_art, {}, {i for i, _, _ in plan_a}),
+   "select images: a repaint sends nothing, an id never sent is deleted first unless the sidebars share it, a resized one is resent without a delete")
+sel_banner = (60, 7, 4)
+ok(ui.select_title_plan(sel_art, sel_banner, True) == [(art.select_banner_id(4), 60, 7)] and ui.select_title_plan(None, sel_banner, True) == []
+   and ui.select_title_plan(sel_art, sel_banner, False) == [] and ui.select_title_plan(sel_art, (88, 10, 6), True)[0][0] == art.select_banner_id(6),
+   "select images: the plan holds the banner id of its k:1 shape with its cells; none without art or when the title block is not drawn")
+sel_title = [art.image_row(art.select_banner_id(4), r, 60) for r in range(7)]
+sel_rows = render.render_select(sel_ros, sel_towns, done["pane"], 80, 24, None, None, sel_title)
+ok(sel_rows[:7] == [t + " " * 20 for t in sel_title] and len(sel_rows) == 24 and render.select_layout(24, 7)[3] == render.select_layout(24, 1)[3] - 6
+   and not any(art.image_row(art.select_banner_id(4), 0, 60) in r for r in render.render_select(sel_ros, sel_towns, done["pane"], 80, 8, None, None, sel_title)),
+   "select screen with art: the banner rows open the screen, the list is shorter by the extra title rows, a short window draws no banner")
+sb_wide, sb_short, sb_narrow, sb_huge = ui.select_banner(150, 40, 0.5), ui.select_banner(150, 16, 0.5), ui.select_banner(60, 40, 0.5), ui.select_banner(300, 60, 0.5)
+ok(sb_wide and sb_wide[0] <= 150 and sb_wide[1] <= 10 and abs(sb_wide[3] - (150 - sb_wide[0] - sb_wide[3])) <= 1
+   and sb_short is None and sb_narrow and sb_narrow[0] <= 60
+   and sb_huge and sb_huge[0] <= len(art.DIAC) and abs(sb_huge[3] - (300 - sb_huge[0] - sb_huge[3])) <= 1,
+   "select banner: as wide as the screen and centered; none when the roster would get under 8 rows; capped at the placeholder diacritics")
+sb_scan = [(w, h, r) for w in range(40, 301, 20) for h in range(8, 61) for r in (0.4, 0.5, 0.6) if ui.select_banner(w, h, r)]
+ok(ui.select_banner(100, 12, 0.5) is None and sb_scan
+   and all(render.select_layout(h, ui.select_banner(w, h, r)[1])[2] and render.select_layout(h, ui.select_banner(w, h, r)[1])[3] >= 8 for w, h, r in sb_scan),
+   "select banner: only returned when the title block fits it and the roster keeps 8 rows")
+sb_title = [" " * sb_huge[3] + art.image_row(art.select_banner_id(sb_huge[2]), r, sb_huge[0]) for r in range(sb_huge[1])]
+sb_rows = render.render_select(sel_ros, sel_towns, done["pane"], 300, 60, None, None, sb_title)
+ok(ui.select_title_plan(sel_art, sb_short, True) == [] and ui.select_title_plan(sel_art, sb_wide, True)[0][0] == art.select_banner_id(sb_wide[2])
+   and len(sb_rows) == 60 and all(render.cw(strip(r)) == 300 for r in sb_rows),
+   "select banner: no banner image in the plan when there is no banner; with one the screen keeps height rows of width cells")
+ok(ui.banner_cells(120, 0.5) == (88, 10, 4) and ui.banner_cells(80, 0.5) == (80, 10, 4),
+   "report banner sizes are unchanged by the select banner")
+ok(PH not in "".join(srows_of(180, 47, "%2")) and PH in "".join(srows_of(180, 47, "%2", srep, True)),
+   "select screen without art: no image placeholders, the cards are the text version")
+ok(all(len(o_) == hh and all(common.cw(strip(r)) == 80 for r in o_) and (("j/k" in strip(o_[-1])) == (hh >= 2))
+       for hh in range(1, 41) for o_ in [srows_of(80, hh, "%9")]),
+   "select screen: every height from 1 to 40 gives exactly that many rows, the hint last from 2 rows up")
+ok(len(render.report_side_rows(done, "Studio", rep, 2, 3, (24, 14), rows_total=30)) == 30 and "n/N" in strip(render.report_side_rows(done, "Studio", rep, 2, 3, (24, 14), rows_total=30)[-2]),
+   "report_side_rows: the report hints are on the last row inside the frame and rows_total rows are kept")
 ok(ui.report_scroll("j", 20, 20, 10) == 20 and ui.report_scroll("k", 0, 20, 10) == 0 and ui.report_scroll("PgDn", 15, 20, 10) == 20
    and all(ui.report_scroll(k, 0, 0, 10) == 0 for k in ["j", "k", "PgUp", "PgDn", "g", "G"]),
    "Report offset stays inside 0..limit; a report that fits never moves")
@@ -2283,6 +2587,14 @@ ok = True
 for n, c in cols.items():
     b = open(sys.argv[1] + "/art/label-" + n + ".png", "rb").read(33)
     ok = ok and struct.unpack(">II", b[16:24]) == (c * 20, 44) and b[24:26] == bytes([8, 6])
+sys.exit(not ok)' "$root"
+
+check "art: the 5 select banners are 960 px wide PNGs, 240/192/159/138/120 high" \
+  python3 -c 'import struct, sys
+ok = True
+for n, h in (("", 240), ("-5x1", 192), ("-6x1", 159), ("-7x1", 138), ("-8x1", 120)):
+    b = open(sys.argv[1] + "/art/banner-select" + n + ".png", "rb").read(33)
+    ok = ok and b[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", b[16:24]) == (960, h)
 sys.exit(not ok)' "$root"
 
 exit "$fail"
