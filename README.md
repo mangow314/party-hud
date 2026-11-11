@@ -11,7 +11,7 @@ with a portrait, a status, **HP** (context left) and **SP** (prompt cache minute
 - **See who needs you**: a squad turns orange when a member waits for you, green when one finished.
 - **Jump there**: `n` selects the next waiting member, `Enter` switches to its pane.
 - **Know when to compact**: HP and SP show context and prompt cache left for each member.
-- **Read what it did**: `prefix R` opens the member's last report with its Markdown styled.
+- **Read what it did**: `prefix R` opens a menu of members; pick one to open its last report with its Markdown styled.
 - **Agents ask agents**: one agent can open another, send it a question and read the answer back.
 - **Cheap and local**: Python standard library only, no daemon, no network; it never writes to the agents' files.
 
@@ -48,7 +48,7 @@ The frame blinks when the member turns done or waiting, and a big HP or SP chang
 
 <img src="docs/img/report.svg" width="780" alt="The quest report page of a finished member in a wide pane: Quest Complete banner and a framed left column with portrait, name, TOOK, WAITED, ASKED, FILES and WHERE; on the right a Markdown report with headings, a list, a small table and a code block">
 
-`prefix R` opens a pane with the last report of a member that is done or waiting; `n` cycles through all members.
+`prefix R` opens a menu of all members, grouped by squad. In a squad the order is waiting, done, working, idle, sleep, and a member summoned by another sits indented under its lead. Pick one (keys `1`–`9`, then `a`–`z`) to open its last report; with no members it only says so. `n` in the report pane cycles through members: waiting first, then done, then working with subagents running, then the rest (this window's first).
 In a wide pane the left column shows how long it took, how long it has waited, what you asked, the files it edited and where it runs; the right
 side is the report with its Markdown styled. A member that is still working shows what it is doing now:
 
@@ -65,7 +65,14 @@ One agent can open another, send it a question and wait for the answer. Each ste
 python3 ~/.tmux/plugins/party-hud/party.py --summon codex --read-only
 python3 ~/.tmux/plugins/party-hud/party.py --ask PANE 'your question'
 python3 ~/.tmux/plugins/party-hud/party.py --report-text PANE --wait --after TIME
+python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 ```
+
+`--summon` opens the member in a background tmux session `crew-<your pane number>` (no sidebar); `--window` opens a new window in your session, `--here` a split beside you.
+The sidebar lists crew under its lead. A crew member that finishes does not ring, light the squad or count as unread, but one that waits for input does.
+`--read-only` makes codex read-only through its sandbox; claude, grok and agy use their own plan mode, which the agent enforces itself. agy in plan mode still asks permission to run shell commands; the HUD then shows it as waiting.
+`--report-text` exits 7 when the member waits for input. `--dismiss` closes a member you summoned once it is not working or waiting and you read its report.
+A summoned member cannot summon: it reports to its lead, and the lead brings someone in.
 
 The path is the TPM install path; with a clone, use your checkout. With the bundled `party-crew` skill you can tell Claude Code "ask codex for a second opinion on this diff".
 Exit codes, saved rounds, the skill and the sandbox setting: [docs/crew.md](docs/crew.md).
@@ -128,7 +135,7 @@ This needs `jq`. Without it, HP is estimated from the transcript. Details: [docs
 | `prefix C-t` | Open / close the sidebar in every window |
 | `prefix P` | Popup version |
 | `prefix a` | Jump to the next member that is waiting or done, without opening anything |
-| `prefix R` | Quest report: members waiting or done first, else the current window's member; `n` cycles through all members |
+| `prefix R` | Menu of members by squad (waiting, done, working, idle, sleep); pick one to open its report |
 | `j` / `k` | Next / previous member in this squad (stops at the ends) |
 | `J` / `K` | Next / previous squad |
 | `1`–`9` | Member N of this squad |
@@ -178,7 +185,7 @@ status is used too. Everything is read locally; nothing is sent anywhere. Detail
 
 - [docs/sidebar.md](docs/sidebar.md): squad colors, HP / SP, blinking, narrow sidebars, images
 - [docs/reports.md](docs/reports.md): the quest report page in full
-- [docs/crew.md](docs/crew.md): `--summon`, `--ask`, `--report-text` and the party-crew skill
+- [docs/crew.md](docs/crew.md): `--summon`, `--ask`, `--report-text`, `--dismiss` and the party-crew skill
 - [docs/integrations.md](docs/integrations.md): what is read for each agent
 - [docs/architecture.md](docs/architecture.md), [docs/performance.md](docs/performance.md): design and numbers
 

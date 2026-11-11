@@ -2,7 +2,7 @@
 
 <img src="img/report.svg" width="780" alt="The quest report page of a finished member in a wide pane: Quest Complete banner and a framed left column with portrait, name, TOOK, WAITED, ASKED, FILES and WHERE; on the right a Markdown report with headings, a list, a small table and a code block">
 
-`prefix R` opens a pane with the last report of a member that finished or is waiting for you; if none is, a working member with subagents running, else the member in the current window (an idle one its last report, a working one its in-progress page), and `n` cycles through all members. On Ghostty and
+`prefix R` opens a menu of all members, grouped by squad. In a squad the order is waiting, done, working, idle, sleep, and a member summoned by another sits indented under its lead. Pick one to open a pane with its last report (a working member shows its in-progress page, an idle one its last report); with no members it shows `no party members` instead of a menu. In the sidebar, `r` opens the selected member's report directly. `n` cycles through the members: waiting first, then done, then working with subagents running, then the rest (this window's first). A done member that has a lead is not in the waiting / done part of that order and does not count for the reminders below. On Ghostty and
 Kitty the page opens with a pixel-art banner (at most 10 rows tall, up to 80 columns wide in a narrow pane) with the title drawn inside the picture, and the member's
 portrait below it; elsewhere the title is a text line. Then come how long it took (from your prompt to its answer), HP left,
 then the report itself with its Markdown styled (tables become aligned columns, or one "name: value" group per row when too wide). On tmux 3.8+ the pane floats over the window; on older tmux it splits the
@@ -43,12 +43,12 @@ current window in half.
   <img src="img/help.svg" width="780" alt="The key help of the quest report page: a framed list of keys and what they do, centered over the dimmed report">
 
 - Resizing the pane redraws the report at the new size right away and as often as it can be drawn, in place and without clearing the screen; the images follow once the resize has stopped for a moment.
-- If you split the floating report pane, it stays smaller after the new pane closes; press `q` and `prefix R` to reopen it.
-- Reading a report does not clear the "done" mark; going to the pane does.
+- If you split the floating report pane, it stays smaller after the new pane closes; press `q` and pick the member from `prefix R` again to reopen it.
+- Reading a finished report (the report page showing it, or `--report-text` printing it) clears that round's "done" mark, from the next collection on; the in-progress page of a working member does not. Going to the pane clears it too.
 
 ## Report count in the status line
 
-The collector writes the number of members waiting or done to the tmux variable `@party_reports`:
+The collector writes the number of members waiting or done to the tmux variable `@party_reports` (a done member that has a lead is not counted, and does not ring the bell either; a waiting one always is):
 
 ```tmux
 set -ag status-right '#{?#{@party_reports}, reports #{@party_reports},}'

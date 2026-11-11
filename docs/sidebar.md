@@ -3,12 +3,12 @@
 ## Squad colors
 
 - Orange: someone is waiting for you.
-- Green: someone finished and you have not looked yet.
+- Green: someone finished and you have not looked yet. A member with a lead (crew) finishing does not turn the squad green; waiting still does.
 - Purple `zzz 1`: a member's prompt cache has expired.
 - Gray `·1`: counts idle members.
-- A bell rings in windows you are not looking at.
+- A bell rings in windows you are not looking at. It does not ring for a finished crew member; waiting still rings. Once the lead is gone, crew count again.
 
-Each tmux session is a squad with its own crest. The squad you are looking at has a gold background and bar,
+Each tmux session is a squad with its own crest. Crew members (`crew-<N>` sessions) are listed in their lead's squad; a `crew-<N>` session never gets a sidebar. While the lead's pane exists it has no squad of its own; once the lead is gone it shows as an ordinary squad. The squad you are looking at has a gold background and bar,
 and a pin marks the session the sidebar itself is in.
 
 ## HP and SP

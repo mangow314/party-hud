@@ -51,7 +51,12 @@ TMUX_FIELDS = [
 ]
 # wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
-READ_ONLY_CMDS = {"codex": "codex -s read-only"}
+READ_ONLY_CMDS = {
+    "claude": "claude --permission-mode plan",
+    "codex": "codex -s read-only",
+    "agy": "agy --mode plan",
+    "grok": "grok --permission-mode plan",
+}
 
 
 HAVE_PROC = os.path.isdir("/proc/self")
@@ -423,7 +428,7 @@ ACTIVE_WINDOW = 4.0  # screen changed this recently = working (spinners and time
 
 
 def screen_changed(panes, now):
-    """{pane: screen changed recently}, for agents without a status file.
+    """{pane: screen changed recently; (changed, True) while an agy permission menu is shown}, for agents without a status file.
     Only a CRC32 of each screen is kept, in activity.json."""
     path = os.path.join(PARTY_DIR, "activity.json")
     try:
@@ -433,11 +438,15 @@ def screen_changed(panes, now):
         seen = {}
     out, keep = {}, {}
     for pid in panes:
-        digest = zlib.crc32(tmux("capture-pane", "-p", "-t", pid).encode())
+        screen = tmux("capture-pane", "-p", "-t", pid)
+        digest = zlib.crc32(screen.encode())
         old = seen.get(pid)
         changed_at = now if not old or old[0] != digest else old[1]
         keep[pid] = [digest, changed_at]
         out[pid] = bool(old) and now - changed_at < ACTIVE_WINDOW
+        tail = [ln for ln in screen.splitlines() if ln.strip()][-15:]
+        if any("Requesting permission for:" in ln for ln in tail):
+            out[pid] = (out[pid], True)
     try:
         os.makedirs(PARTY_DIR, exist_ok=True)
         tmp = f"{path}.{os.getpid()}"
@@ -993,11 +1002,13 @@ def wait_channel(pane):
     return "party-" + pane.lstrip("%")
 
 
-def report_text(pane, wait=False, timeout=600, after=None):
-    """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent.
+def report_text(pane, wait=False, timeout=600, after=None, read=None):
+    """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent, 7 waiting for input.
     While the member works, sleep in tmux wait-for (woken by the collector) for up to 2 s, then read the snapshot again.
     With after (epoch seconds, from --ask) it also keeps waiting until the snapshot is newer than after + SNAP_MAX_AGE
-    and, for Claude and Codex, the report ends after after."""
+    and, for Claude and Codex, the report ends after after. If the member is waiting for input by then and has no such
+    report (agy and grok never have one), it returns 7 at once with the last 20 non-empty lines of its screen.
+    A dict passed as read gets read["round"] = the round of the member data the returned report came from."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
     if not math.isfinite(timeout):
@@ -1021,10 +1032,19 @@ def report_text(pane, wait=False, timeout=600, after=None):
         if rep and rep.get("live"):
             rep = rep["prev"]
         if after is not None and not busy:
-            busy = snap["t"] <= after + SNAP_MAX_AGE or (
-                a["kind"] in ("claude", "codex") and (not rep or not rep["end"] or rep["end"] <= after)
-            )
+            stale = snap["t"] <= after + SNAP_MAX_AGE
+            timed = a["kind"] in ("claude", "codex")
+            unreported = timed and (not rep or not rep["end"] or rep["end"] <= after)
+            if a["status"] == "waiting" and not stale and (unreported or not timed):
+                rc, screen, err = tmux_run(["capture-pane", "-p", "-t", pane])
+                if rc != 0:
+                    return 2, "", err or f"cannot read the screen of {pane}\n"
+                tail = [ln for ln in screen.splitlines() if ln.strip()][-20:]
+                return 7, "".join(ln + "\n" for ln in tail), f"{pane} is waiting for input\n"
+            busy = stale or unreported
         if not busy:
+            if rep and read is not None:
+                read["round"] = a["round"]
             return 0, (str(rep["text"]) + "\n") if rep else "", "" if rep else f"no report for {pane}\n"
         left = deadline - time.monotonic()
         if left <= 0:
@@ -1061,6 +1081,22 @@ def group_under_leads(agents, owners):
                     b["lead"] = a["pane"]
                     out.append(b)
     return out
+
+
+def adopt_crews(towns, owners):
+    """Move members whose @party_lead is a live agent of another squad into the lead's squad; drop squads that empties."""
+    home = {a["pane"]: t for t in towns.values() for a in t["agents"]}
+    emptied = []
+    for t in towns.values():
+        for a in list(t["agents"]):
+            dest = home.get(owners.get(a["pane"], ("", False, ""))[0])
+            if dest is not None and dest is not t:
+                t["agents"].remove(a)
+                dest["agents"].append(a)
+                emptied.append(t["name"])
+    for name in emptied:
+        if name in towns and not towns[name]["agents"]:
+            del towns[name]
 
 
 def collect(fixture=None, now=None):
@@ -1168,6 +1204,7 @@ def collect(fixture=None, now=None):
                 "transcript": tx,
                 "cwd": p.get("pane_current_path", ""),
                 "focus": p["window_active"] == "1" and p["pane_active"] == "1" and t["attached"],
+                "round": 0,
             }
         )
 
@@ -1175,8 +1212,15 @@ def collect(fixture=None, now=None):
     if others:
         changed = get_changed([a["pane"] for a in others], now)
         for a in others:
-            if changed.get(a["pane"]):
+            c = changed.get(a["pane"])
+            if isinstance(c, tuple):
+                c, menu = c
+                if menu and a["kind"] == "agy":
+                    a["status"] = "waiting"
+                    continue
+            if c:
                 a["status"] = "working"
+    adopt_crews(towns, owners)
     for t in towns.values():
         t["agents"].sort(key=lambda a: STATUS_ORDER.index(a["status"]))
         t["agents"] = group_under_leads(t["agents"], owners)
@@ -1190,22 +1234,50 @@ SNAP_MAX_AGE = 2.0
 SNAP_VERSION = int(max(os.stat(p).st_mtime for p in glob.glob(os.path.join(ROOT, "party_hud", "*.py"))))
 
 
-def mark_unseen(towns, state):
-    """Mark members "done" when they stop working while you are not looking, until you look.
-    state = last round's {pane: {"status", "unseen"}}. Changes towns in place; returns the new state."""
+def read_seen():
+    """{pane: round} of the last report read, from seen.json (written by mark_seen); empty when missing or broken."""
+    try:
+        with open(os.path.join(PARTY_DIR, "seen.json")) as f:
+            seen = json.load(f)
+    except (OSError, ValueError):
+        return {}
+    return seen if isinstance(seen, dict) else {}
+
+
+def mark_unseen(towns, state, seen=None):
+    """Mark members "done" when they stop working while you are not looking, until you look or read the report of that round.
+    state = last round's {pane: {"status", "unseen", "round"}} (older files lack round: 0); seen = {pane: round}. Changes towns in place; returns the new state."""
+    seen = seen or {}
     out = {}
     for t in towns:
         for a in t["agents"]:
             prev = state.get(a["pane"], {})
             raw = a["status"]
             settled = raw in ("idle", "sleep")
-            unseen = settled and not a["focus"] and (prev.get("unseen") or prev.get("status") == "working")
-            out[a["pane"]] = {"status": raw, "unseen": unseen}
+            rnd = prev.get("round", 0) + (settled and prev.get("status") == "working")
+            unseen = (
+                settled
+                and not a["focus"]
+                and (prev.get("unseen") or prev.get("status") == "working")
+                and seen.get(a["pane"], -1) < rnd
+            )
+            out[a["pane"]] = {"status": raw, "unseen": unseen, "round": rnd}
+            a["round"] = rnd
             if unseen:
                 a["status"] = "done"
         order = {a["pane"]: STATUS_ORDER.index(a["status"]) for a in t["agents"]}
         t["agents"].sort(key=lambda a: order[a.get("lead") or a["pane"]])
+    for pane, prev in state.items():
+        out.setdefault(pane, {"status": "", "unseen": False, "round": prev.get("round", 0)})
     return out
+
+
+def alerts(a, status):
+    return a["status"] == status and (status == "waiting" or not a.get("lead"))
+
+
+def unread_count(statuses, quiet):
+    return sum(s == "waiting" or (s == "done" and p not in quiet) for p, s in statuses.items())
 
 
 def bell_panes(prev, agents, panes):
@@ -1213,10 +1285,13 @@ def bell_panes(prev, agents, panes):
     prev None = first round, no bells. The collector rings for all: hidden windows have no sidebar process."""
     cur = {a["pane"]: a["status"] for a in agents}
     alert = ("waiting", "done")
+    quiet = {a["pane"] for a in agents if a["status"] == "done" and a.get("lead")}
     if prev is None:
         return [], cur
     ring = [
-        p for p, s in cur.items() if s in alert and prev.get(p) not in alert and not panes.get(p, {}).get("visible")
+        p
+        for p, s in cur.items()
+        if s in alert and prev.get(p) not in alert and not panes.get(p, {}).get("visible") and p not in quiet
     ]
     return ring, cur
 
@@ -1274,7 +1349,7 @@ def get_snapshot(fixture=None):
                 state = json.load(f)
         except (OSError, ValueError):
             state = {}
-        state = mark_unseen(new["towns"], state)
+        state = mark_unseen(new["towns"], state, read_seen())
         with open(f"{seen_path}.{os.getpid()}", "w") as f:
             json.dump(state, f)
         os.replace(f"{seen_path}.{os.getpid()}", seen_path)
@@ -1286,7 +1361,9 @@ def get_snapshot(fixture=None):
                 prev = json.load(f)
         except (OSError, ValueError):
             prev = None
-        ring, cur = bell_panes(prev, [a for t in new["towns"] for a in t["agents"]], new["panes"])
+        members = [a for t in new["towns"] for a in t["agents"]]
+        quiet = {a["pane"] for a in members if a.get("lead")}
+        ring, cur = bell_panes(prev, members, new["panes"])
         for pane in ring:
             try:  # O_NOCTTY: do not make this tty our controlling terminal
                 fd_tty = os.open(new["panes"][pane]["tty"], os.O_WRONLY | os.O_NOCTTY)
@@ -1298,11 +1375,11 @@ def get_snapshot(fixture=None):
                 pass
         for pane in status_changed(prev, cur):
             tmux("wait-for", "-S", wait_channel(pane))
-        unread = sum(s in ("waiting", "done") for s in cur.values())
-        if prev is None or unread != sum(s in ("waiting", "done") for s in prev.values()):
+        unread = unread_count(cur, quiet)
+        if unread != (prev or {}).get("reports"):
             tmux("set-option", "-g", "@party_reports", str(unread))
         with open(f"{bell_path}.{os.getpid()}", "w") as f:
-            json.dump(cur, f)
+            json.dump({**cur, "reports": unread}, f)
         os.replace(f"{bell_path}.{os.getpid()}", bell_path)
         # collection count (read by tests and bench/live.sh), kept outside the snapshot for the same reason
         seq_path = os.path.join(PARTY_DIR, "collections")

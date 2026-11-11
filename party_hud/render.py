@@ -18,6 +18,7 @@ from .art import (
     label_id,
     portrait_id,
 )
+from .collect import alerts
 from .common import BUILDINGS, CLASS_NAMES, RESET, STATUS_TAG, SUMMON_ICON, C, bg, class_icon, clip, cw, fg, printable
 
 SPINNER = "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏"
@@ -133,7 +134,7 @@ PIN_ICON = "\U000f034e"  # md-map-marker
 
 
 def squad_alert(agents):
-    return next((s for s in ("waiting", "done") if any(a["status"] == s for a in agents)), None)
+    return next((s for s in ("waiting", "done") if any(alerts(a, s) for a in agents)), None)
 
 
 def squad_marks(t, lit, cursor):
@@ -974,9 +975,7 @@ def squad_rows_art(t, pid, width, lit, cursor=False, home=False, pulse=False):
         name_col = fg("fg")
     alert = squad_alert(agents)
     asleep = sum(a["status"] == "sleep" for a in agents)
-    counts = (
-        f" · {sum(a['status'] == alert for a in agents)} {alert}" if alert else f" · {asleep} asleep" if asleep else ""
-    )
+    counts = f" · {sum(alerts(a, alert) for a in agents)} {alert}" if alert else f" · {asleep} asleep" if asleep else ""
     sub_col = STATUS_TAG[alert][2] if alert else STATUS_TAG["sleep"][2] if asleep else "dim"
     members = f"{len(agents)} member{'s' if len(agents) != 1 else ''}"
     pin = 2 if home else 0

@@ -33,7 +33,7 @@ from .art import (
     load_art,
     portrait_id,
 )
-from .collect import get_snapshot, report_for
+from .collect import alerts, get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
 from .render import (
     help_overlay,
@@ -47,7 +47,7 @@ from .render import (
     side_labels,
     sp_points,
 )
-from .sidebars import EXE, install_hooks, mark_sidebar, open_report_pane
+from .sidebars import EXE, install_hooks, mark_seen, mark_sidebar, open_report_pane
 
 
 def follow_here(st, towns, here):
@@ -171,9 +171,9 @@ def next_waiting(agents, cur):
     """Next pane after cur (wrapping) that is waiting, else done; cur if only it matches; else None."""
     panes = [a["pane"] for a in agents]
     i = panes.index(cur) if cur in panes else -1
-    status = {a["pane"]: a["status"] for a in agents}
+    by_pane = {a["pane"]: a for a in agents}
     order = panes[i + 1 :] + panes[: i + 1]
-    return next((p for s in ("waiting", "done") for p in order if status[p] == s), None)
+    return next((p for s in ("waiting", "done") for p in order if alerts(by_pane[p], s)), None)
 
 
 def current_squad(st, towns):
@@ -215,11 +215,51 @@ def jump_next():
     tmux("switch-client", "-t", target)
 
 
+MENU_ORDER = ["waiting", "done", "working", "idle", "sleep"]
+MENU_KEYS = "123456789abcdefghijklmnopqrstuvwxyz"
+
+
+def menu_args(towns):
+    """display-menu items (name, key, command ...): a disabled title per squad, then its members by status, crew right after its lead.
+    Names are tmux formats, so # , } are escaped; the command only ever holds our own path and a validated pane id."""
+    esc = lambda s: re.sub(r"[#,}]", lambda m: "#" + m[0], s)
+    rank = lambda a: MENU_ORDER.index(a["status"]) if a["status"] in MENU_ORDER else len(MENU_ORDER)
+    args, keys = [], iter(MENU_KEYS)
+    for t in towns:
+        if not t["agents"]:
+            continue
+        panes = {a["pane"] for a in t["agents"]}
+        tops = {a["pane"] for a in t["agents"] if a.get("lead") not in panes or a["lead"] == a["pane"]}
+        crew = [a for a in t["agents"] if a["pane"] not in tops and a["lead"] in tops]
+        rows = []
+        for lead in sorted((a for a in t["agents"] if a not in crew), key=rank):
+            rows.append((lead, ""))
+            rows += [(a, "  ") for a in sorted((a for a in crew if a["lead"] == lead["pane"]), key=rank)]
+        args += [f"-{esc(t['name'])} ", "", ""]
+        for a, indent in rows:
+            name = f"{indent or '#[default]'}{esc(a['name'])} · {a['status']}"
+            if not re.fullmatch(r"%[0-9]+", a["pane"]):
+                args += ["-" + name, "", ""]
+                continue
+            shell = EXE.replace("#", "##") + " --open-report " + a["pane"]
+            quoted = shell.replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
+            args += [name, next(keys, ""), f'run-shell -b "{quoted}"'.replace("#", "##")]
+    return args
+
+
+def open_menu():
+    args = menu_args(get_snapshot()["towns"])
+    if not args:
+        tmux("display-message", "no party members")
+        return
+    tmux("display-menu", "--", *args)  # the first item is a "-Squad " title; without "--" tmux parses it as a flag
+
+
 def report_queue(towns, pane=None, window=None):
     """[(squad name, member)] to read: pane (any status) first when given, then waiting, done, working with running subagents,
     then everyone else, members in window before the rest."""
     members = [(t["name"], a) for t in towns for a in t["agents"]]
-    queue = [m for s in ("waiting", "done") for m in members if m[1]["status"] == s]
+    queue = [m for s in ("waiting", "done") for m in members if alerts(m[1], s)]
     queue += [m for m in members if m[1]["status"] == "working" and m[1].get("summons")]
     rest = [m for m in members if m not in queue]
     here = [m for m in rest if window and m[1].get("window") == window]
@@ -435,6 +475,7 @@ def run_report(pane=None, fixture=None):
     )
     anim = not fixture and report_anim_enabled(tmux("show-option", "-gqv", "@party_anim"))
     reports, peeks, i = {}, {}, 0
+    read_rounds: dict[str, int] = {}
     fresh, cut, helping = True, False, False
     drawn: dict[int, tuple[int, int]] | None = None
     sent: dict[int, tuple[int, int]] = {}
@@ -461,6 +502,12 @@ def run_report(pane=None, fixture=None):
             if a["pane"] not in reports:
                 reports[a["pane"]] = None if fixture else report_for(a)
             report = reports[a["pane"]]
+            if is_final(report) and read_rounds.get(a["pane"]) != a["round"]:
+                read_rounds[a["pane"]] = a["round"]
+                try:
+                    mark_seen(a["pane"], a["round"])
+                except OSError:
+                    log_error()
             peek = report_peek(peeks, a["pane"], report, fixture, lambda p: capture(p, color=True))
             live = bool(report and report.get("live"))
             next_live = time.monotonic() + LIVE_REFRESH
@@ -566,6 +613,18 @@ def run_report(pane=None, fixture=None):
                     i = report_step("N" if "N" in keys and "n" not in keys else "n", i, len(queue))
                     peeks.pop(queue[i][1]["pane"], None)
                     reports.pop(queue[i][1]["pane"], None)
+                    if not fixture:
+                        cur = next(
+                            (
+                                m
+                                for t in get_snapshot()["towns"]
+                                for m in t["agents"]
+                                if m["pane"] == queue[i][1]["pane"]
+                            ),
+                            None,
+                        )
+                        if cur is not None:
+                            queue[i] = (queue[i][0], cur)
                     drawn = None
                     resized = False
                     fresh = True

@@ -164,11 +164,16 @@ t set-environment -g PATH "$fake:$PATH"
 as_host() { env PATH="$fake:$PATH" TMUX="$(t display -p '#{socket_path},#{pid},0')" TMUX_PANE="$host" python3 "$party" "$@"; }
 member=$(as_host --summon agy --timeout 30)
 check "Summon: --summon agy prints the new pane id" test -n "$member"
+crew="crew-${host#%}"
+check "Summon: the member sits in the detached session crew-<host number>" eq "$(t display -p -t "$member" '#{session_name}')" "$crew"
+sleep 1
+check "Summon: the crew session has no sidebar pane" eq "$(t list-panes -s -t "$crew" -F '#{@party_sidebar}' | grep -c '^1$')" "0"
 sent=$(as_host --ask "$member" "hello")
 check "Ask: --ask prints the time it sent" test -n "$sent"
 check "Ask then report: --report-text --wait --after returns the agent's reply" \
   eq "$(as_host --report-text "$member" --wait --after "$sent" --timeout 30)" "party-test-reply-42"
-t kill-pane -t "$member" 2>/dev/null
+check "Dismiss: a member whose report was read is closed" test "$(as_host --dismiss "$member"; echo $?)" = 0
+check "Dismiss: closing the last member of the crew session ends that session" eq "$(t has-session -t "=$crew" 2>/dev/null && echo up || echo gone)" "gone"
 
 # Pressing q in a sidebar hides all sidebars (including itself)
 t send-keys -t "$(t list-panes -a -F '#{pane_id} #{@party_sidebar} #{pane_dead}' | grep ' 1 0$' | head -1 | cut -d' ' -f1)" q

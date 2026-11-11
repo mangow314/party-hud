@@ -25,7 +25,8 @@ A module imports only modules listed above it, so there are no import cycles.
  sidebar pane ------------------------>  --sidebar  the long-running UI, one per window
  prefix P ---------------------------->  --watch    the same UI in a popup
  prefix a ---------------------------->  --next     jump to the next waiting / done member and exit
- prefix R, sidebar r ----------------->  --open-report  open a report pane: floating (tmux 3.8+) or split, running --report
+ prefix R ---------------------------->  --menu      display-menu of members by squad; a pick runs --open-report
+ sidebar r --------------------------->  --open-report  open a report pane: floating (tmux 3.8+) or split, running --report
 ```
 
 ## One collector, many readers
@@ -72,11 +73,22 @@ All in `$XDG_RUNTIME_DIR/party-hud/` (or `~/.cache/party-hud/`). Deleting the fo
 | `snapshot.json` / `snapshot.lock` | shared snapshot and its lock |
 | `<pane>.json` | statusline integration output (see [integrations](integrations.md)) |
 | `activity.json` | CRC32 of each non-Claude pane's screen and when it last changed |
-| `unseen.json` | members that finished while you were not looking ("done" until you look) |
-| `bells.json` | each member's status at the last collection, to ring only on a change, and to set the tmux option `@party_reports` (members waiting or done) only when that number changes |
+| `unseen.json` | per pane `{status, unseen, round}`: members that finished while you were not looking ("done" until you look or read the report), and the round counter below; a pane that is gone keeps its round |
+| `seen.json` / `seen.lock` | per pane, the round whose report was read (see Crew) |
+| `bells.json` | each member's status at the last collection, to ring only on a change, plus the key `reports`: the unread count last written to the tmux option `@party_reports` (waiting members, and done members that have no lead), which is set only when that number changes |
 | `collections` | how many times data was collected (used by the tests and `bench/live.sh`) |
 | `cursor.json` | shared cursor, so every sidebar highlights the same member |
 | `error.log` | tracebacks; a sidebar that hits an error logs it and retries next second |
+
+## Crew
+
+`--summon` opens a member in the detached session `crew-<lead pane number>` (created at the lead window's size; later members become new windows in it) unless `--window` or `--here` is given. `--ensure` returns at once for a session whose name starts with `crew-`, so those sessions get no sidebar (the new-session hook fires before any option could be set, so the name is the test; a session you name `crew-xxx` yourself is treated the same). The summoned pane carries the pane option `@party_lead` (the lead's pane). The collector moves a member whose `@party_lead` is a live agent in another squad into the lead's squad and drops the squad that this empties (`adopt_crews`), then `group_under_leads` lists it right under its lead. This goes one level only: a member whose lead is itself a member of another lead is not indented under it and is not treated as crew (its done still alerts); it stays in the squad where its lead sits at collection time. When the lead pane is gone, the crew session shows as an ordinary squad.
+
+A crew member's `done` does not alert: it does not rank in the report queue's waiting/done tier (it falls in the rest), `--next`, bells, `@party_reports` and the squad alert (and the squad title's "· N done"). `waiting` alerts as for anyone. Without a lead the member alerts again.
+
+Round numbers: each time the collector sees a member go from working to idle or asleep, its `round` grows by 1 (kept in `unseen.json`, put in the snapshot). When the report page shows a finished report, or `--report-text` prints a non-empty report (exit 0), that member's `seen` becomes the `round` of the report shown. `mark_unseen` does not mark a member `done` when `seen >= round`, so a report read through `--report-text` stops the "done" mark, and `--dismiss` accepts a done member whose `seen` caught up. `seen.json` has its own lock, `seen.lock`, and is replaced atomically; the collector only reads it. It does not reuse `snapshot.lock` so that the report page and `--report-text` never wait for a collection, and "only the lock holder collects" stays true. The round only advances while some collector runs, so with no sidebar or reader two rounds can count as one; a member no collector saw working is not marked done, so neither the alert nor the `--dismiss` unread check fires for it; `--report-text --after` compares the report time, not the round, and still returns a report newer than the question.
+
+A summoned member does not summon: `summon` in `sidebars.py` exits 6 when the caller pane has `@party_lead` and that pane still exists. Collaboration follows how people split work: a crew member does the one thing it was given, reports to its lead what it needs, and the lead decides whether to bring someone in or take it to the user. When the lead pane is gone the member can summon again.
 
 ## Images
 

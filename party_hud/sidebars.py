@@ -1,5 +1,6 @@
 """Sidebar panes: open, close, restart, hooks, widths."""
 
+import fcntl
 import json
 import math
 import os
@@ -12,7 +13,16 @@ import zlib
 from datetime import datetime, timezone
 
 from .art import ART_MIN_WIDTH
-from .collect import AGENT_CMDS, FIELD_SEP, READ_ONLY_CMDS, agent_kind, get_snapshot, lonely_sidebars
+from .collect import (
+    AGENT_CMDS,
+    FIELD_SEP,
+    READ_ONLY_CMDS,
+    agent_kind,
+    get_snapshot,
+    lonely_sidebars,
+    read_seen,
+    subagent_unanswered,
+)
 from .common import CURSOR, PARTY_DIR, ROOT, tmux, tmux_run
 
 SIDEBAR_WIDTH = 34
@@ -120,14 +130,19 @@ def open_report_pane(target, pane):
 SUMMON_POLL = 1.0
 
 
-def summon(agent, cwd, window, timeout, read_only=False):
-    """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments or tmux failure, 3 timeout.
+def summon(agent, cwd, window, timeout, read_only=False, here=False):
+    """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments or tmux failure, 3 timeout,
+    6 the caller is crew of a lead whose pane still exists (it reports to the lead instead).
+    Default: a window in the detached session crew-<caller pane number> (created at the caller's window size);
+    window: a new window in the caller's session; here: a split beside the caller.
     Ready = the pane's agent is recognised, two polls in a row see the same screen (CRC32), and the snapshot lists the pane
     (so --ask and --report-text, which read the snapshot, accept it right away)."""
     if agent not in AGENT_CMDS:
         return 2, "", f"unknown agent: {agent} (one of {', '.join(AGENT_CMDS)})\n"
     if read_only and agent not in READ_ONLY_CMDS:
         return 2, "", f"{agent} has no enforced read-only mode (only: {', '.join(READ_ONLY_CMDS)})\n"
+    if window and here:
+        return 2, "", "--window and --here are mutually exclusive\n"
     caller = os.environ.get("TMUX_PANE", "")
     if not caller:
         return 2, "", "not inside tmux ($TMUX_PANE is not set)\n"
@@ -136,10 +151,31 @@ def summon(agent, cwd, window, timeout, read_only=False):
     cwd = os.path.abspath(cwd or os.getcwd())
     if not os.path.isdir(cwd):
         return 2, "", f"not a directory: {cwd}\n"
-    where = ["new-window"] if window else ["split-window", "-t", caller]
-    rc, out, err = tmux_run(
-        [*where, "-P", "-F", "#{pane_id}", "-c", cwd, (READ_ONLY_CMDS if read_only else AGENT_CMDS)[agent]]
-    )
+    rc, out, err = tmux_run(["display-message", "-p", "-t", caller, "#{@party_lead}"])
+    if rc != 0:
+        return 2, "", err or f"no such pane: {caller}\n"
+    lead = out.rstrip("\n")
+    if lead and tmux_run(["display-message", "-p", "-t", lead, "#{pane_id}"])[0] == 0:
+        return 6, "", f"{caller} is crew of {lead}: report to your lead instead of summoning\n"
+    cmd = (READ_ONLY_CMDS if read_only else AGENT_CMDS)[agent]
+    if window:
+        where = ["new-window"]
+    elif here:
+        where = ["split-window", "-t", caller]
+    else:
+        crew = f"crew-{caller[1:]}"
+        if tmux_run(["has-session", "-t", f"={crew}"])[0] == 0:
+            where = ["new-window", "-d", "-t", f"{crew}:"]
+        else:
+            rc, out, err = tmux_run(
+                ["display-message", "-p", "-t", caller, FIELD_SEP.join(["#{window_width}", "#{window_height}"])]
+            )
+            size = out.strip().split(FIELD_SEP)
+            if rc != 0 or len(size) != 2:
+                return 2, "", err or f"cannot read the window size of {caller}\n"
+            where = ["new-session", "-d", "-s", crew, "-x", size[0], "-y", size[1]]
+    # tmux expands formats in -c, and ## is a literal #
+    rc, out, err = tmux_run([*where, "-P", "-F", "#{pane_id}", "-c", cwd.replace("#", "##"), cmd])
     pane = out.strip()
     if rc != 0 or not pane:
         return 2, "", err or "tmux could not open the pane\n"
@@ -166,6 +202,35 @@ def summon(agent, cwd, window, timeout, read_only=False):
         if left <= 0:
             return 3, "", f"timed out waiting for {pane}\n"
         time.sleep(min(SUMMON_POLL, left))
+
+
+def dismiss(pane):
+    """(rc, stdout, stderr) for party.py --dismiss. rc: 0 pane closed, 2 not in tmux, bad or missing pane, 4 not an agent,
+    6 not allowed (not summoned by the caller, still working, waiting for input, or its report is not read yet)."""
+    caller = os.environ.get("TMUX_PANE", "")
+    if not caller:
+        return 2, "", "not inside tmux ($TMUX_PANE is not set)\n"
+    if not pane.startswith("%") or not pane[1:].isdigit():
+        return 2, "", f"not a pane id: {pane}\n"
+    rc, out, err = tmux_run(["display-message", "-p", "-t", pane, "#{@party_lead}"])
+    if rc != 0:
+        return 2, "", err or f"no such pane: {pane}\n"
+    lead = out.rstrip("\n")
+    agent = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
+    if agent is None:
+        return 4, "", f"not a known agent: {pane}\n"
+    if lead != caller:
+        return 6, "", f"{pane}: not summoned by you\n"
+    if agent["status"] == "working" or agent.get("summons") or subagent_unanswered(agent):
+        return 6, "", f"{pane}: still working\n"
+    if agent["status"] == "waiting":
+        return 6, "", f"{pane}: waiting for input, not dismissed\n"
+    if agent["status"] == "done" and read_seen().get(pane, -1) < agent.get("round", 0):
+        return 6, "", f"{pane}: report not read yet; run --report-text first\n"
+    rc, _, err = tmux_run(["kill-pane", "-t", pane])
+    if rc != 0:
+        return 2, "", err or f"tmux could not close {pane}\n"
+    return 0, "", ""
 
 
 CREW_KEEP_DAYS = 14
@@ -262,6 +327,24 @@ def crew_summoned(pane):
 def crew_asked(pane, text, sent, agent, cwd):
     """Save a sent question as the next round. Returns "" or an error message."""
     return _crew_run(_crew_asked, pane, text, sent, agent, cwd)
+
+
+def mark_seen(pane, rnd):
+    """Record in seen.json that the report of round rnd of pane was read; never lowers a value. Raises OSError."""
+    os.makedirs(PARTY_DIR, exist_ok=True)
+    path = os.path.join(PARTY_DIR, "seen.json")
+    fd = os.open(os.path.join(PARTY_DIR, "seen.lock"), os.O_CREAT | os.O_RDWR, 0o600)
+    try:
+        fcntl.flock(fd, fcntl.LOCK_EX)
+        seen = read_seen()
+        if seen.get(pane, -1) >= rnd:
+            return
+        seen[pane] = rnd
+        with open(f"{path}.{os.getpid()}", "w") as f:
+            json.dump(seen, f)
+        os.replace(f"{path}.{os.getpid()}", path)
+    finally:
+        os.close(fd)
 
 
 def crew_replied(pane, reply, rc):
@@ -390,6 +473,8 @@ def remember_width():
 
 
 def ensure(window_id):
+    if tmux("display-message", "-p", "-t", window_id, "#{session_name}").strip().startswith("crew-"):
+        return
     if "1" in tmux("list-panes", "-t", window_id, "-F", "#{@party_sidebar}").split():
         return
     pid = tmux(
