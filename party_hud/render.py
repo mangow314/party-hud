@@ -1181,7 +1181,13 @@ def select_preview(roster, towns, at, width, height, report, now, peek=()):
         rows += [f"  {fg('fg', True)}{r}{RESET}" for r in ask]
     rows += [
         "",
-        fg("gold", True) + report_state(a, report) + RESET + fg("dim") + "  preview · not marked read" + RESET,
+        fg("gold", True)
+        + report_state(a, report)
+        + RESET
+        + fg("dim")
+        + "  preview"
+        + " · unread" * (a["status"] == "done")
+        + RESET,
         fg("line") + "─" * width + RESET,
     ]
     body = report_rows(report, peek, a.get("summons", []), width, width, now, False)

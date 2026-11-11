@@ -576,10 +576,10 @@ for w, h in [(180, 47), (100, 30), (78, 20), (77, 20), (36, 12), (35, 12), (34, 
             seen_all = seen_all and len(out) == h and all(common.cw(strip(r)) == w for r in out)
 ok(seen_all, "select screen: exactly height rows of exactly width cells, wide and narrow panes, tiny heights, with and without art and report")
 wide_r, wider_r = srows_of(100, 40, "%2"), srows_of(180, 40, "%2")
-rule_w = lambda out: len(strip(out[next(i for i, r in enumerate(out) if "not marked read" in strip(r)) + 1])[38:].rstrip())
+rule_w = lambda out: len(strip(out[next(i for i, r in enumerate(out) if "  preview" in strip(r)) + 1])[38:].rstrip())
 ok(rule_w(wide_r) == 100 - 36 - 2 and rule_w(wider_r) == 180 - 36 - 2,
    "select screen: the preview column is the pane width minus the list and the gap, so it grows with the pane")
-ok("not marked read" in "".join(strip(r) for r in srows_of(78, 40, "%2")) and "not marked read" not in "".join(strip(r) for r in srows_of(77, 40, "%2"))
+ok("  preview" in "".join(strip(r) for r in srows_of(78, 40, "%2")) and "  preview" not in "".join(strip(r) for r in srows_of(77, 40, "%2"))
    and all(strip(r).startswith(" ") and common.cw(strip(r)) == 77 for r in srows_of(77, 40, "%2")) and strip(srows_of(77, 40, "%2")[2])[3] in "╭╔",
    "select screen: a pane too narrow for the preview draws only the list, flush left")
 cur = srows_of(180, 40, "%4")
@@ -617,11 +617,13 @@ ok(any("$ make test" in r for r in pk_rows(None, ["$ make test", "ok"])) and not
    and any("no report yet" in r for r in pk_rows(None, [])) and not any("$ make test" in r for r in pk_rows(srep, ["$ make test"])),
    "select screen: with no report the preview shows the pane's last lines, and no report yet only when there are none either")
 live_r = {"live": True, "start": 3700.0, "end": None, "text": "", "tool": "Bash make", "said": "building", "prev": None, "task": {}}
-st_of = lambda status, rep, pk_=(): next((strip(r)[38:] for r in render.render_select(srs, sst, {"done": "%3", "waiting": "%4", "idle": "%1", "working": "%2"}[status], 120, 30, rep, 4000.0, None, False, pk_) if "preview · not marked read" in strip(r)), "")
+st_of = lambda status, rep, pk_=(): next((strip(r)[38:] for r in render.render_select(srs, sst, {"done": "%3", "waiting": "%4", "idle": "%1", "working": "%2"}[status], 120, 30, rep, 4000.0, None, False, pk_) if "  preview" in strip(r)), "")
 fin = dict(srep, live=False)
 ok(st_of("done", fin).startswith("Quest complete") and st_of("waiting", fin).startswith("Waiting for you") and st_of("idle", fin).startswith("Report")
    and st_of("working", live_r).startswith("Working") and st_of("working", None, ["x"]).startswith("Last output"),
    "select screen: the preview title row opens with the state word the report page uses")
+ok("preview · unread" in st_of("done", fin) and all(t.rstrip().endswith("preview") and "unread" not in t for t in (st_of("working", live_r), st_of("idle", fin))),
+   "select screen: the preview title row says unread for a done member and only preview for a working or idle one")
 wk = [strip(r) for r in render.render_select(srs, sst, "%2", 120, 30, live_r, 4000.0, None, False)]
 ok(sum("Working" in r for r in wk) == 1 and any("RUNNING" in r and "5m 00s" in r for r in wk), "select screen: a working preview names the state once (title row) and keeps the time")
 many = [("S", sm(f"%{i}", f"m{i}", "idle"), False) for i in range(12)] + [("S", sm("%30", "crew-a", "waiting", "%11"), True)]
