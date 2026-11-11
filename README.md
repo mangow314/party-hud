@@ -96,7 +96,14 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 `--summon` opens the member in a background tmux session, listed under its lead in the sidebar.
 `--read-only` makes codex read-only through its sandbox; claude, grok and agy use their own plan mode, which the agent enforces itself.
 
-The path is the TPM install path; with a clone, use your checkout. With the bundled `party-crew` skill you can tell Claude Code "ask codex for a second opinion on this diff".
+To let Claude Code use it for you, link the bundled `party-crew` skill once:
+
+```sh
+mkdir -p ~/.claude/skills
+ln -s ~/.tmux/plugins/party-hud/skills/party-crew ~/.claude/skills/party-crew
+```
+
+The path is the TPM install path; with a clone, use your checkout. Then you can tell Claude Code "ask codex for a second opinion on this diff".
 Placement options, exit codes, dismissing, saved rounds, the skill and the sandbox setting: [docs/crew.md](docs/crew.md).
 
 ## Footprint

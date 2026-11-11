@@ -90,7 +90,14 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 `--summon` 預設把隊員開在背景的 tmux session，側欄把它列在召喚它的隊員底下。
 `--read-only` 讓 codex 用沙箱唯讀；claude、grok、agy 用自己的 plan 模式，由 agent 自己擋改檔。
 
-路徑是 TPM 的安裝位置；用 clone 的話換成你的 checkout 路徑。裝好內附的 `party-crew` skill 後，可以直接跟 Claude Code 說「找 codex 給這個 diff 第二意見」。
+想讓 Claude Code 代你使用，只要把內附的 `party-crew` skill 連結一次：
+
+```sh
+mkdir -p ~/.claude/skills
+ln -s ~/.tmux/plugins/party-hud/skills/party-crew ~/.claude/skills/party-crew
+```
+
+路徑是 TPM 的安裝位置；用 clone 的話換成你的 checkout 路徑。之後可以直接跟 Claude Code 說「找 codex 給這個 diff 第二意見」。
 位置選項、退出碼、解散條件、問答紀錄、skill 安裝和沙箱設定見 [docs/crew.md](docs/crew.md)（英文）。
 
 ## 佔用
