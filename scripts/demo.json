@@ -1,0 +1,366 @@
+{
+ "fixture": {
+  "panes": [
+   {
+    "session_name": "webapp",
+    "window_index": "1",
+    "window_name": "auth-refactor",
+    "window_active": "1",
+    "session_attached": "1",
+    "pane_id": "%1",
+    "pane_active": "1",
+    "pane_current_command": "claude",
+    "pane_current_path": "/work",
+    "@workmux_pane_status": "",
+    "pane_pid": "",
+    "window_id": "@1"
+   },
+   {
+    "session_name": "webapp",
+    "window_index": "2",
+    "window_name": "api-tests",
+    "window_active": "0",
+    "session_attached": "1",
+    "pane_id": "%2",
+    "pane_active": "1",
+    "pane_current_command": "claude",
+    "pane_current_path": "/work",
+    "@workmux_pane_status": "",
+    "pane_pid": "",
+    "window_id": "@2"
+   },
+   {
+    "session_name": "webapp",
+    "window_index": "3",
+    "window_name": "codex",
+    "window_active": "0",
+    "session_attached": "1",
+    "pane_id": "%3",
+    "pane_active": "1",
+    "pane_current_command": "codex",
+    "pane_current_path": "/work",
+    "@workmux_pane_status": "",
+    "pane_pid": "",
+    "window_id": "@3"
+   },
+   {
+    "session_name": "infra",
+    "window_index": "4",
+    "window_name": "terraform",
+    "window_active": "0",
+    "session_attached": "1",
+    "pane_id": "%4",
+    "pane_active": "1",
+    "pane_current_command": "claude",
+    "pane_current_path": "/work",
+    "@workmux_pane_status": "✅",
+    "pane_pid": "",
+    "window_id": "@4"
+   },
+   {
+    "session_name": "docs",
+    "window_index": "5",
+    "window_name": "changelog",
+    "window_active": "0",
+    "session_attached": "0",
+    "pane_id": "%5",
+    "pane_active": "1",
+    "pane_current_command": "claude",
+    "pane_current_path": "/work",
+    "@workmux_pane_status": "",
+    "pane_pid": "",
+    "window_id": "@5"
+   },
+   {
+    "session_name": "research",
+    "window_index": "6",
+    "window_name": "notes",
+    "window_active": "0",
+    "session_attached": "0",
+    "pane_id": "%6",
+    "pane_active": "1",
+    "pane_current_command": "nvim",
+    "pane_current_path": "/work",
+    "@workmux_pane_status": "",
+    "pane_pid": "",
+    "window_id": "@6"
+   },
+   {
+    "session_name": "scratch",
+    "window_index": "7",
+    "window_name": "tmp",
+    "window_active": "0",
+    "session_attached": "0",
+    "pane_id": "%8",
+    "pane_active": "1",
+    "pane_current_command": "nvim",
+    "pane_current_path": "/work",
+    "@workmux_pane_status": "",
+    "pane_pid": "",
+    "window_id": "@8"
+   }
+  ],
+  "now": 10000,
+  "sessions": {
+   "%1": {
+    "sid": "a1",
+    "name": "auth-refactor",
+    "status": "busy"
+   },
+   "%2": {
+    "sid": "a2",
+    "name": "api-tests",
+    "status": "idle"
+   },
+   "%4": {
+    "sid": "a4",
+    "name": "terraform-plan",
+    "status": "idle"
+   },
+   "%5": {
+    "sid": "a5",
+    "name": "changelog",
+    "status": "idle"
+   }
+  },
+  "party": {
+   "%1": {
+    "session_id": "a1",
+    "ctx_left": 62,
+    "ctx_size": 1000000,
+    "transcript": "/t/1",
+    "model": "Opus 5.5"
+   },
+   "%2": {
+    "session_id": "a2",
+    "ctx_left": 91,
+    "ctx_size": 200000,
+    "transcript": "/t/2",
+    "model": "Sonnet 5.5"
+   },
+   "%4": {
+    "session_id": "a4",
+    "ctx_left": 40,
+    "ctx_size": 200000,
+    "transcript": "/t/4",
+    "model": "Haiku 5.5"
+   },
+   "%5": {
+    "session_id": "a5",
+    "ctx_left": 75,
+    "ctx_size": 200000,
+    "transcript": "/t/5",
+    "model": "Sonnet 5.5"
+   }
+  },
+  "cache": {
+   "/t/1": [
+    9900,
+    3600,
+    380000
+   ],
+   "/t/2": [
+    8200,
+    3600,
+    18000
+   ],
+   "/t/4": [
+    9400,
+    300,
+    120000
+   ],
+   "/t/5": [
+    1000,
+    300,
+    50000
+   ]
+  },
+  "summons": {
+   "/t/1": [
+    {
+     "type": "explore",
+     "desc": "find callers"
+    },
+    {
+     "type": "test",
+     "desc": "run suite"
+    }
+   ]
+  },
+  "codex": {
+   "%3": [
+    160000,
+    400000
+   ],
+   "%7": [
+    90000,
+    400000
+   ]
+  },
+  "reports": {
+   "lead": {
+    "pane": "%1",
+    "pos": 3,
+    "total": 6,
+    "report": {
+     "live": true,
+     "start": 9700,
+     "end": null,
+     "tool": "edit src/auth/middleware.ts",
+     "said": "The session tests pass. Now switching the middleware over to the token store, then I will run the api suite.",
+     "prev": {
+      "text": "# Token store\n\nAdded `TokenStore` with `get`, `set` and `revoke`. Sessions are not switched over yet.\n\n- Tokens are kept for 30 minutes\n- `revoke` also clears the cookie\n"
+     },
+     "task": {
+      "ask": "Move session middleware to the new token store",
+      "files": [
+       "/work/webapp/src/auth/session.ts",
+       "/work/webapp/src/auth/store.ts"
+      ],
+      "cmds": 14,
+      "agents": 2,
+      "dir": "~/work/webapp",
+      "branch": "auth-refactor",
+      "cwd": "/work/webapp"
+     }
+    }
+   },
+   "crew": {
+    "pane": "%7",
+    "pos": 2,
+    "total": 6,
+    "report": {
+     "text": "# Review of the token store\n\nThe store and its tests look good. One question before I go on.\n\n## Question\nShould `revoke()` also clear the session cookie, or only the stored token?\n\n- Clearing both logs the user out everywhere\n- Clearing only the token keeps the cookie until it expires\n\n## What I checked\n| File | Result |\n|------|--------|\n| store.ts | ok |\n| session.ts | one open question |\n\nReply with `both` or `token` and I will finish the review.\n",
+     "start": 9930,
+     "end": 9985,
+     "task": {
+      "ask": "Review the token store changes",
+      "files": [
+       "/work/webapp/src/auth/store.ts",
+       "/work/webapp/src/auth/session.ts"
+      ],
+      "cmds": 6,
+      "agents": 0,
+      "dir": "~/work/webapp",
+      "branch": "auth-refactor",
+      "cwd": "/work/webapp"
+     }
+    }
+   },
+   "done": {
+    "pane": "%4",
+    "pos": 1,
+    "total": 6,
+    "agent": {
+     "status": "done",
+     "summons": []
+    },
+    "report": {
+     "text": "# Staging network plan\n\nThe plan adds two subnets and one route table. Nothing is destroyed.\n\n## What changes\n- `subnet-a` and `subnet-b` are created in two zones\n- The route table sends outbound traffic through the gateway\n- Two security group rules are tightened\n\n## Plan summary\n| Action | Count |\n|--------|-------|\n| add    | 5     |\n| change | 2     |\n| destroy | 0    |\n\n## Risks\n- The new route table replaces the default one for both subnets\n- Rolling back means removing the two subnets by hand\n- The tightened rules close port 8080 to the old range\n\n## Cost\n| Item | Per month |\n|------|-----------|\n| gateway | 32 |\n| transfer | about 10 |\n\n## Follow-ups\n- Add the two subnets to the monitoring dashboard\n- Review the security group rules again next week\n\n## Before you apply\nCheck the plan once more, then apply it:\n\n```bash\nterraform plan -out=staging.plan\nterraform apply staging.plan\n```\n",
+     "start": 9400,
+     "end": 9880,
+     "task": {
+      "ask": "Plan the staging network change",
+      "files": [
+       "/work/infra/network.tf",
+       "/work/infra/routes.tf"
+      ],
+      "cmds": 9,
+      "agents": 1,
+      "dir": "~/work/infra",
+      "branch": "staging-net",
+      "cwd": "/work/infra"
+     }
+    }
+   }
+  }
+ },
+ "screens": {
+  "lead": {
+   "main": [
+    "{DIM}~/work/webapp (auth-refactor)",
+    "",
+    "{ACC}> {TXT}move the session middleware to the new token store",
+    "",
+    "{DIM}  read   {TXT}src/auth/session.ts",
+    "{DIM}  read   {TXT}src/auth/token-store.ts",
+    "{DIM}  edit   {TXT}src/auth/session.ts        {OK}+42 {ACC}-17",
+    "{DIM}  edit   {TXT}src/auth/middleware.ts     {OK}+8 {ACC}-3",
+    "{DIM}  run    {TXT}npm test",
+    "         {OK}128 passed{DIM}, 0 failed",
+    "",
+    "{DIM}  2 helpers are checking the other routes ..."
+   ],
+   "status": "\u001b[1m{ACC} webapp \u001b[0m{TXT} 1:auth-refactor* {DIM}2:api-tests  3:codex"
+  },
+  "crew": {
+   "main": [
+    "{DIM}~/work/webapp (review)",
+    "",
+    "{ACC}> {TXT}review the token store changes",
+    "",
+    "{DIM}  read   {TXT}src/auth/store.ts",
+    "{DIM}  read   {TXT}src/auth/session.ts",
+    "{DIM}  run    {TXT}npm test -- store",
+    "         {OK}32 passed{DIM}, 0 failed",
+    "",
+    "{TXT}  One question about revoke(): clear the cookie too?",
+    "{ACC}  ? {TXT}Reply both or token to finish the review"
+   ],
+   "status": "\u001b[1m{ACC} crew-1 \u001b[0m{TXT} 1:review*"
+  }
+ },
+ "crew": {
+  "session_name": "crew-1",
+  "window_index": "1",
+  "window_name": "review",
+  "window_active": "0",
+  "session_attached": "1",
+  "pane_id": "%7",
+  "pane_active": "1",
+  "pane_current_command": "codex",
+  "pane_current_path": "/work",
+  "@workmux_pane_status": "🤖",
+  "@party_lead": "%1",
+  "pane_pid": "",
+  "window_id": "@7"
+ },
+ "steps": [
+  {"dur": 0.6, "view": "window", "screen": "lead", "caption": ["", "five squads: the empty ones fold into +2 empty"]},
+  {"dur": 0.6},
+  {"dur": 0.6},
+  {"dur": 0.6},
+  {"dur": 0.6},
+  {"dur": 0.6},
+  {"dur": 0.6},
+  {"dur": 0.6},
+  {"dur": 1.0, "caption": ["", "the lead summons a codex crew"], "set": {"panes": {"%7": {"session_name": "crew-1", "window_index": "1", "window_name": "review", "window_active": "0", "session_attached": "1", "pane_id": "%7", "pane_active": "1", "pane_current_command": "codex", "pane_current_path": "/work", "@workmux_pane_status": "🤖", "@party_lead": "%1", "pane_pid": "", "window_id": "@7"}}, "screen_changed": ["%7"]}},
+  {"dur": 1.0},
+  {"dur": 0.4, "flash": ["%7"], "caption": ["", "the crew asks for you"], "set": {"panes": {"%7": {"@workmux_pane_status": "💬"}}, "screen_changed": []}},
+  {"dur": 0.4},
+  {"dur": 0.4, "flash": ["%7"]},
+  {"dur": 1.5},
+  {"dur": 1.5, "sel": "%7", "caption": ["n", "select the member waiting for you"]},
+  {"dur": 2.0, "sel": null, "screen": "crew", "caption": ["Enter", "jump to its window"], "set": {"panes": {"%7": {"window_active": "1", "session_attached": "1"}, "%1": {"session_attached": "0"}, "%2": {"session_attached": "0"}, "%3": {"session_attached": "0"}}}},
+  {"dur": 1.0, "view": "select", "sel": "%1", "report": "lead", "caption": ["prefix R", "open the party select"]},
+  {"dur": 1.0},
+  {"dur": 1.0},
+  {"dur": 1.0},
+  {"dur": 0.8, "sel": "%7", "report": "crew", "caption": ["j", "next member"]},
+  {"dur": 1.7, "sel": "%4", "report": "done", "caption": ["j", "next member"]},
+  {"dur": 0.35, "view": "report", "report": "done", "offset": 0, "reveal": 0, "caption": ["Enter", "open the report"]},
+  {"dur": 0.35, "reveal": 1},
+  {"dur": 0.35, "reveal": 2},
+  {"dur": 0.35, "reveal": 3},
+  {"dur": 1.2, "reveal": null},
+  {"dur": 1.0, "offset": 4, "caption": ["j", "scroll"]},
+  {"dur": 1.2, "offset": 8},
+  {"dur": 1.5, "report": "crew", "offset": 0, "caption": ["n", "next report"]},
+  {"dur": 1.0, "report": "lead", "caption": ["n", "next report"]},
+  {"dur": 1.0},
+  {"dur": 1.0},
+  {"dur": 1.0, "view": "select", "sel": "%1", "report": "lead", "caption": ["h", "back to the select screen"]},
+  {"dur": 1.0},
+  {"dur": 2.0, "view": "window", "sel": null, "caption": ["q", "close"]}
+ ]
+}

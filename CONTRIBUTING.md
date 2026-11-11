@@ -71,4 +71,10 @@ python3 scripts/screenshot.py scripts/screenshot.json docs/img
 ```
 
 Writes `docs/img/window.svg`, `card.svg`, `report.svg`, `report-working.svg`, `help.svg`, `banners.svg` and `select.svg` from the fixture (no tmux needed; the report pages come from the `reports` key).
+
+```bash
+python3 scripts/demo.py scripts/demo.json docs/img/demo.svg
+```
+
+Writes `docs/img/demo.svg`, the animated demo, from `scripts/demo.json` (a fixture plus a script of steps; the same drawing code, CSS animation inside the SVG, no external tools).
 In dark mode the images have a transparent background and in light mode a black one; the SVG's own `prefers-color-scheme` rule decides.

@@ -2,18 +2,22 @@
 
 [English](README.md)
 
-把 coding agent 畫成 RPG 隊伍的 tmux 外掛，顯示在側欄。
+party-hud 是 tmux 外掛：把同時在跑的 coding agent 畫成一隊 RPG 隊員，讓你一眼看出誰在等你、誰做完了、context 還剩多少，
+並能直接跳過去或讀它的報告。只讀、純本機、佔用很低。
+
 每個 tmux session 是一個**小隊**，裡面跑的 agent（Claude Code、Codex、agy、Grok）是**隊員**：
 有頭像、狀態、**HP**（剩餘 context）和 **SP**（prompt cache 還剩幾分鐘）。
 
 <img src="docs/img/window.svg" width="780" alt="一個 tmux window：左邊是 party-hud 側欄，有四個小隊和四張隊員卡（一位等待中的 codex crew 縮排在它的 lead 底下）；右邊的 pane 有 agent 在工作">
 
 - **一眼看出誰在等你**：有隊員等你回應，小隊變橘色；有隊員做完，小隊變綠色。
-- **直接跳過去**：`n` 選到下一個等你的隊員，`Enter` 切到它的 pane。
+  `n` 選到下一個等你的隊員，`Enter` 切到它的 pane。
 - **知道什麼時候該 compact**：HP 和 SP 顯示每個隊員剩下的 context 和快取時間。
-- **看它做了什麼**：`prefix R` 開選隊畫面，選一位就打開它最後交出的報告，Markdown 會上色。
-- **agent 找 agent 幫忙**：一個 agent 可以開另一個 agent、送出問題，再讀回答案。
+- **看它做了什麼**：`prefix R` 開選隊畫面，每位隊員都有預覽；選一位就打開它最後交出的報告，Markdown 會上色。
+  這部分和側欄一樣只讀。
+- **選用：agent 找 agent 幫忙**：附加功能。一個 agent 可以開另一個 agent、送出問題，再讀回答案。
 - **省資源、只在本機**：只用 Python 標準函式庫，沒有常駐服務，不連網，不會寫入 agent 的檔案。
+  實測數字見[佔用](#佔用)。
 
 用 TPM 安裝（`set -g @plugin 'mangow314/party-hud'`），再按 `prefix C-t`。細節見[安裝](#安裝)。
 
@@ -21,10 +25,12 @@
 
 另一個 window 的 Claude Code 停下來問你問題：它的小隊變成橘色，按 `n` 選到它，再按 `Enter` 跳過去。
 
-<img src="docs/img/demo.gif" width="780" alt="螢幕錄影：畫面停在 Codex 時，另一個 window 的 Claude 隊員變成橘色、顯示 wait；在側欄按 n 再按 Enter，切到那個 window，Claude 正在問你喜歡哪個顏色">
-
 橘色是在等你，綠色是做完但你還沒看，紫色 `zzz 1` 是有人的快取過期，灰色 `·1` 是閒置的隊員數。
 你沒在看的 window 會響鈴。更多細節見 [docs/sidebar.md](docs/sidebar.md)。
+
+從側欄到報告再回來的完整流程：
+
+<img src="docs/img/demo.svg" width="830" alt="動畫：側欄有五個小隊，兩個空小隊收成 +2 empty；lead 召喚一位 codex crew，它變成橘色、顯示 wait；按 n 再按 Enter 跳過去；按 prefix R 開選隊畫面，有隊員卡、crew 等待列和報告預覽；按 j 移到已完成的成員；按 Enter 打開它的報告頁，j 捲動，n 換看其他報告；按 h 回選隊畫面，按 q 關閉">
 
 ## 怎麼看隊員卡
 
@@ -43,22 +49,36 @@
 
 隊員變成做完或等你時，卡片框線會閃爍；HP 或 SP 大幅變化時，數字旁會短暫顯示變化量。
 
-## 任務回報
+## 任務回報：看它做了什麼
 
-<img src="docs/img/report.svg" width="780" alt="寬 pane 裡已完成隊員的任務回報頁：上方 Quest Complete 橫幅，左邊粗線框有頭像、名稱、TOOK、WAITED、ASKED、FILES、WHERE；右邊是 Markdown 報告，有標題、條列、小表格和程式碼區塊">
+`prefix R` 會在目前的 window 上開一個 pane 顯示選隊畫面（tmux 3.8 以上是浮動 pane，舊版 tmux 則分割視窗）。
+名單列出所有小隊的 lead，依序是等你的、做完的、工作中、閒置、休眠。每位 lead 就是側欄上那張隊員卡。
+被召喚的隊員（crew）只在等輸入時列出，是它的 lead 卡片底下縮排的一行。
 
-`prefix R` 會在 pane 裡開選隊畫面（和報告頁一樣是浮動 pane，不是 tmux 選單，但比較窄：約 80 欄，視窗更窄時跟著縮，橫幅才完整；開報告時 pane 會放大成報告頁的大小，按 `h` 回來再縮回；舊版 tmux 用的 split 沒有這個縮放）。名單每位 lead 一個項目，跨小隊照 waiting、done、working、idle、sleep 排；lead 是一張隊員卡（和側欄同一張）；被召喚的隊員（crew）只在等輸入時列出，是它的 lead 卡片底下縮排的一行，整行用等待色，右邊寫 `waiting for you`；前九項有數字鍵。名單旁邊會顯示游標那位的時間與目錄、它的 lead 底下各 crew 的狀態、你問的話，以及報告預覽，放不下時寫還剩幾行（工作中的成員顯示進行中的內容，而且預覽會跟著更新；還沒有完成報告的成員顯示 pane 最後幾行）。pane 太窄時只畫名單。看預覽不算已讀。`j`/`k` 或方向鍵移動，`1`–`9`、`Enter`、`l` 開報告，`q`/`Esc` 關閉，`?` 看全部按鍵；沒有隊員時只顯示一則提示。要去某位的 pane：先開它的報告，在報告頁再按 `Enter`。從這裡進去的報告頁按 `h` 會回選隊畫面，游標停在剛才看的那位；用其他方式開的報告頁按 `h` 沒有作用。圖片的條件和報告頁相同（沒有圖時是文字標題）；選隊畫面開在 pane 裡，不需要 `allow-passthrough`。報告 pane 裡按 `n` 會依序輪到：等你的、做完的、正在工作且有 subagent 在跑的，最後是其餘隊員（同視窗的排前面）。
+名單旁邊顯示游標那位的資訊：時間與目錄、它的 lead 底下各 crew 的狀態、你問的話，以及報告預覽。
+工作中的成員預覽的是它正在做的事，而且會跟著更新。還沒有完成報告的成員顯示 pane 最後幾行。看預覽不算已讀。
+
+`j`／`k` 或方向鍵移動，`1`–`9`、`Enter`、`l` 開報告，`q`／`Esc` 關閉，`?` 看全部按鍵。
+要去某位的 pane：先開它的報告，在報告頁再按 `Enter`。
 
 <img src="docs/img/select.svg" width="780" alt="`prefix R` 開的選隊畫面：上方是 Party Select 像素風橫幅；左邊是編號的隊員卡（附頭像），一位等待中的 codex crew 縮排成 auth-refactor 底下的一行；右邊是游標所在、工作中的成員的時間與目錄、crew 狀態、ASKED 內容與被截斷的報告預覽；最後一列是按鍵提示">
 
-pane 夠寬時，左欄顯示花了多久、等了你多久、你問了什麼、改了哪些檔、在哪個目錄；右邊是報告本文，Markdown 會上色。
+報告頁開在同一個 pane 裡。pane 夠寬時，左欄顯示花了多久、等了你多久、你問了什麼、改了哪些檔、在哪個目錄；
+右邊是報告本文，Markdown 會上色。
+
+<img src="docs/img/report.svg" width="780" alt="寬 pane 裡已完成隊員的任務回報頁：上方 Quest Complete 橫幅，左邊粗線框有頭像、名稱、TOOK、WAITED、ASKED、FILES、WHERE；右邊是 Markdown 報告，有標題、條列、小表格和程式碼區塊">
+
 還在工作的隊員則顯示它現在正在做什麼：
 
 <img src="docs/img/report-working.svg" width="780" alt="工作中隊員的進行中頁：一列狀態與已跑時間、`Now` 區塊（最新工具呼叫與文字）、`Previous report` 與上一輪的報告；左欄有 RUNNING 標籤">
 
-橫幅種類、版面、捲動和按鍵見 [docs/reports.md](docs/reports.md)（英文）。
+報告頁裡按 `n` 換到下一位（先是等你的，再來是做完的）；如果是從選隊畫面進來的，按 `h` 回選隊畫面。
+橫幅種類、pane 大小、版面、捲動、圖片和全部按鍵見 [docs/reports.md](docs/reports.md)（英文）。
 
-## 協作：agent 找 agent 幫忙
+## 選用：協作，agent 找 agent 幫忙
+
+這是附加功能，不用它，側欄和報告畫面也照常運作。HUD 本身（側欄、選隊畫面、報告頁）只讀：不會寫入 agent 的檔案，也不連網。
+下面這些子指令只在 agent 呼叫時，才會開 pane、送按鍵，以及關掉自己開的 pane。
 
 一個 agent 可以開另一個 agent、送出問題，再等它回覆。每一步都會印出下一步要用的值（先是 `%12` 這類 pane id，再來是送出的時間）：
 
@@ -77,6 +97,17 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 
 路徑是 TPM 的安裝位置；用 clone 的話換成你的 checkout 路徑。裝好內附的 `party-crew` skill 後，可以直接跟 Claude Code 說「找 codex 給這個 diff 第二意見」。
 退出碼、問答紀錄、skill 安裝和沙箱設定見 [docs/crew.md](docs/crew.md)（英文）。
+
+## 佔用
+
+以下數字都在同一台機器上量測（AMD Ryzen 9 5900XT、Linux、Python 3.14）；完整表格和在你的機器上怎麼量，見
+[docs/performance.md](docs/performance.md)（英文）。
+
+- 實際使用時的側欄：全部側欄行程合計平均佔一顆核心的 0.22 %、記憶體平均 32.4 MB；條件是 24 個 window（24 個側欄 pane）、
+  4 位 agent、正常切換 window，量 300 秒（`bench/live.sh`）。看不到的側欄 2 秒後就結束行程，所以只有你在看的 window 會跑。
+- 用假資料畫一格側欄：5 位 agent 時收集 0.056 ms、繪製 0.294 ms（`bench/bench.py`，200 次的中位數）。
+- 選隊畫面與報告頁：在 179 × 47 的 pty 裡、5 位 lead、開圖片，跑 27.5 秒的固定按鍵腳本，佔一顆核心的 0.84 %
+  （`bench/use.py`，3 次的中位數）。
 
 ## 需求
 

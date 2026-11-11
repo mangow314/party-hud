@@ -33,6 +33,7 @@ from party_hud.render import (
     is_final,
     render,
     render_select,
+    report_frames,
     report_parts,
     report_view,
     select_cards,
@@ -338,11 +339,13 @@ class Canvas:
         )
 
 
-def shot(fixture, sel=None, height=34, main=None, status=None, focus="party", squad=None):
+def shot(
+    fixture, sel=None, height=34, main=None, status=None, focus="party", squad=None, tick=3, flash=(), main_cols=62
+):
     """The sidebar, optionally with a pane of text on its right and a tmux status line below."""
     towns = collect(fixture)["towns"]
-    frame = render(towns, 33, sel, None, "sidebar", height, None, focus, squad, 3, True)
-    cols = 34 + (1 + 62 if main else 0)
+    frame = render(towns, 33, sel, None, "sidebar", height, None, focus, squad, tick, True, None, flash)
+    cols = 34 + (1 + main_cols if main else 0)
     cv = Canvas(cols * CW, (height + (1 if status else 0)) * CH)
     cv.paint(frame, 0, 0)
     if main:
@@ -430,8 +433,8 @@ RATIO = CW / CH
 REPORT_COLS, REPORT_ROWS = REPORT_PANE_COLS - 1, 36
 
 
-def report_page(fixture, data, entry, helping=False):
-    """The split report page the way run_report draws it (fixed left frame, scrolled to the top), from a fixture entry."""
+def report_page(fixture, data, entry, helping=False, offset=0, frame=None):
+    """The split report page the way run_report draws it (fixed left frame, scrolled to offset), from a fixture entry; frame picks a step of the opening animation (report_frames), None the finished page."""
     towns = collect(fixture)["towns"]
     squad, a = next((t["name"], m) for t in towns for m in t["agents"] if m["pane"] == entry["pane"])
     a = {**a, **entry.get("agent", {})}
@@ -452,7 +455,9 @@ def report_page(fixture, data, entry, helping=False):
         now,
         True,
     )
-    rows, _ = report_view(left, right, REPORT_ROWS, 0)
+    if frame is not None:
+        right = report_frames(right, REPORT_ROWS)[frame]
+    rows, _ = report_view(left, right, REPORT_ROWS, offset)
     plan = report_image_plan(a, is_final(report), art, REPORT_COLS, banner, big, side_labels(report, now))
     if helping:
         rows = help_overlay(rows, "report", REPORT_COLS, REPORT_ROWS)
