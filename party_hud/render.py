@@ -1,6 +1,7 @@
 """Draw the squad list and member cards from a snapshot (pure functions; ANSI strings)."""
 
 import re
+from functools import lru_cache
 
 from .art import (
     ART_MIN_WIDTH,
@@ -574,8 +575,16 @@ def md_table(src, width):
 
 
 def render_markdown(text, width, code_width=None):
-    """Markdown subset -> rows of at most width columns (fenced code up to code_width, default width) with SGR styles. Tables are aligned columns when they fit, else one "name: value" group per row. Nested lists, images and HTML stay raw."""
-    code_width = code_width or width
+    """Markdown subset -> rows of at most width columns (fenced code up to code_width, default width) with SGR styles. Tables are aligned columns when they fit, else one "name: value" group per row. Nested lists, images and HTML stay raw. The last 32 results are kept; callers get their own copy of the rows."""
+    return list(_markdown_rows(text, width, code_width or width))
+
+
+def clear_markdown_cache():
+    _markdown_rows.cache_clear()
+
+
+@lru_cache(maxsize=32)
+def _markdown_rows(text, width, code_width):
     rows, code = [], False
     lines = printable_lines(text)
     i = 0
@@ -608,7 +617,7 @@ def render_markdown(text, width, code_width=None):
             rows += md_rows([(ch, "") for ch in mark + " "] + body, width, cw(mark) + 1)
         else:
             rows += md_rows(md_inline(line), width)
-    return rows
+    return tuple(rows)
 
 
 def printable_lines(text):

@@ -369,6 +369,27 @@ ok([strip(r) for r in md("1. abcdefgh", 6)] == ["1. abc", "   def", "   gh"], "m
 ok([strip(r) for r in md("e\u0301" * 5, 5)] == ["e\u0301" * 5], "markdown: combining marks take no column, five e+accent fit in width 5")
 wr = md("**aaa bbb ccc**", 5)
 ok(len(wr) == 3 and all(r.startswith(B) and r.endswith(R) and common.cw(strip(r)) <= 5 for r in wr), "markdown: styled text wraps, every row carries its own style and reset")
+mdt = "# T\n\n- a **b** `c`\n\n| h | i |\n|---|---|\n| 1 | 2 |\n\n```\ncode line that is long\n```\nlast line of text"
+mdcases = {
+    "done": {"live": False, "start": 1, "end": 2, "text": mdt},
+    "live": {"live": True, "start": 1, "tool": "Bash", "said": "hi", "prev": {"text": mdt}},
+    "subagents": {"live": False, "start": 1, "end": 2, "text": mdt, "subagents": [{"desc": "d", "type": "t", "text": mdt + " 2"}]},
+}
+for name, rep in mdcases.items():
+    render.clear_markdown_cache()
+    cold1 = render.report_rows(rep, [], [], 30, 40, 10.0)
+    warm = render.report_rows(rep, [], [], 30, 40, 10.0)
+    render.clear_markdown_cache()
+    ok(cold1 == warm == render.report_rows(rep, [], [], 30, 40, 10.0), f"markdown cache: {name} report gives the same rows reused and recomputed")
+render.clear_markdown_cache()
+a1 = md(mdt, 30, 40)
+ok(md(mdt + "x", 30, 40) != a1 and md(mdt, 12, 40) != a1 and md(mdt, 30, 20) != a1 and md(mdt, 30, 40) == a1, "markdown cache: another text, width or code_width never gets the earlier rows")
+ok(md(mdt, 30) == md(mdt, 30, 30), "markdown cache: no code_width means width")
+a1.append("junk"); a1[0] = "junk"
+ok(md(mdt, 30, 40) == [r for r in md(mdt, 30, 40)] and "junk" not in md(mdt, 30, 40), "markdown cache: editing the returned rows leaves the next call unchanged")
+render.clear_markdown_cache()
+md(mdt, 30, 40); h0 = render._markdown_rows.cache_info().hits; md(mdt, 30, 40)
+ok(render._markdown_rows.cache_info().hits == h0 + 1, "markdown cache: the same input a second time is a hit, not laid out again")
 raw = ["  - **x**", "  - nested", "| a | b |", "![img](u.png)", "<b>x</b>"]
 ok(md("\n".join(raw), 30) == raw, "markdown: nested lists, tables, images and HTML are shown as written")
 tb = "| 名稱 | `k` |\n|:--|--:|\n| 一二 | **x** |\n| ab | yy |"
@@ -652,9 +673,74 @@ ok(not ui.select_reread(cache0, sm("%2", "w", "idle"), 200.0) and not ui.select_
    and ui.select_reread(cache0, sm("%3", "w", "idle"), 100.0) and ui.select_reread(cache0, dict(sm("%2", "w", "idle"), round=2), 100.0)
    and ui.select_reread(cache0, sm("%2", "w", "working"), 100.0 + ui.LIVE_REFRESH) and not ui.select_reread(cache0, sm("%2", "w", "working"), 100.0 + ui.LIVE_REFRESH - 0.1),
    "select preview: a working member is re-read every LIVE_REFRESH seconds; any other is re-read only when the member or its round changes")
-ok(abs(ui.select_wait(True, 10.0, 10.0, 10.1) - (ui.FRAME_SECS - 0.1)) < 1e-9 and abs(ui.select_wait(False, 10.0, 10.0, 10.1) - 0.9) < 1e-9
-   and ui.select_wait(True, 10.0, 10.0, 10.9) == 0.0 and abs(ui.select_wait(True, 10.0, 10.9, 10.95) - 0.05) < 1e-9,
-   "select screen: someone working -> a frame every FRAME_SECS; nobody -> once a second; the snapshot is still read every second")
+tw_ = lambda now, anchors: ui.tick_wait(now, anchors) - ui.TICK_MARGIN
+sec_ = lambda a: (a, 1.0)
+ok(abs(tw_(105.0, [sec_(100.3)]) - 0.3) < 1e-6 and abs(tw_(105.3, [sec_(100.3)]) - 1.0) < 1e-6 and abs(tw_(105.0, [sec_(100.3), sec_(100.8)]) - 0.3) < 1e-6
+   and abs(tw_(105.5, [sec_(100.3), sec_(100.8)]) - 0.3) < 1e-6 and abs(tw_(105.0, [ui.SECOND, sec_(100.3)]) - 0.3) < 1e-6 and ui.tick_wait(105.0, []) == float('inf')
+   and abs(tw_(130.0, [(100.0, 60.0)]) - 30.0) < 1e-6 and abs(tw_(130.0, [(100.0, 60.0), ui.SECOND]) - 1.0) < 1e-6,
+   "time ticks: the wait is up to the next anchor + n * period (a whole period when exactly on it, the earliest of several anchors), never without anchors")
+ok(ui.time_anchor(100.0, 3599.4 + 100.0) == (100.5, 1.0) and ui.time_anchor(100.0, 3599.6 + 100.0) == (99.5, 60.0) and ui.time_anchor(100.0, 100.0) == (100.5, 1.0),
+   "time anchor: below 3600 shown seconds turn at timestamp + n + 0.5 every second; from 3600 shown on only the minute turns, at timestamp + 60 n - 0.5")
+ok(abs(ui.select_wait(10.0, 10.2, 10.9, 10.4) - 0.5) < 1e-9 and ui.select_wait(10.0, 10.2, 10.3, 10.4) == 0.0
+   and abs(ui.select_wait(10.0, 10.2, 40.0, 10.4) - 0.8) < 1e-9 and abs(ui.select_wait(10.0, 10.2, float('inf'), 10.4) - 0.8) < 1e-9,
+   "select screen: the wait ends at the tick when that is within SNAP_MAX of the last snapshot read, else a second after the read; a second after the read without ticks")
+def sel_sched(anchors_of, t0, frac=0.35, span=60.0):
+    t, fetched, wakes, reads = t0, t0 - frac, [], []
+    while t < t0 + span:
+        if t - fetched >= ui.SNAP_AGE:
+            fetched = t
+            reads.append(t)
+        wakes.append(t)
+        tick_at = t + ui.tick_wait(t, anchors_of(t))
+        t += ui.select_wait(fetched, t, tick_at, t)
+    return wakes, reads
+def sel_rates(anchors_of):
+    worst, gap = 0, 0.0
+    for fr in (0.0, 0.1, 0.35, 0.5, 0.75, 0.95):
+        wakes, reads = sel_sched(lambda t: anchors_of(t, fr), 5000.0)
+        worst = max(worst, (len(wakes) - 1) / 60)
+        gap = max(gap, max(b - a for a, b in zip(reads, reads[1:])))
+    return worst, gap
+rates = {name: sel_rates(f) for name, f in {
+    "none": lambda t, fr: [],
+    "done_cursor_hp": lambda t, fr: [ui.SECOND],
+    "waiting": lambda t, fr: [ui.time_anchor(4900.0 + fr, t)],
+    "working_live": lambda t, fr: [ui.SECOND, ui.time_anchor(4900.0 + fr, t)],
+    "waiting_hour": lambda t, fr: [ui.time_anchor(1000.0 + fr, t)]}.items()}
+ok(rates["none"][0] <= 1 and rates["done_cursor_hp"][0] <= 1 and rates["waiting"][0] <= 1 and rates["working_live"][0] <= 2 and rates["waiting_hour"][0] <= 1 and rates["working_live"][0] > 1.5,
+   "select screen: at most 1 recompute a second with no ticking time, the spinner or a waiting member's WAITED alone, at most 2 for a live working member (two phases)")
+ok(all(gap <= 2.0 for _, gap in rates.values()), "select screen: the snapshot is read at least every 2 seconds in every state, also with ticks 60 s apart or none")
+def select_changes(frac):
+    start = 4900.0 + frac
+    wakes, _ = sel_sched(lambda t: [ui.SECOND, ui.time_anchor(start, t)], 5000.0, span=30.0)
+    shown, changes = None, []
+    for t in wakes:
+        v = render.fmt_took(t - start)
+        if v != shown:
+            changes.append(t)
+        shown = v
+    return start, changes
+sel_ok = True
+for fr in (0.0, 0.3, 0.7):
+    st, ch = select_changes(fr)
+    sel_ok = sel_ok and len(ch) >= 25 and all(0.5 <= (c - st) % 1 < 0.55 for c in ch[1:])
+ok(sel_ok, "select screen: with a fake clock the shown RUNNING time (fmt_took) changes at the moment fmt_took rounds up (timestamp + n + 0.5), also when the snapshot read falls in between")
+def hour_changes(frac):
+    start = 100.0 + frac
+    t, shown, changes, wakes = start + 3590.0, None, [], 0
+    while t < start + 7300.0:
+        wakes += 1
+        v = render.fmt_took(t - start)
+        if v != shown:
+            changes.append(t)
+        shown = v
+        t += ui.tick_wait(t, [ui.time_anchor(start, t)])
+    return start, changes, wakes
+hour_ok = True
+for fr in (0.0, 0.3, 0.77):
+    st, ch, wk = hour_changes(fr)
+    hour_ok = hour_ok and wk <= 75 and all(0.0 <= (c - st + 0.5) % 60 < 0.3 for c in ch if c - st > 3599) and len([c for c in ch if c - st > 3599]) == 62
+ok(hour_ok, "time ticks: from 3600 s on the shown value (fmt_took, minutes only) is redrawn within 0.3 s after it turns and the wake comes once a minute, not once a second")
 real_gs, real_rf = ui.get_snapshot, ui.report_for
 ui.report_for = lambda a: {"status_seen": a["status"]}
 q = [("S", {"pane": "%1", "status": "working"})]
@@ -891,6 +977,14 @@ ui.run_report"""
 ra = report_session([b"q"], rows=30, resizes=[29, 28, 27, 26, 25, 24, 23, 22, 21, 20] * 2, gap=0.005, src=child.replace("ui.run_report", art_inject, 1).replace("import sys\n", "import os, sys\n", 1))
 ok(ra.count("<IMG") == 2 and ra.count("<IMG r=20>") == 1,
    "report pane: images are resent once, at the final size, after the resize burst stops")
+still_inject = """import time
+ag = ui.get_snapshot()["towns"][0]["agents"][0]
+ui.report_queue = lambda towns, pane=None, window=None: [("A", dict(ag, pane="%%1", round=3))]
+ui.report_for = lambda a: {"text": "x", "start": time.time() - 9, "end": time.time() - 5}
+ui.report_parts = lambda a, sq, rep, peek, width, *r: (["left"], [("L" + str(n)).ljust(width) for n in range(3)])
+ui.run_report"""
+still = report_session([b"q"], rows=10, hold=3.0, src=child.replace("ui.run_report", still_inject, 1))
+ok("EXITED" in still and still.count("\x1b[J") == 1, f"report pane: a time tick that leaves the rows as they were writes nothing (got {still.count(chr(27) + '[J')} writes in 3 s)")
 first_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
 ui.load_art = lambda: {"k": 1}
@@ -904,31 +998,36 @@ fp = report_session([b"n", b"q"], src=child.replace("ui.run_report", first_injec
 ok(fp.count("a=d,d=I,i=7") == 2 and fp.index("a=d,d=I,i=7") < fp.index("\x1b[H") < fp.rindex("a=d,d=I,i=7"),
    "report pane: the first frame is written with a delete of the unsent image id, and n does not delete it again")
 live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5)]", "ui.report_image_plan = lambda a, final, *r: [(7 if final else 8, 10, 5)]").replace(
-    "ui.run_report", "ui.LIVE_REFRESH = 0.2\nui.report_for = lambda a: {'live': True, 'text': 'x', 'start': 1, 'end': 2}\nui.refresh_live = lambda q, i: {'text': 'done', 'start': 1, 'end': 3}\nui.run_report", 1)
+    "ui.run_report", "ui.LIVE_REFRESH = 0.2\nui.report_for = lambda a: {'live': True, 'text': 'x', 'start': None, 'end': 2}\nui.refresh_live = lambda q, i: {'text': 'done', 'start': 1, 'end': 3}\nui.run_report", 1)
 lv = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", live_inject, 1))
 ok("a=d,d=I,i=7" in lv and lv.index("a=d,d=I,i=7") > lv.index("\x1b[H") and lv.index("a=d,d=I,i=7") < lv.rindex("\x1b[H"),
    "report pane: when the in-progress page turns into the final report, the new banner id is deleted with the next frame, as for a new page")
 tick_inject = """ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("T" + str(int(r[6] * 10))).ljust(width)] + [("L" + str(n)).ljust(width) for n in range(80)])
-ui.REPORT_TICK = 0.2
-ui.report_for = lambda a: {'live': True, 'text': 'x', 'start': 1, 'end': 2}
+S = __import__('time').time() - 99.9
+ui.report_for = lambda a: {'live': True, 'text': 'x', 'start': S, 'end': 2}
 def count_refresh(q, i):
     print("REFRESH", flush=True)
-    return {'live': True, 'text': 'x', 'start': 1, 'end': 2}
+    return {'live': True, 'text': 'x', 'start': S, 'end': 2}
 ui.refresh_live = count_refresh
 ui.run_report"""
-tk = report_session([b"q"], draws=[3], src=child.replace("ui.run_report", "ui.LIVE_REFRESH = 30\n" + tick_inject, 1))
-ok(len(set(re.findall(r"T\d+", tk))) >= 3 and "REFRESH" not in tk and tk.count("\x1b[?1049h") == 1,
-   "report pane: a live page redraws with a new time every REPORT_TICK without waiting for LIVE_REFRESH, and does not re-read")
-tk2 = report_session([b"q"], draws=[4], src=child.replace("ui.run_report", "ui.LIVE_REFRESH = 0.5\n" + tick_inject, 1))
+tk = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", "ui.LIVE_REFRESH = 30\n" + tick_inject, 1))
+ok(len(set(re.findall(r"T\d+", tk))) >= 2 and "REFRESH" not in tk and tk.count("\x1b[?1049h") == 1,
+   "report pane: a live page redraws with a new time when its second changes without waiting for LIVE_REFRESH, and does not re-read")
+tk2 = report_session([b"q"], draws=[3], src=child.replace("ui.run_report", tick_inject, 1))
 ok(tk2.count("REFRESH") == 1 and "a=d" not in tk2,
-   "report pane: the per-tick redraws do not add re-reads: one LIVE_REFRESH period reads once")
-idle = report_session([b"q"], draws=[1], hold=0.6, src=child.replace("ui.run_report", "ui.REPORT_TICK = 0.1\nui.run_report", 1))
-ok(idle.count("\x1b[J") == 1, "report pane: a page that is not live is not redrawn on a timer")
-beat_inject = tick_inject.replace("ui.REPORT_TICK = 0.2", "ui.REPORT_TICK = 0.4\nui.LIVE_REFRESH = 0.6\nimport time as _t\nui.report_parts = lambda a, sq, rep, peek, width, *r: print('DRAW', round(_t.monotonic() - T0, 2), flush=True) or ([], [('L' + str(n)).ljust(width) for n in range(80)])").replace("ui.run_report", "T0 = __import__('time').monotonic()\nui.run_report")
-bt = report_session([b"q"], draws=[5], src=child.replace("ui.run_report", beat_inject, 1))
-draws_at = [float(x) for x in re.findall(r"DRAW ([0-9.]+)", bt)]
-ok(len(draws_at) >= 5 and any(abs(x - 0.8) < 0.15 for x in draws_at) and not any(abs(x - 1.0) < 0.1 for x in draws_at),
-   "report pane: a live re-read does not shift the tick: the next tick stays REPORT_TICK after the previous tick")
+   "report pane: the time redraws do not add re-reads: one LIVE_REFRESH period reads once")
+idle = report_session([b"q"], draws=[1], hold=0.6)
+ok(idle.count("\x1b[J") == 1, "report pane: a page with no time value on it is not redrawn on a timer")
+def beat_changes(phase):
+    inj = tick_inject.replace("S = __import__('time').time() - 99.4", "S = __import__('time').time() - 99 - %s" % phase).replace("ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [(\"T\" + str(int(r[6] * 10))).ljust(width)] + [(\"L\" + str(n)).ljust(width) for n in range(80)])", "from party_hud.render import fmt_took\nui.report_parts = lambda a, sq, rep, peek, width, *r: print('DRAW', __import__('time').time(), S, fmt_took(r[6] - S).replace(' ', '_'), flush=True) or ([], [('L' + str(n)).ljust(width) for n in range(80)])")
+    out = report_session([b"q"], draws=[9], src=child.replace("ui.run_report", inj, 1))
+    draws = [(float(t), float(s0), v) for t, s0, v in re.findall(r"DRAW ([0-9.]+) ([0-9.]+) (\S+)", out)]
+    return draws, [(b[0] - b[1] - 0.5) % 1 for a, b in zip(draws, draws[1:]) if a[2] != b[2]]
+for ph in ("0.0", "0.7"):
+    dr, ch = beat_changes(ph)
+    late = [o - 1 if o > 0.9 else o for o in ch]
+    ok(len(dr) >= 8 and len(ch) >= 3 and all(-0.02 <= o <= 0.3 for o in late) and len({v for _, _, v in dr}) >= 4,
+       f"report pane: the shown running time (fmt_took) changes within 0.3 s after each S + n + 0.5 (phase {ph}); a re-read between two changes does not move it (offsets {[round(o, 3) for o in late]})")
 ex_src = first_inject.replace("[(7, 10, 5)]", "[(7, 10, 5), (-1, 6, 3)]")
 ex = report_session([b"q"], src=child.replace("ui.run_report", ex_src, 1))
 ok("a=d,d=I,i=7" in ex[ex.index("\x1b[H"):] and ex.rindex("a=d,d=I,i=7") < ex.rindex("\x1b[?1049l") and "a=d,d=I,i=-1" not in ex[ex.index("\x1b[H"):],
@@ -2596,5 +2695,29 @@ for n, h in (("", 240), ("-5x1", 192), ("-6x1", 159), ("-7x1", 138), ("-8x1", 12
     b = open(sys.argv[1] + "/art/banner-select" + n + ".png", "rb").read(33)
     ok = ok and b[:8] == b"\x89PNG\r\n\x1a\n" and struct.unpack(">II", b[16:24]) == (960, h)
 sys.exit(not ok)' "$root"
+
+# cw: same result as the plain per-character algorithm for every BMP char, sampled astral chars and mixed strings; the char cache stays bounded
+cw_ok() {
+  python3 - "$party" <<'EOF'
+import os, sys, unicodedata
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, common
+old = lambda s: sum(0 if unicodedata.combining(ch) else 2 if unicodedata.east_asian_width(ch) in "WF" else 1 for ch in s)
+astral = [chr(c) for c in (0x1F600, 0x1F468, 0x1F1E6, 0x20000, 0x2FFFD, 0xE0001, 0xF0000, 0xF0953, 0xF1841, 0xFFFFD, 0x10EEEE, 0x10FFFF)]
+mixed = ["", "abc", "a一b" + chr(0x301) + "c", "\x00\x1f\x7f", "ab\u4e00\u0301\U0001F600x", chr(0x10EEEE) + chr(art.DIAC[1]) + chr(art.DIAC[2]), "plain ascii " * 20]
+fails = []
+bmp = [chr(c) for c in range(0x10000) if not 0xD800 <= c < 0xE000]
+for s in bmp + astral + [chr(c) for c in art.DIAC] + mixed + ["".join(bmp[i : i + 50]) for i in range(0, len(bmp), 50)]:
+    if common.cw(s) != old(s) or common.cw(s) != old(s):
+        fails.append(repr(s[:20]))
+cache = common._char_width
+for i in range(cache.cache_info().maxsize + 500):
+    common.cw(chr(0x4E00 + i))
+if cache.cache_info().currsize > cache.cache_info().maxsize or cache.cache_info().maxsize is None:
+    fails.append("cache over its bound")
+print("\n".join(fails[:5]), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF
+}
+check "cw: matches the per-character width algorithm, repeated calls agree, the cache is bounded" cw_ok
 
 exit "$fail"

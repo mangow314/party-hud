@@ -2,6 +2,7 @@
 
 import contextlib
 import fcntl
+import math
 import os
 import re
 import select
@@ -251,9 +252,27 @@ def select_reread(cached, a, mono):
     return cached[0] != (a["pane"], a["round"]) or (a["status"] == "working" and mono - cached[3] >= LIVE_REFRESH)
 
 
-def select_wait(busy, fetched, drawn, mono):
-    """Seconds until the select screen is next due: the snapshot each second, a frame each FRAME_SECS while someone works."""
-    return max(0.0, min(fetched + 1, drawn + FRAME_SECS if busy else fetched + 1) - mono)
+TICK_MARGIN = 0.01
+ROUND_HALF = 0.5  # fmt_took rounds, so a shown time turns at timestamp + n + 0.5
+SECOND = (0.0, 1.0)
+SNAP_AGE = 0.9
+SNAP_MAX = 1.9
+
+
+def time_anchor(ts, now):
+    """(anchor, period) of a time shown through fmt_took: seconds and minutes turn at ts + n + ROUND_HALF every second; from 3600 s on only the minute shows, and it turns at ts + 60 n - ROUND_HALF."""
+    return (ts - ROUND_HALF, 60.0) if round(now - ts) >= 3600 else (ts + ROUND_HALF, 1.0)
+
+
+def tick_wait(now, anchors):
+    """Seconds from now until the first on-screen time value changes: an anchor is (time, period) and its value changes at time + n * period; the caller picks it (SECOND for the spinner, time_anchor for a time shown through fmt_took). Infinite without anchors (nothing on screen moves with time)."""
+    return min(p - (now - a) % p for a, p in anchors) + TICK_MARGIN if anchors else math.inf
+
+
+def select_wait(fetched, mono, tick_at, wall):
+    """Seconds until the select screen is next due: tick_at (wall-clock time a shown time value changes) when that wake still comes within SNAP_MAX of the last snapshot read (it reads then), else one second after the read."""
+    tick_in = tick_at - wall
+    return max(0.0, tick_in if mono + tick_in - fetched <= SNAP_MAX else fetched + 1 - mono)
 
 
 def select_image_plan(cards, art):
@@ -307,7 +326,7 @@ def run_select(sel=None, fixture=None):
     try:
         tty.setcbreak(fd)
         while True:
-            if time.monotonic() - fetched >= 1:
+            if time.monotonic() - fetched >= SNAP_AGE:
                 towns, fetched = get_snapshot(fixture)["towns"], time.monotonic()
             roster = select_roster(towns)
             queue = [(squad, a) for squad, a, _ in roster]
@@ -340,13 +359,23 @@ def run_select(sel=None, fixture=None):
             if helping:
                 rows = help_overlay(rows, "select", width, size.lines)
             frame = "\n".join(rows)
-            busy = any(m["status"] == "working" for _, m, _ in roster)
+            anchors = (
+                [SECOND]
+                if any(m["status"] == "working" or (m["hp"] is not None and m["hp"] <= 10) for _, m, _ in roster)
+                else []
+            )
+            if sel and preview and report:
+                cur = next(m for _, m, _ in roster if m["pane"] == sel)
+                if cur["status"] == "waiting" and report.get("end"):
+                    anchors.append(time_anchor(report["end"], now))
+                elif cur["status"] == "working" and report.get("live") and report.get("start"):
+                    anchors.append(time_anchor(report["start"], now))
+            tick_at = now + tick_wait(now, anchors)
             if frame != last_frame:
                 sys.stdout.write("\033[H" + "\033[K\n".join(frame.split("\n")) + "\033[K\033[J")
                 sys.stdout.flush()
                 last_frame = frame
                 shown = time.monotonic()
-            drawn = time.monotonic()
             due = bool(art) and bool(select_images_due(plan, sent))
             if art and due and time.monotonic() - last_winch >= RESIZE_SETTLE:
                 time.sleep(max(0.0, report_art_wait(sent or None) - (time.monotonic() - shown)))
@@ -355,7 +384,7 @@ def run_select(sel=None, fixture=None):
                 sent.update((i, (c, r)) for i, c, r in plan)
                 due = False
             while True:
-                wait = select_wait(busy, fetched, drawn, time.monotonic())
+                wait = select_wait(fetched, time.monotonic(), tick_at, time.time())
                 if due:
                     wait = min(wait, max(0.0, last_winch + RESIZE_SETTLE - time.monotonic()))
                 ready = select.select([fd, wake_r], [], [], wait)[0]
@@ -600,7 +629,6 @@ def report_peek(peeks, pane, report, fixture, grab):
 
 
 LIVE_REFRESH = 1.5
-REPORT_TICK = 1.0
 
 
 def refresh_live(queue, i):
@@ -614,10 +642,12 @@ def refresh_live(queue, i):
 
 
 def draw_report(left, right, height, offset, screen=None):
+    """Writes the page and returns the rows written."""
     rows = screen or report_view(left, right, height, offset)[0]
     # no newline after the last row: it would scroll the pane
     sys.stdout.write("\033[H" + "\n".join(row + "\033[K" for row in rows) + "\033[J")
     sys.stdout.flush()
+    return rows
 
 
 def run_report(pane=None, fixture=None, back=False):
@@ -653,7 +683,8 @@ def run_report(pane=None, fixture=None, back=False):
     signal.signal(signal.SIGWINCH, lambda *_: None)
     signal.set_wakeup_fd(wake_w)
     resized, art_pending, last_winch = False, False, 0.0
-    next_live, next_tick, cause = 0.0, 0.0, ""
+    next_live, tick_at, cause = 0.0, None, ""
+    written: list[str] | None = None
     try:
         tty.setcbreak(fd)
         if not queue:
@@ -675,13 +706,9 @@ def run_report(pane=None, fixture=None, back=False):
                     log_error()
             peek = report_peek(peeks, a["pane"], report, fixture, lambda p: capture(p, color=True))
             live = bool(report and report.get("live"))
-            if cause != "tick":
+            ticked = cause == "tick"
+            if not ticked:
                 next_live = time.monotonic() + LIVE_REFRESH
-            if cause in ("tick", "live"):
-                while next_tick <= time.monotonic():
-                    next_tick += REPORT_TICK
-            else:
-                next_tick = time.monotonic() + REPORT_TICK
             cause = ""
             last_draw = time.monotonic()
             size = os.get_terminal_size(sys.stdout.fileno())
@@ -716,14 +743,23 @@ def run_report(pane=None, fixture=None, back=False):
             frames = report_frames(right, size.lines, tail=0 if left else 2) if fresh and anim else [right]
             fresh = False
             names = side_labels(report, now)
+            anchors = []
+            if live and report.get("start"):
+                anchors.append(time_anchor(report["start"], now))
+            if left and report and report["end"]:
+                anchors.append(time_anchor(report["end"], now))
+            tick_at = now + tick_wait(now, anchors) if anchors else None
             if art and drawn is None:
                 sys.stdout.write(report_first_deletes(a, is_final(report), art, width, banner, big, sent, names))
             if len(frames) > 1:
                 cut = play_report_anim(frames, left, size.lines, fd, wake_r)
+                written = None
                 if cut and os.get_terminal_size(sys.stdout.fileno()) == size:
-                    draw_report(left, right, size.lines, offset, screen)
+                    written = draw_report(left, right, size.lines, offset, screen)
             else:
-                draw_report(left, right, size.lines, offset, screen)
+                rows = screen or report_view(left, right, size.lines, offset)[0]
+                if not (ticked and rows == written):
+                    written = draw_report(left, right, size.lines, offset, rows)
             art_pending = bool(art)
             while True:
                 if art and art_pending and not resized and not cut:
@@ -738,9 +774,9 @@ def run_report(pane=None, fixture=None, back=False):
                     sent.update(drawn)
                     art_pending = False
                 timeout = max(0.0, RESIZE_SETTLE - (time.monotonic() - last_winch)) if art_pending else None
-                if live:
-                    due = max(0.0, min(next_live, next_tick) - time.monotonic())
-                    timeout = due if timeout is None else min(timeout, due)
+                dues = ([next_live - time.monotonic()] if live else []) + ([tick_at - time.time()] if tick_at else [])
+                if dues:
+                    timeout = max(0.0, min(dues) if timeout is None else min(timeout, *dues))
                 ready = select.select([fd, wake_r], [], [], timeout)[0]
                 cut = False
                 if wake_r in ready:
@@ -761,7 +797,7 @@ def run_report(pane=None, fixture=None, back=False):
                         drawn = None
                     cause = "live"
                     break
-                if live and time.monotonic() >= next_tick:
+                if tick_at and time.time() >= tick_at:
                     cause = "tick"
                     break
                 if art_pending and time.monotonic() - last_winch >= RESIZE_SETTLE:
@@ -785,7 +821,7 @@ def run_report(pane=None, fixture=None, back=False):
                         if helping
                         else None
                     )
-                    draw_report(left, right, size.lines, offset, screen)
+                    written = draw_report(left, right, size.lines, offset, screen)
                 if "n" in keys or "N" in keys:
                     i = report_step("N" if "N" in keys and "n" not in keys else "n", i, len(queue))
                     peeks.pop(queue[i][1]["pane"], None)
@@ -824,7 +860,7 @@ def run_report(pane=None, fixture=None, back=False):
                     new = report_scroll(key, new, limit, size.lines)
                 if new != offset:
                     offset = new
-                    draw_report(left, right, size.lines, offset, screen)
+                    written = draw_report(left, right, size.lines, offset, screen)
     finally:
         signal.set_wakeup_fd(-1)
         signal.signal(signal.SIGWINCH, signal.SIG_DFL)

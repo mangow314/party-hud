@@ -7,7 +7,8 @@ Issues and pull requests are welcome, especially support for more agents and ter
 - No dependencies: `party.py` and `party_hud/` use only the Python standard library (3.10+). Pillow and NumPy are fine in
   `scripts/art/` and `scripts/screenshot.py`, which users never run.
 - Performance matters: the sidebar runs all day. If a change adds work per frame or per collection, include
-  `bench/bench.py` numbers before and after.
+  `bench/bench.py` numbers before and after (the table covers the sidebar, select screen and report page; the "in use"
+  part plays a fixed key script and gives CPU as a share of one core, target under 1 %).
 - Read only. party-hud never writes to an agent's files and never sends data anywhere.
 - No comments by default; see [Comments](#comments).
 
