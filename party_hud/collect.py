@@ -1274,7 +1274,7 @@ def collect(fixture=None, now=None):
         # workmux keeps 🤖 until Claude's notification hook fires, seconds after Claude itself reports waiting
         if status == "working" and native == "waiting":
             status = "waiting"
-        info = get_party(p["pane_id"])
+        info = get_party(p["pane_id"]) if kind == "claude" else {}
         sid = sess.get("sid") or info.get("session_id") or ""
         if info.get("session_id") and sid and info["session_id"] != sid:
             info = {}

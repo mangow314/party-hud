@@ -1087,6 +1087,14 @@ ok(wt["%31"]["status"] == "done", "workmux done icon wins over sessions status w
 ok(wt["%32"]["status"] == "waiting", "sessions status waiting wins over a stale workmux working icon")
 ok(new["%23"]["kind"] == "codex" and new["%23"]["name"] == "codex", "codex pane: kind and name are both codex")
 ok(new["%23"]["hp"] == 75 and new["%23"]["hp_left"] == 192000, "codex HP: 64k used of a 256k window -> 75% left (192k)")
+stale = {"session_id": "old", "transcript": "/t/old", "ctx_left": 59, "ctx_size": 200000, "model": "Opus 5.5"}
+with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
+    json.dump({"panes": [pane("%40", "codex"), pane("%41", "agy")], "now": 10000, "codex": {"%40": [64000, 256000]},
+               "party": {"%40": stale, "%41": stale}, "cache": {"/t/old": [9990, 300, 60000]}}, f)
+old = {a["pane"]: a for t in collect.collect(f.name)["towns"] for a in t["agents"]}
+ok(all(old[k]["sp"] is None and old[k]["model"] == "" and old[k]["status"] != "sleep" for k in ("%40", "%41"))
+   and old["%40"]["hp"] == 75 and old["%41"]["hp"] is None,
+   "Pane state file left by Claude is ignored for codex / agy: no SP, no model, not sleep, HP from rollout or --")
 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write('{"type":"session_meta","payload":{}}\n')
     f.write('{"type":"event_msg","payload":{"type":"token_count","info":null}}\n')

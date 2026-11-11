@@ -19,6 +19,8 @@ or add support for another agent.
 | Subagents in flight (paw count) | `<transcript without .jsonl>/subagents/*.meta.json`, not `finished`, log touched in the last 15 min | Claude Code |
 | HP: context left and context size, model name | `$XDG_RUNTIME_DIR/party-hud/<pane>.json` | `integrations/claude-statusline.sh` |
 
+The file is used only while the pane is running Claude Code now; a leftover from an earlier Claude Code run is ignored for other agents.
+
 ### The statusline file
 
 `integrations/claude-statusline.sh` turns Claude Code's statusline JSON into one file per tmux pane
