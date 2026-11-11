@@ -842,7 +842,8 @@ def report_split_parts(
     rw = width - SPLIT_SIDE_COLS - SPLIT_GAP
     summons = a.get("summons", [])
     bid = banner_id(a["status"], is_final(report), bool(summons), *banner[2:])
-    right = ["", *(image_row(bid, r, min(banner[0], rw)) for r in range(banner[1]))]
+    pad = " " * ((rw - min(banner[0], rw)) // 2)
+    right = ["", *(pad + image_row(bid, r, min(banner[0], rw)) for r in range(banner[1]))]
     if is_final(report) and summons:
         title = f"{STATUS_TAG[a['status']][0] or '·'} {running_title(len(summons))}"
         right.append(fg(STATUS_TAG[a["status"]][2], True) + clip(title, min(banner[0], rw)) + RESET)

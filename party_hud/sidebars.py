@@ -12,7 +12,7 @@ import time
 import zlib
 from datetime import datetime, timezone
 
-from .art import ART_MIN_WIDTH
+from .art import ART_MIN_WIDTH, SPLIT_GAP, SPLIT_SIDE_COLS
 from .collect import (
     AGENT_CMDS,
     FIELD_SEP,
@@ -113,22 +113,37 @@ def report_host(target):
     return next((r[0] for r in plain if r[1] == "1"), plain[0][0] if plain else target)
 
 
-SELECT_PANE_COLS = 82  # run_select draws one column less, so the banner is the 10-row 4:1 image
+SELECT_BANNER_MAX_ROWS = 10
+REPORT_BANNER_MAX_ROWS = 6
 
 
-def select_span(win_w):
-    """(width, left column) of the select screen's floating pane: SELECT_PANE_COLS wide at most, centred."""
-    cols = min(SELECT_PANE_COLS, win_w)
+def select_cols(ratio):
+    """Width of the select screen's floating pane: run_select draws one column less, so the banner is the 4:1 image at its full height."""
+    return round(SELECT_BANNER_MAX_ROWS * 4 / ratio) + 2
+
+
+def select_span(win_w, ratio):
+    """(width, left column) of the select screen's floating pane: select_cols(ratio) wide at most, centred."""
+    cols = min(select_cols(ratio), win_w)
     return cols, (win_w - cols) // 2
 
 
-REPORT_PANE_COLS = 129  # run_report draws one column less; 128 - 30 - 2 = 96, the widest banner at a 0.5 cell ratio
+def report_cols(ratio):
+    """Widest floating pane of the report page: run_report draws one column less, so the right column holds the 8:1 banner at its full height."""
+    return SPLIT_SIDE_COLS + SPLIT_GAP + round(REPORT_BANNER_MAX_ROWS * 8 / ratio) + 1
 
 
-def report_span(win_w):
-    """(width, left column) of the report page's floating pane: 80% of the window, REPORT_PANE_COLS at most, centred."""
-    cols = min(REPORT_PANE_COLS, win_w * 8 // 10)
+def report_span(win_w, ratio):
+    """(width, left column) of the report page's floating pane: 80% of the window, report_cols(ratio) at most, centred."""
+    cols = min(report_cols(ratio), win_w * 8 // 10)
     return cols, (win_w - cols) // 2
+
+
+def cell_ratio_of(width, height):
+    """Cell width / height from tmux's window_cell_width / window_cell_height (pixels, empty or 0 when the terminal does not say); 0.5 then."""
+    if width.isdigit() and height.isdigit() and int(width) and int(height):
+        return int(width) / int(height)
+    return 0.5
 
 
 def open_report_pane(target, pane, select=False):
@@ -138,9 +153,14 @@ def open_report_pane(target, pane, select=False):
     where = ("-t", host) if host else ()
     if has_new_pane():
         size = ("-x80%", "-X10%")
-        win_w = tmux("display-message", "-p", *where, "#{window_width}").strip()
+        win_w, cw, ch = (
+            tmux("display-message", "-p", *where, "#{window_width},#{window_cell_width},#{window_cell_height}")
+            .strip()
+            .split(",")
+            + ["", ""]
+        )[:3]
         if win_w.isdigit() and int(win_w) > 0:
-            cols, left = (select_span if select else report_span)(int(win_w))
+            cols, left = (select_span if select else report_span)(int(win_w), cell_ratio_of(cw, ch))
             size = (f"-x{cols}", f"-X{left}")
         args = ["new-pane", size[0], "-y80%", size[1], "-Y10%", "-T", " Party " if select else " Report ", *where]
     else:
@@ -151,14 +171,15 @@ def open_report_pane(target, pane, select=False):
 
 
 def fit_report_pane(pane, select):
-    """Give a floating pane the select screen's size and place (select) or the report page's (80% of the window, at most REPORT_PANE_COLS wide, centred, from 10% down). Anything else: nothing."""
+    """Give a floating pane the select screen's size and place (select) or the report page's (80% of the window, at most report_cols wide, centred, from 10% down). Anything else: nothing."""
     if not has_new_pane():
         return
-    info = tmux("display-message", "-p", "-t", pane, "#{pane_floating_flag} #{window_width} #{window_height}").split()
-    if len(info) != 3 or info[0] != "1" or not all(v.isdigit() for v in info[1:]):
+    fmt = "#{pane_floating_flag},#{window_width},#{window_height},#{window_cell_width},#{window_cell_height}"
+    info = tmux("display-message", "-p", "-t", pane, fmt).strip().split(",")
+    if len(info) != 5 or info[0] != "1" or not all(v.isdigit() for v in info[1:3]):
         return
     win_w, win_h = int(info[1]), int(info[2])
-    cols, left = (select_span if select else report_span)(win_w)
+    cols, left = (select_span if select else report_span)(win_w, cell_ratio_of(info[3], info[4]))
     tmux(
         "resize-pane", "-t", pane, "-x", str(cols), "-y", str(win_h * 8 // 10),
         ";", "move-pane", "-t", pane, "-X", str(left), "-Y", str(win_h // 10),

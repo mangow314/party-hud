@@ -42,7 +42,7 @@ from party_hud.render import (
     select_widths,
     side_labels,
 )
-from party_hud.sidebars import REPORT_PANE_COLS, SELECT_PANE_COLS
+from party_hud.sidebars import report_cols, select_cols
 from party_hud.ui import (
     banner_cells,
     portrait_cells,
@@ -447,7 +447,7 @@ def card(fixture, sel):
 
 
 RATIO = CW / CH
-REPORT_COLS, REPORT_ROWS = REPORT_PANE_COLS - 1, 36
+REPORT_COLS, REPORT_ROWS = report_cols(RATIO) - 1, 36
 
 
 def report_page(fixture, data, entry, helping=False, offset=0, frame=None):
@@ -487,7 +487,7 @@ def select_page(fixture, data, entry, sel):
     """The select screen the way run_select draws it, from a fixture entry for the report of the member under the cursor."""
     towns = collect(fixture)["towns"]
     roster = select_roster(towns)
-    cols = SELECT_PANE_COLS
+    cols = select_cols(RATIO)
     width, now = cols - 1, data["now"]
     banner = select_banner(width, REPORT_ROWS, RATIO)
     assert banner, "select banner does not fit"

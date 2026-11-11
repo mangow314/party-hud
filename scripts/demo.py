@@ -27,10 +27,10 @@ sys.path.insert(0, S)
 import screenshot as sc
 
 from party_hud.render import set_tick
-from party_hud.sidebars import REPORT_PANE_COLS, SELECT_PANE_COLS, report_span, select_span
+from party_hud.sidebars import report_cols, report_span, select_cols, select_span
 
 CW, CH = sc.CW, sc.CH
-WIN_COLS, WIN_ROWS = 162, 45  # the window: wide enough for the report pane at its widest
+WIN_COLS, WIN_ROWS = 177, 45  # the narrowest window where 80% still holds the report pane at its widest (report_cols)
 CAP_BG = (20, 24, 40)
 LINE = (58, 66, 102)
 GOLD, DIM = "\x1b[1m\x1b[38;2;240;180;90m", "\x1b[38;2;120;128;160m"
@@ -116,12 +116,12 @@ def render_step(cur, state, under, tick, tmp):
         set_tick(tick)
         if view == "select":
             panel = sc.select_page(path, data, entry, cur["sel"])
-            cols, left = select_span(WIN_COLS)
-            assert cols == SELECT_PANE_COLS
+            cols, left = select_span(WIN_COLS, sc.RATIO)
+            assert cols == select_cols(sc.RATIO)
         else:
             panel = sc.report_page(path, data, entry, offset=cur.get("offset", 0), frame=cur.get("reveal"))
-            cols, left = report_span(WIN_COLS)
-            assert cols == REPORT_PANE_COLS
+            cols, left = report_span(WIN_COLS, sc.RATIO)
+            assert cols == report_cols(sc.RATIO)
         els += floating(defs, panel, cols, left, WIN_ROWS // 10)
     cap = caption_layer(win.w, WIN_ROWS + 1, cur["caption"])
     els += cap.body
