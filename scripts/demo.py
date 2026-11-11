@@ -30,7 +30,7 @@ from party_hud.render import set_tick
 from party_hud.sidebars import report_cols, report_span, select_cols, select_span
 
 CW, CH = sc.CW, sc.CH
-WIN_COLS, WIN_ROWS = 177, 45  # the narrowest window where 80% still holds the report pane at its widest (report_cols)
+WIN_COLS, WIN_ROWS = 177, 45
 CAP_BG = (20, 24, 40)
 LINE = (58, 66, 102)
 GOLD, DIM = "\x1b[1m\x1b[38;2;240;180;90m", "\x1b[38;2;120;128;160m"

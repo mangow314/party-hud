@@ -12,7 +12,7 @@ import time
 import zlib
 from datetime import datetime, timezone
 
-from .art import ART_MIN_WIDTH, SPLIT_GAP, SPLIT_SIDE_COLS
+from .art import ART_MIN_WIDTH, SPLIT_GAP, SPLIT_MIN_WIDTH, SPLIT_SIDE_COLS
 from .collect import (
     AGENT_CMDS,
     FIELD_SEP,
@@ -129,8 +129,8 @@ def select_span(win_w, ratio):
 
 
 def report_cols(ratio):
-    """Widest floating pane of the report page: run_report draws one column less, so the right column holds the 8:1 banner at its full height."""
-    return SPLIT_SIDE_COLS + SPLIT_GAP + round(REPORT_BANNER_MAX_ROWS * 8 / ratio) + 1
+    """Widest floating pane of the report page: the right column holds the 6:1 banner at its full height (8:1 cuts too much of the scene), and the pane is never narrower than the split layout needs (the border takes 2 columns, run_report 1 more)."""
+    return max(SPLIT_MIN_WIDTH + 3, SPLIT_SIDE_COLS + SPLIT_GAP + round(REPORT_BANNER_MAX_ROWS * 6 / ratio) + 1)
 
 
 def report_span(win_w, ratio):

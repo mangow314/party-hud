@@ -792,8 +792,8 @@ def sel_open(win_w, select=True, cell="19,42"):
     sidebars.open_report_pane("@1", "", select)
     sidebars.tmux = real_tmux
     return open_cmd()
-ok((sidebars.report_cols(0.5), sidebars.select_cols(0.5), sidebars.report_cols(0.452), sidebars.select_cols(0.452)) == (129, 82, 139, 90),
-   "pane widths: report_cols and select_cols are 129 / 82 at cell ratio 0.5 and 139 / 90 at 0.452")
+ok((sidebars.report_cols(0.5), sidebars.select_cols(0.5), sidebars.report_cols(0.452), sidebars.select_cols(0.452)) == (105, 82, 113, 90),
+   "pane widths: report_cols and select_cols are 105 / 82 at cell ratio 0.5 and 113 / 90 at 0.452")
 c = sel_open("200")
 ok(c[c.index("-x90") + 1] == "-y80%" and "-X55" in c and "-Y10%" in c,
    "select pane: tmux says cells of 19 x 42 pixels, so in a 200-column window it is select_cols(19 / 42) = 90 wide, centred, 80% high from 10%")
@@ -806,12 +806,12 @@ ok("-x60" in c and "-X0" in c, "select pane: in a 60-column window it is no wide
 c = sel_open("", select=False)
 ok(c[1:5] == ("-x80%", "-y80%", "-X10%", "-Y10%"), "report pane: an unreadable window width keeps -x80% -y80% -X10% -Y10%")
 c = sel_open("400", select=False)
-ok(c[1:5] == ("-x139", "-y80%", "-X130", "-Y10%"),
-   "report pane: cells of 19 x 42 pixels, in a 400-column window it is report_cols(19 / 42) = 139 wide, centred, 80% high from 10%")
+ok(c[1:5] == ("-x113", "-y80%", "-X143", "-Y10%"),
+   "report pane: cells of 19 x 42 pixels, in a 400-column window it is report_cols(19 / 42) = 113 wide, centred, 80% high from 10%")
 c = sel_open("400", select=False, cell="")
-ok(c[1:5] == ("-x129", "-y80%", "-X135", "-Y10%"), "report pane: tmux saying no cell size gives the 0.5 width, 129 columns")
+ok(c[1:5] == ("-x105", "-y80%", "-X147", "-Y10%"), "report pane: tmux saying no cell size gives the 0.5 width, 105 columns")
 c = sel_open("400", select=False, cell="x,0")
-ok(c[1:5] == ("-x129", "-y80%", "-X135", "-Y10%"), "report pane: a cell size that is not a number gives the 0.5 width, 129 columns")
+ok(c[1:5] == ("-x105", "-y80%", "-X147", "-Y10%"), "report pane: a cell size that is not a number gives the 0.5 width, 105 columns")
 c = sel_open("100", select=False)
 ok(c[1:5] == ("-x80", "-y80%", "-X10", "-Y10%"), "report pane: in a 100-column window it is 80% of the window, centred")
 c = sel_open("n/a")
@@ -830,16 +830,22 @@ ok(fit("1", True, cell=",") == [("resize-pane", "-t", "%9", "-x", "82", "-y", "4
    "fit pane: no cell size, or 0, gives the select screen's 0.5 width, 82 columns")
 ok(fit("1", False, win_w=100) == [("resize-pane", "-t", "%9", "-x", "80", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "10", "-Y", "5")],
    "fit pane: in a 100-column window the report page's pane is 80% wide, centred, 80% high from 10%")
-ok(sidebars.report_span(400, 0.5) == (129, 135) and sidebars.report_span(100, 0.5) == (80, 10) and sidebars.select_span(200, 0.5) == (82, 59),
+ok(sidebars.report_span(400, 0.5) == (105, 147) and sidebars.report_span(100, 0.5) == (80, 10) and sidebars.select_span(200, 0.5) == (82, 59),
    "report span: report_cols wide and centred in a wide window, 80% of a narrow one; select span likewise")
-ok(fit("1", False, win_w=400) == [("resize-pane", "-t", "%9", "-x", "139", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "130", "-Y", "5")]
-   and fit("1", False, win_w=400, cell=",") == [("resize-pane", "-t", "%9", "-x", "129", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "135", "-Y", "5")],
-   "fit pane: in a 400-column window the report page's pane is report_cols wide (139 at 19 x 42 pixels cells, 129 without a cell size), centred")
+ok(fit("1", False, win_w=400) == [("resize-pane", "-t", "%9", "-x", "113", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "143", "-Y", "5")]
+   and fit("1", False, win_w=400, cell=",") == [("resize-pane", "-t", "%9", "-x", "105", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "147", "-Y", "5")],
+   "fit pane: in a 400-column window the report page's pane is report_cols wide (113 at 19 x 42 pixels cells, 105 without a cell size), centred")
 for r_ in (0.4, 0.452, 0.5, 0.55, 0.6):
+    sb = ui.select_banner(sidebars.select_cols(r_) - 1, 50, r_)
+    ok(sb[1:3] == (10, 4) and abs(sb[0] - (sidebars.select_cols(r_) - 1)) <= 1,
+       f"pane widths: at cell ratio {r_} the select banner is the 10-row 4:1 image, as wide as its column")
+for r_ in (0.4, 0.452, 0.5):
     right = sidebars.report_cols(r_) - 1 - ui.SPLIT_SIDE_COLS - ui.SPLIT_GAP
-    bc, sb = ui.banner_cells(sidebars.report_cols(r_) - 1, r_), ui.select_banner(sidebars.select_cols(r_) - 1, 50, r_)
-    ok(abs(bc[0] - right) <= 1 and bc[1:] == (6, 8) and sb[1:3] == (10, 4) and abs(sb[0] - (sidebars.select_cols(r_) - 1)) <= 1,
-       f"pane widths: at cell ratio {r_} the report banner is the 6-row 8:1 image and the select banner the 10-row 4:1 image, each as wide as its column")
+    bc = ui.banner_cells(sidebars.report_cols(r_) - 1, r_)
+    ok(abs(bc[0] - right) <= 1 and bc[1:] == (6, 6),
+       f"pane widths: at cell ratio {r_} the report banner is the 6-row 6:1 image, as wide as its column")
+ok(all(sidebars.report_cols(r_) - 3 >= art.SPLIT_MIN_WIDTH for r_ in (0.4, 0.452, 0.5, 0.55, 0.6, 0.65)),
+   "pane widths: the report pane at its widest still draws the split report page (two columns) at cell ratios 0.4 to 0.65")
 def shape_ok(cols_in, rows_max, r_, b):
     cols, rows, k = b
     a = cols_in * r_ / rows
