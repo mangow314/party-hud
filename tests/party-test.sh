@@ -427,13 +427,13 @@ ok("".join(strip(r) for r in md("> 中文", 3)) == "中文" and all(common.cw(st
 mk = lambda pane, status: {"pane": pane, "status": status}
 qt = [{"name": "A", "agents": [mk("%1", "done"), mk("%2", "working"), mk("%3", "waiting")]},
       {"name": "B", "agents": [mk("%4", "done")]}]
-ok(ui.banner_cells(170, 0.452) == (138, 10, 6) and ui.banner_cells(150, 0.452) == (118, 10, 5) and ui.banner_cells(120, 0.2) == (88, 4, 4),
-   "report banner: split fills the right column (at most 10 rows) with the 4:1..8:1 image closest to cols x ratio / rows")
-ok(ui.banner_cells(400, 0.5) == (160, 10, 8),
+ok(ui.banner_cells(170, 0.452) == (106, 6, 8) and ui.banner_cells(150, 0.452) == (106, 6, 8) and ui.banner_cells(120, 0.2) == (88, 4, 4) and ui.banner_cells(105, 0.452) == (73, 6, 5),
+   "report banner: split fills the right column (at most 6 rows) with the 4:1..8:1 image closest to cols x ratio / rows")
+ok(ui.banner_cells(400, 0.5) == (96, 6, 8),
    "report banner: flatter than 8:1 narrows the cols to the 8:1 width (rows x 8 / ratio)")
-ok(ui.banner_cells(99, 0.452) == (80, 9, 4) and ui.banner_cells(60, 0.452) == (60, 7, 4) and ui.banner_cells(400, 0.5)[2] == 8,
-   "report banner: narrow stays 4:1 with at most 10 rows, a capped height sets the width (rows x 4 / ratio)")
-ok(art.image_row(art.banner_id("done", True, False, 5), 0, 118) in render.render_report(done, "Studio", rep, [], 150, art=True, banner=(118, 10, 5), portrait=(24, 14)).splitlines()[1],
+ok(ui.banner_cells(99, 0.452) == (53, 6, 4) and ui.banner_cells(60, 0.452) == (53, 6, 4) and ui.banner_cells(40, 0.452) == (40, 5, 4) and ui.banner_cells(400, 0.5)[2] == 8,
+   "report banner: narrow stays 4:1 with at most 6 rows, a capped height sets the width (rows x 4 / ratio)")
+ok(art.image_row(art.banner_id("done", True, False, 8), 0, 106) in render.render_report(done, "Studio", rep, [], 150, art=True, banner=(106, 6, 8), portrait=(14, 7)).splitlines()[1],
    "report: the banner row carries the image id of its k:1 ratio")
 fake_art = {art.banner_id("done", True, False): (b"B",), art.portrait_id(done): (b"P", 6, 3), art.big_portrait_id(done): (b"G",)}
 bid_, pid_, big_ = art.banner_id("done", True, False), art.portrait_id(done), art.big_portrait_id(done)
@@ -472,10 +472,12 @@ ok(fd_sp == art.kitty_delete(big_) and "a=T" not in fd_sp and f"a=d,d=I,i={bid_}
 ok(f"i={big_},c=20,r=11,q=2,m=0;Rw==" in sp and "UA==" not in sp and "UA==" in nr and "Rw==" not in nr,
    "report images: split sends the big portrait PNG bytes, narrow sends the small portrait bytes")
 pc_, pr_ = ui.portrait_cells(0.452)
-raw_wide = render.render_report(done, "Studio", rep, [], 150, art=True, banner=(88, 10), portrait=(pc_, pr_)).splitlines()
-ok(pc_ == art.SPLIT_BIG_PORTRAIT_COLS == 20 and pr_ == 10 and strip(raw_wide[1]).startswith("┃" + " " * 4 + chr(0x10EEEE))
-   and art.image_row(art.big_portrait_id(done), 0, 20) in raw_wide[1] and art.image_row(art.banner_id("done", True, False), 0, 88) in raw_wide[1],
+raw_wide = render.render_report(done, "Studio", rep, [], 150, art=True, banner=(96, 6), portrait=(pc_, pr_)).splitlines()
+ok(pc_ == art.SPLIT_BIG_PORTRAIT_COLS == 14 and pr_ == 7 and strip(raw_wide[1]).startswith("┃" + " " * 7 + chr(0x10EEEE))
+   and art.image_row(art.big_portrait_id(done), 0, 14) in raw_wide[1] and art.image_row(art.banner_id("done", True, False), 0, 96) in raw_wide[1],
    "report: split portrait is SPLIT_BIG_PORTRAIT_COLS wide, centered in the frame, and its top row shares a row with the banner top")
+ok(ui.select_banner(80, 40, 0.5)[1] == 10 and ui.select_banner(150, 60, 0.452)[1] == 10 and ui.banner_cells(143, 0.5)[1] == 6,
+   "select banner: still at most 10 rows, not capped by the report banner limit")
 ok([a["pane"] for _, a in ui.report_queue(qt)] == ["%3", "%1", "%4", "%2"], "report queue: waiting first, then done, then the rest")
 ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"] and ui.report_queue(qt, "%2")[0][0] == "A",
    "report queue: the pane asked for comes first, whatever its status")
@@ -795,20 +797,32 @@ ok(c[c.index("-x" + str(sidebars.SELECT_PANE_COLS)) + 1] == "-y80%" and f"-X{(20
 c = sel_open("60")
 ok("-x60" in c and "-X0" in c, "select pane: in a 60-column window it is no wider than the window")
 c = sel_open("", select=False)
-ok(c[1:5] == ("-x80%", "-y80%", "-X10%", "-Y10%"), "select pane: the report page keeps -x80% -y80% -X10% -Y10%")
+ok(c[1:5] == ("-x80%", "-y80%", "-X10%", "-Y10%"), "report pane: an unreadable window width keeps -x80% -y80% -X10% -Y10%")
+c = sel_open("400", select=False)
+ok(c[1:5] == (f"-x{sidebars.REPORT_PANE_COLS}", "-y80%", f"-X{(400 - sidebars.REPORT_PANE_COLS) // 2}", "-Y10%"),
+   "report pane: in a 400-column window it is REPORT_PANE_COLS wide, centred, 80% high from 10%")
+c = sel_open("100", select=False)
+ok(c[1:5] == ("-x80", "-y80%", "-X10", "-Y10%"), "report pane: in a 100-column window it is 80% of the window, centred")
 c = sel_open("n/a")
 ok("-x80%" in c and "-X10%" in c, "select pane: an unreadable window width keeps the 80% / 10% size")
-def fit(flag, select, new=True):
+def fit(flag, select, new=True, win_w=200):
     calls.clear()
     sidebars._new_pane = new
-    sidebars.tmux = lambda *a: calls.append(a) or (f"{flag} 200 50" if a[0] == "display-message" else "")
+    sidebars.tmux = lambda *a: calls.append(a) or (f"{flag} {win_w} 50" if a[0] == "display-message" else "")
     sidebars.fit_report_pane("%9", select)
     sidebars.tmux = real_tmux
     return [c for c in calls if c[0] != "display-message"]
 ok(fit("1", True) == [("resize-pane", "-t", "%9", "-x", str(sidebars.SELECT_PANE_COLS), "-y", "40", ";", "move-pane", "-t", "%9", "-X", str((200 - sidebars.SELECT_PANE_COLS) // 2), "-Y", "5")],
    "fit pane: a floating pane is resized and moved to the select screen's size and place")
-ok(fit("1", False) == [("resize-pane", "-t", "%9", "-x", "160", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "20", "-Y", "5")],
-   "fit pane: a floating pane is resized and moved to the report page's 80% size from 10% / 10%")
+ok(fit("1", False, win_w=100) == [("resize-pane", "-t", "%9", "-x", "80", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "10", "-Y", "5")],
+   "fit pane: in a 100-column window the report page's pane is 80% wide, centred, 80% high from 10%")
+ok(sidebars.report_span(400) == (sidebars.REPORT_PANE_COLS, (400 - sidebars.REPORT_PANE_COLS) // 2) and sidebars.report_span(100) == (80, 10),
+   "report span: REPORT_PANE_COLS wide and centred in a wide window, 80% of a narrow one")
+ok(fit("1", False, win_w=400) == [("resize-pane", "-t", "%9", "-x", str(sidebars.REPORT_PANE_COLS), "-y", "40", ";", "move-pane", "-t", "%9", "-X", str((400 - sidebars.REPORT_PANE_COLS) // 2), "-Y", "5")],
+   "fit pane: in a 400-column window the report page's pane is REPORT_PANE_COLS wide, centred")
+right = sidebars.REPORT_PANE_COLS - 1 - ui.SPLIT_SIDE_COLS - ui.SPLIT_GAP
+ok(abs(ui.banner_cells(sidebars.REPORT_PANE_COLS - 1, 0.5)[0] - right) <= 1,
+   "report pane: at REPORT_PANE_COLS and cell ratio 0.5 the banner is as wide as the right column")
 ok(fit("0", True) == [] and fit("1", True, new=False) == [], "fit pane: a pane that is not floating, or tmux without new-pane, is left alone")
 sidebars._new_pane = None
 fit_calls = []
@@ -1199,6 +1213,82 @@ ok(cl == {"live": True, "task": {"ask": "fix the thing", "files": ["/a.py"], "cm
           "start": t0 + 120, "end": None, "tool": "Bash: rg -n foo", "said": "working on it\nline2",
           "prev": {"text": "previous answer", "start": t0, "end": t0 + 60}},
    "claude live: turn without a final answer -> ask, start, newest tool row, newest text, previous turn's report")
+def bulk(t, mb):
+    use = {"type": "tool_use", "id": "z", "name": "Bash", "input": {"command": "ls"}}
+    res = {"type": "tool_result", "tool_use_id": "z", "content": "o" * 100000}
+    return [r_ for _ in range(int(mb * 1024 * 1024 / 100000) + 1) for r_ in (rec("assistant", t, [use]), rec("user", t, [res]))]
+def append(path, *recs):
+    with open(path, "a") as f:
+        for r_ in recs:
+            f.write(json.dumps(r_) + "\n")
+searches = []
+search_orig = collect._search_long_turn
+collect._search_long_turn = lambda f, lo: (searches.append(lo), search_orig(f, lo))[1]
+longlog = transcript(rec("user", 0, "before"), rec("assistant", 1, [text("previous answer")]),
+    rec("user", 2, "long ask"), *bulk(3, 1.3))
+ll = collect.claude_live(longlog)
+ok(ll["start"] == t0 + 120 and ll["task"]["ask"] == "long ask" and ll["task"]["files"] == [] and ll["tool"] == "Bash: ls"
+   and ll["prev"] == {"text": "previous answer", "start": t0, "end": t0 + 60},
+   "claude live: a turn that began before LIVE_TAIL still has ask, start and prev (files, cmds and agents count the tail only)")
+append(longlog, rec("assistant", 20, [text("more")]), *bulk(21, 0.1))
+ll2 = collect.claude_live(longlog)
+ok(len(searches) == 1 and (ll2["start"], ll2["task"]["ask"], ll2["prev"]) == (ll["start"], ll["task"]["ask"], ll["prev"]) and ll2["said"] == "more",
+   "claude live: the same log read again as the same turn is not searched again")
+append(longlog, rec("user", 30, "second ask"), rec("assistant", 31, [text("on it")]))
+ll3 = collect.claude_live(longlog)
+n_ = len(searches)
+append(longlog, rec("user", 40, "third ask"), *bulk(41, 1.3))
+ll4 = collect.claude_live(longlog)
+ok(ll3["start"] == t0 + 1800 and ll3["task"]["ask"] == "second ask" and n_ == 1 and len(searches) == 2
+   and ll4["start"] == t0 + 2400 and ll4["task"]["ask"] == "third ask" and ll4["prev"]["text"] == "on it",
+   "claude live: a new prompt in the tail replaces the remembered turn; a new turn longer than the tail since the last read is searched again")
+other = transcript(rec("user", 0, "other ask"), *bulk(1, 1.3))
+os.replace(other, longlog)
+ok(collect.claude_live(longlog)["task"]["ask"] == "other ask",
+   "claude live: a log replaced by another file is not read as the remembered turn")
+n_ = len(searches)
+with open(longlog, "w") as f:
+    for r_ in [rec("user", 0, "rewritten ask"), *bulk(1, 1.4)]:
+        f.write(json.dumps(r_) + "\n")
+ok(collect.claude_live(longlog)["task"]["ask"] == "rewritten ask" and len(searches) == n_ + 1,
+   "claude live: a log rewritten in place (same inode, other content) is searched again")
+cut = transcript(rec("user", 0, "cut ask"), *bulk(1, 1.3))
+collect.claude_live(cut)
+with open(cut, "r+") as f:
+    f.truncate(os.path.getsize(cut) - 100000)
+n_ = len(searches)
+ok(collect.claude_live(cut)["task"]["ask"] == "cut ask" and len(searches) == n_ + 1,
+   "claude live: a log cut shorter is searched again")
+edge = []
+for d in (-1, 0, 1):
+    el = transcript(rec("user", 0, "OLD"), *bulk(1, 1.3))
+    collect.claude_live(el)
+    prompt = json.dumps(rec("user", 50, "EDGE new")) + "\n"
+    pad = lambda n: json.dumps(rec("user", 51, [{"type": "tool_result", "tool_use_id": "z", "content": "o" * n}])) + "\n"
+    room = collect.LIVE_TAIL + d - len(prompt) - len(pad(0))
+    with open(el, "a") as f:
+        f.write(prompt + pad(room))
+    edge.append(collect.claude_live(el)["task"].get("ask"))
+    for _ in range(2):
+        append(el, *bulk(52, 0.1))
+        edge.append(collect.claude_live(el)["task"].get("ask"))
+ok(edge == ["EDGE new"] * 9,
+   f"claude live: a new prompt first in what the file grew by LIVE_TAIL - 1, LIVE_TAIL and LIVE_TAIL + 1 bytes is the turn, not the remembered one, also on later reads ({edge})")
+mid = transcript(rec("user", 0, "earlier"), rec("assistant", 1, [text("a")]),
+    rec("user", 2, "ask with a lookalike", meta={"type": "tool_result"}), *bulk(3, 1.3))
+ok(collect.claude_live(mid)["task"]["ask"] == "ask with a lookalike",
+   "claude live: a prompt record that has a tool_result lookalike in another field is still the prompt")
+lookback = collect.LONG_TURN_LOOKBACK
+collect.LONG_TURN_LOOKBACK = 64 * 1024
+far = transcript(rec("user", 0, "far ask"), *bulk(1, 1.3))
+fl = collect.claude_live(far)
+collect.LONG_TURN_LOOKBACK = lookback
+ok(fl["start"] is None and fl["task"] == {} and fl["prev"] is None and fl["tool"] == "Bash: ls",
+   "claude live: a prompt further back than LONG_TURN_LOOKBACK is not found, the result is the tail-only one")
+n_ = len(searches)
+ok(collect.claude_live(liveq) == cl and len(searches) == n_,
+   "claude live: a turn that begins inside the tail gives the same result and never searches")
+collect._search_long_turn = search_orig
 ok(collect.report_for({"kind": "claude", "transcript": liveq, "status": "working"})["live"] is True
    and collect.report_for({"kind": "claude", "transcript": liveq}) is None
    and collect.report_for({"kind": "claude", "transcript": transcript(*turn), "status": "idle"})["text"].startswith("## 結果"),
@@ -1911,7 +2001,7 @@ sb_rows = render.render_select(sel_ros, sel_towns, done["pane"], 300, 60, None, 
 ok(ui.select_title_plan(sel_art, sb_short, True) == [] and ui.select_title_plan(sel_art, sb_wide, True)[0][0] == art.select_banner_id(sb_wide[2])
    and len(sb_rows) == 60 and all(render.cw(strip(r)) == 300 for r in sb_rows),
    "select banner: no banner image in the plan when there is no banner; with one the screen keeps height rows of width cells")
-ok(ui.banner_cells(120, 0.5) == (88, 10, 4) and ui.banner_cells(80, 0.5) == (80, 10, 4),
+ok(ui.banner_cells(120, 0.5) == (88, 6, 7) and ui.banner_cells(80, 0.5) == (48, 6, 4),
    "report banner sizes are unchanged by the select banner")
 ok(PH not in "".join(srows_of(180, 47, "%2")) and PH in "".join(srows_of(180, 47, "%2", srep, True)),
    "select screen without art: no image placeholders, the cards are the text version")

@@ -79,22 +79,22 @@ and `tmux` return nothing, `mark_seen` does nothing, images are forced on and re
 tmux passthrough wrapper), the opening animation is on. Not covered: a real tmux (`resize-pane`, hooks, `list-panes`),
 resizes, and what the terminal spends decoding and drawing the images.
 
-AMD Ryzen 9 5900XT, Linux, Python 3.14.8, `cpu_pct` 0.894 / 0.843 / 0.846 in the three runs of one `bench.py` after ticket 044 (median 0.846; before 044, after 042: 1.138 / 1.094 / 1.117, median 1.117; before ticket 042, with a snapshot read of its own: 1.278 / 1.283 / 1.281, median 1.281):
+AMD Ryzen 9 5900XT, Linux, Python 3.14.8, `cpu_pct` 0.832 / 0.845 / 0.838 in the three runs of one `bench.py` after ticket 043 (median 0.838; after 044, before 043: 0.894 / 0.843 / 0.846, median 0.846; before 044, after 042: 1.138 / 1.094 / 1.117, median 1.117; before ticket 042, with a snapshot read of its own: 1.278 / 1.283 / 1.281, median 1.281):
 
 | step | CPU (ms) | written (KB) |
 |---|---:|---:|
 | open select | 54.0 | 493.9 |
-| idle on working (5 s) | 23.8 | 302.6 |
-| k x4, new members (4 s) | 37.0 | 270.3 |
-| j x3, seen members (3 s) | 13.3 | 180.2 |
-| Enter, open report | 8.9 | 357.3 |
-| scroll j j j k k (3 s) | 3.1 | 166.1 |
-| n, next member | 7.2 | 324.0 |
-| h, back to select | 15.6 | 523.2 |
-| q, close | 6.1 | 0.1 |
-| reopen, then q (3 s) | 64.1 | 554.5 |
+| idle on working (5 s) | 21.8 | 302.6 |
+| k x4, new members (4 s) | 37.1 | 270.3 |
+| j x3, seen members (3 s) | 13.2 | 180.2 |
+| Enter, open report | 8.6 | 334.0 |
+| scroll j j j k k (3 s) | 2.4 | 106.0 |
+| n, next member | 7.1 | 309.7 |
+| h, back to select | 15.8 | 523.2 |
+| q, close | 6.0 | 0.1 |
+| reopen, then q (3 s) | 63.5 | 554.5 |
 
-Total 0.85 % over 27.5 s (before ticket 044: 1.12 %, 1.28 % before 042), peak RSS 20.6 MB (22.4 MB before 044, the bench process's own peak): below the target (the idle step 41.3 -> 27.9 -> 23.8 ms; the idle step 41.3 -> 27.9 ms). Where the time goes (cProfile of the child, steps cut at
+Total 0.84 % over 27.5 s (ticket 043, a 6-row report banner and a 14-column big portrait, changed the report steps only by the smaller placeholder text: written 357 -> 334 KB on Enter, 324 -> 310 KB on `n`, 166 -> 106 KB on scroll; CPU stays within the run-to-run noise; before ticket 043 0.85 %; before ticket 044: 1.12 %, 1.28 % before 042), peak RSS 20.6 MB (22.4 MB before 044, the bench process's own peak): below the target (the idle step 41.3 -> 27.9 -> 21.8 ms). Where the time goes (cProfile of the child, steps cut at
 each key; profiling inflates every number, read the shares):
 
 - A select frame is the cost. Measured without a profiler on the same data (`time.perf_counter`, median of 30):
@@ -125,7 +125,7 @@ Do the banner and the portraits get cheaper when they take fewer cells? No. The 
 count only sets the placement (`c=`, `r=` in `kitty_image`, `art.py:117`): the small portrait is 192 x 216
 (`PORTRAIT_PX`, 46 KB), the big one 384 x 432 (136 KB), banners are 960 px wide and 240 to 120 px tall for the 4:1
 to 8:1 shapes (`BANNER_RATIOS`, `art.py:43`), picked by the shape of the cells, not by their number. Halving
-`BANNER_MAX_ROWS` (`ui.py:456`) from 10 to 5 (patched in the child, 3 runs each): Enter 14.3 -> 14.7 ms CPU and
+the banner row limit from 10 to 5 (patched in the child, 3 runs each): Enter 14.3 -> 14.7 ms CPU and
 357 -> 330 KB written (the 8:1 banner is a smaller file); the select screen's idle output fell 303 -> 216 KB, because
 fewer placeholder rows are text; `cpu_pct` 1.25 -> 1.22. Terminal-side decoding is not in these numbers.
 
@@ -196,6 +196,25 @@ Memory was the main cost: every window ran its own Python process (about 11 MB f
 importing party-hud, the rest built up while running). CPU stays low because only one process collects data.
 Now a sidebar stops its process after 2 s out of view (the pane keeps its last frame) and a tmux hook restarts it
 when you switch to that window, so memory scales with the windows you are looking at, not the windows you have.
+
+## Long turn: `claude_live` (ticket 046)
+
+A working turn whose prompt is further back than the last 1 MB of the log (`LIVE_TAIL`) is searched for once per log
+and remembered in the process. The search parses every line that contains `"type":"user"` (tool results too: whether a
+line is a typed prompt is decided after parsing, by the same rule as for a finished turn). Fake 30 MB log: tool call
+and tool result lines alternate, each tool result is one string of plain `x` characters (a real one has more escapes,
+which parse slower), and the prompt line sits at the given distance from the end. Median of 30 calls, wall time (CPU
+time within 1 %), AMD Ryzen 9 5900XT, Linux, Python 3.14. "Before" is about 2 ms in every row:
+
+| prompt is | tool results of 20 KB: first call | 100 KB: first call | later calls (both) |
+|---|---:|---:|---:|
+| inside the last 1 MB (0.5 MB back) | 1.7 ms | 1.9 ms | 1.7 / 1.9 ms (same as before) |
+| 5 MB back | 11.6 ms | 13.2 ms | 1.75 / 1.94 ms |
+| 20 MB back | 35.7 ms | 40.0 ms | 1.75 / 1.93 ms |
+
+`party.py --report-text` is a new process for each call, so it pays the first-call number every time (the search reads
+the log back to the prompt). The lookback stops at 32 MB before the last 1 MB; a log whose prompt is further back
+costs that search once per process (the miss is remembered too).
 
 ## Collection rate with many sidebars (`tests/party-tmux-test.sh`)
 

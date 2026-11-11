@@ -41,7 +41,7 @@ from party_hud.render import (
     select_widths,
     side_labels,
 )
-from party_hud.sidebars import SELECT_PANE_COLS
+from party_hud.sidebars import REPORT_PANE_COLS, SELECT_PANE_COLS
 from party_hud.ui import (
     banner_cells,
     portrait_cells,
@@ -72,7 +72,7 @@ ASC = reg.getmetrics()[0]
 FAMILY = "'Maple Mono NF CN','JetBrains Mono','DejaVu Sans Mono',Menlo,Consolas,monospace"
 MISSING = {"⏎"}  # not in the default font
 FG = (232, 220, 192)
-BG = (20, 26, 46)
+BG = (0, 0, 0)
 DIAC_INDEX = {d: i for i, d in enumerate(DIAC)}
 ESC = re.compile(r"\x1b\[[0-9;:]*m")
 
@@ -331,7 +331,10 @@ class Canvas:
             f'<svg xmlns="http://www.w3.org/2000/svg" width="{self.w}" height="{self.h}" viewBox="0 0 {self.w} {self.h}"'
             f' xml:space="preserve" font-family="{FAMILY}" font-size="26">\n'
             f"<defs>{''.join(self.defs.values())}</defs>\n"
-            f'<rect width="{self.w}" height="{self.h}" fill="{hx(BG)}"/>\n' + "\n".join(self.body) + "\n</svg>\n"
+            "<style>@media (prefers-color-scheme: dark) { .bg { fill: none } }</style>\n"
+            f'<rect class="bg" width="{self.w}" height="{self.h}" fill="{hx(BG)}"/>\n'
+            + "\n".join(self.body)
+            + "\n</svg>\n"
         )
 
 
@@ -424,7 +427,7 @@ def card(fixture, sel):
 
 
 RATIO = CW / CH
-REPORT_COLS, REPORT_ROWS = 110, 36
+REPORT_COLS, REPORT_ROWS = REPORT_PANE_COLS - 1, 36
 
 
 def report_page(fixture, data, entry, helping=False):

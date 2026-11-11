@@ -462,20 +462,21 @@ def cell_ratio():
     return xpix * lines / (ypix * columns) if xpix and ypix and lines and columns else 0.5
 
 
-BANNER_MAX_ROWS = 10
+SELECT_BANNER_MAX_ROWS = 10
+REPORT_BANNER_MAX_ROWS = 6
 
 
 def banner_cells(width, ratio):
-    """(cols, rows, k) of the report banner, using the k:1 image (k = 4..8) closest to its pixel shape, at most BANNER_MAX_ROWS tall.
+    """(cols, rows, k) of the report banner, using the k:1 image (k = 4..8) closest to its pixel shape, at most REPORT_BANNER_MAX_ROWS tall.
     Narrow: 4:1, as wide as the text up to BANNER_MAX_COLS, a capped height narrows it. Split: as wide as the right column (up to the placeholder diacritics); flatter than 8:1 narrows it to 8:1."""
     if width < SPLIT_MIN_WIDTH:
         cols = min(BANNER_MAX_COLS, max(28, width))
         rows = max(1, round(cols * ratio / 4))
-        if rows > BANNER_MAX_ROWS:
-            rows, cols = BANNER_MAX_ROWS, min(cols, round(BANNER_MAX_ROWS * 4 / ratio))
+        if rows > REPORT_BANNER_MAX_ROWS:
+            rows, cols = REPORT_BANNER_MAX_ROWS, min(cols, round(REPORT_BANNER_MAX_ROWS * 4 / ratio))
         return cols, rows, 4
     cols = min(len(DIAC), width - SPLIT_SIDE_COLS - SPLIT_GAP)
-    rows = max(1, min(BANNER_MAX_ROWS, round(cols * ratio / 4)))
+    rows = max(1, min(REPORT_BANNER_MAX_ROWS, round(cols * ratio / 4)))
     if cols * ratio / rows > BANNER_RATIOS[-1]:
         cols = round(rows * BANNER_RATIOS[-1] / ratio)
     return cols, rows, min(BANNER_RATIOS, key=lambda k: abs(cols * ratio / rows - k))
@@ -484,7 +485,7 @@ def banner_cells(width, ratio):
 def select_banner(width, height, ratio):
     """(cols, rows, k, left_pad) of the select screen's banner, as wide as the whole screen (up to the placeholder diacritics) and centered; None when it would leave the roster fewer than 8 rows."""
     cols = min(len(DIAC), width)
-    rows = max(1, min(BANNER_MAX_ROWS, round(cols * ratio / 4)))
+    rows = max(1, min(SELECT_BANNER_MAX_ROWS, round(cols * ratio / 4)))
     if cols * ratio / rows > BANNER_RATIOS[-1]:
         cols = round(rows * BANNER_RATIOS[-1] / ratio)
     layout = select_layout(height, rows)

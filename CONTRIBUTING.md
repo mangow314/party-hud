@@ -71,3 +71,4 @@ python3 scripts/screenshot.py scripts/screenshot.json docs/img
 ```
 
 Writes `docs/img/window.svg`, `card.svg`, `report.svg`, `report-working.svg`, `help.svg`, `banners.svg` and `select.svg` from the fixture (no tmux needed; the report pages come from the `reports` key).
+In dark mode the images have a transparent background and in light mode a black one; the SVG's own `prefers-color-scheme` rule decides.

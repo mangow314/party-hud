@@ -11,6 +11,7 @@ import time
 import unicodedata
 import zlib
 from datetime import datetime, timedelta
+from itertools import takewhile
 from typing import Any
 
 from .common import (
@@ -630,22 +631,46 @@ def _epoch(ts):
     return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
 
 
-def _records_backwards(f, limit=None):
-    """Parsed (record, content) of a JSONL transcript from the end, at most limit bytes of it when given; lines that are not records are skipped."""
-    pos, carry = f.seek(0, os.SEEK_END), b""
-    floor = max(0, pos - limit) if limit else 0
-    while pos > floor:
-        start = max(floor, pos - 256 * 1024)
+def _lines_backwards(f, lo, hi, complete=False):
+    """(offset, raw line) of a JSONL file in [lo, hi), newest first; a line cut by lo is skipped.
+    With complete, hi may fall inside a line: the rest of that line is read too."""
+    carry = b""
+    if complete:
+        f.seek(hi)
+        while chunk := f.read(64 * 1024):
+            end = chunk.find(b"\n")
+            carry += chunk if end < 0 else chunk[:end]
+            if end >= 0:
+                break
+    pos = hi
+    while pos > lo:
+        start = max(lo, pos - 256 * 1024)
         f.seek(start)
         lines = (f.read(pos - start) + carry).split(b"\n")
+        offsets, off = [], start
+        for line in lines:
+            offsets.append(off)
+            off += len(line) + 1
         carry = lines.pop(0) if start else b""
+        if start:
+            offsets.pop(0)
         pos = start
-        for raw in reversed(lines):
-            try:
-                rec = json.loads(raw)
-                yield rec, rec["message"]["content"]
-            except (ValueError, KeyError, TypeError):
-                continue
+        yield from reversed(list(zip(offsets, lines)))
+
+
+def _parsed(lines):
+    for _, raw in lines:
+        try:
+            rec = json.loads(raw)
+            yield rec, rec["message"]["content"]
+        except (ValueError, KeyError, TypeError):
+            continue
+
+
+def _records_backwards(f, limit=None):
+    """Parsed (record, content) of a JSONL transcript from the end, at most limit bytes of it when given; lines that are not records are skipped."""
+    end = f.seek(0, os.SEEK_END)
+    return _parsed(_lines_backwards(f, max(0, end - limit) if limit else 0, end))
 
 
 def claude_report(path, sidechain=False):
@@ -802,17 +827,88 @@ def claude_task(path):
 
 
 LIVE_TAIL = 1024 * 1024  # a working turn can be long: look further back than the 256 KB of a finished one
+LONG_TURN_LOOKBACK = 32 * 1024 * 1024
+LONG_TURN_PREV = 2 * 1024 * 1024
+LONG_TURN_CACHE = 16
+HEAD_BYTES = 512
+USER_LINE = re.compile(rb'"type"\s*:\s*"user"')
+_long_turns: dict[str, tuple[int, int, int, int, bytes, Any]] = {}
+
+
+def _search_long_turn(f, lo):
+    """Look for the prompt of the turn that began before byte lo -> ((start, ask, prev), anchor offset), or (None, 0) when not within LONG_TURN_LOOKBACK.
+    Only lines that contain a user type are parsed, and _claude_turn decides which one is."""
+    floor = max(0, lo - LONG_TURN_LOOKBACK)
+    lines = _lines_backwards(f, floor, lo, complete=True)
+    at = [0]
+
+    def prompts():
+        for off, raw in lines:
+            if USER_LINE.search(raw):
+                try:
+                    rec = json.loads(raw)
+                    content = rec["message"]["content"]
+                except (ValueError, KeyError, TypeError):
+                    continue
+                at[0] = off
+                yield rec, content
+
+    task, start, _, _ = _claude_turn(prompts(), live=True)
+    if not task["ask"]:
+        return None, 0
+    stop = at[0] - LONG_TURN_PREV
+    prev = _claude_answer(_parsed(takewhile(lambda ol: ol[0] >= stop, lines)))
+    return (start, task["ask"], prev), at[0]
+
+
+def _complete_end(f, end):
+    pos = end
+    while pos > 0:
+        start = max(0, pos - 4096)
+        f.seek(start)
+        cut = f.read(pos - start).rfind(b"\n")
+        if cut >= 0:
+            return start + cut + 1
+        pos = start
+    return 0
+
+
+def _long_turn(f, path, end, lo):
+    """(start, ask, prev) of a turn that began before the LIVE_TAIL window, or None.
+    Remembered per log: the entry says no later prompt exists before byte `seen`, so it holds only while the window parses every line from `seen` on (a line cut by the window start is dropped, so lo < seen), the file only grew (same inode) and the line at the anchor is unchanged."""
+    st = os.fstat(f.fileno())
+    hit = _long_turns.pop(path, None)
+    if hit:
+        dev, ino, seen, anchor, head, found = hit
+        f.seek(anchor)
+        if (dev, ino) == (st.st_dev, st.st_ino) and lo < seen <= end and f.read(len(head)) == head:
+            _long_turns[path] = (dev, ino, _complete_end(f, end), anchor, head, found)
+            return found
+    found, anchor = _search_long_turn(f, lo)
+    f.seek(anchor)
+    head = f.read(HEAD_BYTES)
+    _long_turns[path] = (st.st_dev, st.st_ino, _complete_end(f, end), anchor, head, found)
+    if len(_long_turns) > LONG_TURN_CACHE:
+        del _long_turns[next(iter(_long_turns))]
+    return found
 
 
 def claude_live(path):
     """The turn in progress -> {"live": True, "task", "start", "end": None, "tool", "said", "prev"}, or None when the log is unreadable.
     start = when the prompt was typed (epoch seconds), tool = newest tool call as one row, said = newest assistant text, prev = claude_report-shaped answer of the turn before (or None).
-    Only the last LIVE_TAIL bytes are read, so a turn longer than that has no ask, start or prev."""
+    A turn that began before the last LIVE_TAIL bytes is searched for up to LONG_TURN_LOOKBACK further back (remembered per log): ask and start come from there, but files, cmds and agents count only the tail, and prev is None when its answer is not within LONG_TURN_PREV before the prompt. Past the lookback the turn has no ask, start or prev."""
     try:
         with open(path, "rb") as f:
-            records = _records_backwards(f, LIVE_TAIL)
+            end = f.seek(0, os.SEEK_END)
+            lo = max(0, end - LIVE_TAIL)
+            records = _parsed(_lines_backwards(f, lo, end))
             task, start, tool, said = _claude_turn(records, live=True)
             prev = _claude_answer(records) if task["ask"] else None
+            if not task["ask"] and lo:
+                found = _long_turn(f, path, end, lo)
+                if found:
+                    start, ask, prev = found
+                    task = {**task, "ask": ask}
             if not task["ask"]:
                 task = {}
     except OSError:
