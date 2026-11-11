@@ -210,7 +210,6 @@ def status_rows(a, width, sel=True):
 
 
 HINTS = {
-    "popup": [("⏎", "go"), ("n", "next"), ("?", "keys"), ("q", "close")],
     "sidebar": [("⏎", "go"), ("n", "next"), ("?", "keys"), ("q", "hide")],
     "report": [("⏎", "go"), ("n/N", "report"), ("?", "keys"), ("q", "close")],
     "report_back": [("⏎", "go"), ("n/N", "report"), ("h", "back"), ("?", "keys"), ("q", "close")],
@@ -240,16 +239,6 @@ HELP = {
         ("⏎", "go to agent"),
         ("q", "hide sidebars"),
         ("Esc P", "back to pane"),
-        ("?", "this help"),
-    ],
-    "popup": [
-        ("j k", "next / prev card"),
-        ("J K", "next / prev squad"),
-        ("1-9", "pick card"),
-        ("n", "next waiting / done"),
-        ("v", "peek output"),
-        ("⏎", "go to agent"),
-        ("q Esc P", "close"),
         ("?", "this help"),
     ],
     "select": [

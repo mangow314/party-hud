@@ -1,4 +1,4 @@
-"""The interactive loop of the sidebar and the popup: input, cursor, redraws."""
+"""The interactive loop of the sidebar: input, cursor, redraws."""
 
 import contextlib
 import fcntl
@@ -141,8 +141,8 @@ def help_toggle(key, shown):
     return key == "?", key == "?"
 
 
-def handle_key(key, st, towns, mode):
-    """Apply a key to the cursor st. Returns None, "jump", "jump_squad", "close", "back" or "hide"."""
+def handle_key(key, st, towns):
+    """Apply a key to the cursor st. Returns None, "jump", "jump_squad", "back" or "hide"."""
     agents = [a for t in towns for a in t["agents"]]
     panes = [a["pane"] for a in agents]
     home = current_squad(st, towns)
@@ -162,7 +162,7 @@ def handle_key(key, st, towns, mode):
         st["focus"] = "party"
     elif key == "v":
         st["peek"] = not st["peek"]
-    elif key == "r" and mode == "sidebar" and st["sel"]:
+    elif key == "r" and st["sel"]:
         return "report"
     elif key in ("\r", "\n"):
         if st["focus"] == "squad" and towns:
@@ -170,8 +170,6 @@ def handle_key(key, st, towns, mode):
         if st["sel"]:
             return "jump"
     elif key in ("q", "\x1b", "P"):
-        if mode == "popup":
-            return "close"
         return "hide" if key == "q" else "back"
     return None
 
@@ -876,10 +874,10 @@ HIDE_AFTER = 2.0
 ART_SETTLE = 1.0
 
 
-def run_ui(mode, fixture=None):
-    """Main loop of the popup and the sidebar: read the snapshot every second, redraw only on change."""
+def run_ui(fixture=None):
+    """Main loop of the sidebar: read the snapshot every second, redraw only on change."""
     me = os.environ.get("TMUX_PANE", "")
-    if mode == "sidebar" and not fixture:
+    if not fixture:
         # tmux-resurrect restores neither pane options nor hooks
         mark_sidebar(me)
         install_hooks()
@@ -891,7 +889,6 @@ def run_ui(mode, fixture=None):
     last_frame, row_map, frame_lines = None, [], []
     pending, due = None, False
     last_here = None
-    # a popup is not a pane: tmux 3.8 forwards its passthrough only when allow-passthrough is on globally (the user's tmux.conf)
     art = (
         load_art()
         if not fixture
@@ -899,7 +896,6 @@ def run_ui(mode, fixture=None):
             tmux("show-option", "-gqv", "@party_art").strip(),
             tmux("display-message", "-p", "#{client_termname}").strip(),
         )
-        and (mode == "sidebar" or tmux("show-option", "-gqv", "allow-passthrough").strip() in ("on", "all"))
         else None
     )
     sent, was_visible = set(), False
@@ -938,7 +934,7 @@ def run_ui(mode, fixture=None):
                 st["sel"] = next((a["pane"] for a in agents if a["focus"]), agents[0]["pane"] if agents else None)
             if st["squad"] is not None and st["squad"] >= len(towns):
                 st["squad"] = len(towns) - 1 if towns else None
-            info = snap["panes"].get(me) if mode == "sidebar" else None
+            info = snap["panes"].get(me)
             if info and info["window_panes"] <= 1:
                 tmux("kill-pane", "-t", me)  # under remain-on-exit, exiting alone would leave the pane
                 break
@@ -980,7 +976,7 @@ def run_ui(mode, fixture=None):
             busy = False
             try:
                 if helping:
-                    frame = "\n".join(help_screen(mode, size.columns - 1, size.lines))
+                    frame = "\n".join(help_screen("sidebar", size.columns - 1, size.lines))
                     row_map[:] = []
                 else:
                     shown = towns
@@ -994,7 +990,7 @@ def run_ui(mode, fixture=None):
                         size.columns - 1,
                         st["sel"],
                         lines,
-                        mode,
+                        "sidebar",
                         size.lines,
                         row_map,
                         st["focus"],
@@ -1051,16 +1047,14 @@ def run_ui(mode, fixture=None):
                     helping, eaten = help_toggle(value, helping)
                     if eaten:
                         continue
-                    action = handle_key(value, st, towns, mode)
+                    action = handle_key(value, st, towns)
                 if action in ("jump", "jump_squad"):
                     save_cursor(st)  # save first, so the destination sidebar wakes up with the same selection
                 if action == "jump":
                     # a pane id target switches session, window and pane together
                     tmux("switch-client", "-t", st["sel"])
-                    done = mode == "popup"
                 elif action == "jump_squad":
                     tmux("switch-client", "-t", "=" + towns[st["squad"]]["name"])  # =: exact name match
-                    done = mode == "popup"
                 elif action == "report":
                     open_report(st["sel"])
                 elif action == "back":
@@ -1068,8 +1062,6 @@ def run_ui(mode, fixture=None):
                 elif action == "hide":
                     # let the server do it: killing panes from here would kill this sidebar first
                     tmux("run-shell", "-b", f"{EXE} --toggle")
-                    done = True
-                elif action == "close":
                     done = True
                 if done:
                     break
@@ -1080,7 +1072,7 @@ def run_ui(mode, fixture=None):
     finally:
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         # no newline: the pane keeps this frame (remain-on-exit) and a newline on the last row would scroll it
-        sys.stdout.write(MOUSE_OFF + "\033[?7h\033[?25h" + ("" if mode == "sidebar" else "\n"))
+        sys.stdout.write(MOUSE_OFF + "\033[?7h\033[?25h")
         sys.stdout.flush()
 
 

@@ -173,7 +173,6 @@ This needs `jq`. Without it, HP is estimated from the transcript. Details: [docs
 | Key | Action |
 |---|---|
 | `prefix C-t` | Open / close the sidebar in every window |
-| `prefix P` | Popup version |
 | `prefix a` | Jump to the next member that is waiting or done, without opening anything |
 | `prefix R` | Party Select screen: leads across squads (waiting, done, working, idle, sleep) with a preview; pick one to open its report, `h` in the report comes back |
 | `j` / `k` | Next / previous member in this squad (stops at the ends) |
@@ -195,14 +194,11 @@ Set these in `~/.tmux.conf` before the plugin loads.
 | Option | Default | Meaning |
 |---|---|---|
 | `@party_key_toggle` | `C-t` | Key for open / close |
-| `@party_key_popup` | `P` | Key for the popup |
 | `@party_key_next` | `a` | Key for "next waiting" |
 | `@party_key_report` | `R` | Key for quest reports |
 | `@party_art` | `auto` | `on` / `off` forces images; `auto` uses them on Ghostty and Kitty |
 | `@party_anim` | `on` | `off` turns off the opening animation of the report pane and the sidebar's card blink and HP / SP `+N` / `-N` labels |
 | `@party_sidebar_width` | `34` | Sidebar width in columns |
-
-The `prefix P` popup shows images only with `allow-passthrough on` set globally; see [docs/sidebar.md](docs/sidebar.md#images-and-passthrough).
 
 ## How members are detected
 

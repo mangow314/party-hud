@@ -7,7 +7,7 @@
 #   bench/live.sh 300 --no-offline # live numbers only
 #
 # Samples every 5 s, because hidden sidebars stop and restart when you switch windows. Two groups:
-# sidebars (--sidebar) and other screens (--select, --menu, --report, --watch, --report-text --wait).
+# sidebars (--sidebar) and other screens (--select, --menu, --report, --report-text --wait).
 # For each: running processes, CPU of all of them (100% = one core), average and peak total RSS.
 # Also how many snapshots were collected (one process collects for all). Warns when party.py runs from
 # more than one directory: copies do not share a snapshot, so collections come out too high.
@@ -27,7 +27,7 @@ seq_now() { python3 -c 'import json,sys; print(json.load(open(sys.argv[1])).get(
 hz=$(getconf CLK_TCK 2>/dev/null || echo 100)
 sample() { # "pid cpu_seconds rss_kb group party.py-path" for every long-running party.py process (the python process itself, not shell wrappers)
   local p f ut st args grp path cpu rss
-  for p in $(pgrep -f '^[^ ]*[Pp]ython[0-9.]* [^ ]*party\.py (--sidebar|--select|--menu|--report( |$)|--watch)' || true) \
+  for p in $(pgrep -f '^[^ ]*[Pp]ython[0-9.]* [^ ]*party\.py (--sidebar|--select|--menu|--report( |$))' || true) \
     $(pgrep -f '^[^ ]*[Pp]ython[0-9.]* [^ ]*party\.py --report-text .*--wait' || true); do
     args=$(ps -o args= -p "$p" 2>/dev/null) || continue
     path=$(awk '{ print $2 }' <<<"$args")

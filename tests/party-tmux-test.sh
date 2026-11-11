@@ -48,7 +48,7 @@ check "A client is attached to session a" eq "$(t list-clients -F '#{session_nam
   { echo "     cannot attach a test client (needs util-linux or BSD script); stopping" >&2; exit 1; }
 
 t run-shell "$root/party.tmux"
-check "party.tmux: binds 5 keys (popup, toggle, next, report, border drag)" eq "$(t list-keys | grep -c 'party.py')" "5"
+check "party.tmux: binds 4 keys (toggle, next, report, border drag)" eq "$(t list-keys | grep -c 'party.py')" "4"
 check "party.tmux: leaves allow-passthrough off globally (other panes cannot bypass tmux)" eq "$(t show -gv allow-passthrough)" "off"
 
 t run-shell "python3 $party --toggle"

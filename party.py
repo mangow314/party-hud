@@ -3,7 +3,6 @@
 
 Modes (started by tmux; see party.tmux):
   party.py                    print once
-  party.py --watch            popup (prefix P)
   party.py --sidebar          sidebar UI, one per window
   party.py --toggle           open / close the sidebars in every window (prefix C-t)
   party.py --next             jump to the next waiting / done member (prefix a)
@@ -94,7 +93,6 @@ def main():
         "--report-text exit code 7: the member is waiting for input, stdout is the end of its screen. "
         "Exit code 6: the rules do not allow it (stderr says which one).",
     )
-    ap.add_argument("--watch", action="store_true")
     ap.add_argument("--sidebar", action="store_true")
     ap.add_argument("--toggle", action="store_true")
     ap.add_argument("--ensure", metavar="WINDOW_ID")
@@ -188,8 +186,8 @@ def main():
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)
-    elif args.watch or args.sidebar:
-        run_ui("sidebar" if args.sidebar else "popup", args.fixture)
+    elif args.sidebar:
+        run_ui(args.fixture)
     else:
         towns = get_snapshot(args.fixture)["towns"]
         print(render(towns, args.width or shutil.get_terminal_size().columns - 1))

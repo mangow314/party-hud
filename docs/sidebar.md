@@ -39,6 +39,4 @@ and a pin marks the session the sidebar itself is in.
 ## Images and passthrough
 
 Images leave tmux through `allow-passthrough`, which party-hud turns on for its own sidebar and report panes only: a program in any
-other pane still cannot send escape sequences straight to your terminal. The `prefix P` popup is not a pane, so it shows images only if
-you set `allow-passthrough on` globally in `~/.tmux.conf` yourself (then every pane can bypass tmux); otherwise it uses
-the text version. Details: [architecture.md](architecture.md#images).
+other pane still cannot send escape sequences straight to your terminal. Details: [architecture.md](architecture.md#images).

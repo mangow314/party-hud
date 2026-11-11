@@ -10,7 +10,7 @@ library only):
 | `collect.py` | reads tmux, agent session files, transcripts and rollouts; the shared snapshot and its lock |
 | `render.py` | draws the squad list and cards from a snapshot (pure functions; `render_markdown` remembers the last 32 layouts, so the same input gives the same output and it is still input in, text out). The Squads frame gets the rows left after the selected card (or the first one), the border and the hint row; when the squads do not fit it keeps the viewed squad and as many neighbours as fit, with `▲ n more` / `▼ n more` rows (n counts squads, a folded `+N empty` run counts N) |
 | `sidebars.py` | opens, closes, restarts and resizes sidebar panes; installs the hooks |
-| `ui.py` | the sidebar / popup loop: input, cursor, redraws |
+| `ui.py` | the sidebar loop: input, cursor, redraws |
 
 A module imports only modules listed above it, so there are no import cycles.
 
@@ -23,7 +23,6 @@ A module imports only modules listed above it, so there are no import cycles.
  session / window changed, attach --->  --nudge    restart this window's sidebar if it was stopped, redraw now
  after-kill-pane hook --------------->  --tidy     close windows left with only a sidebar (a report pane counts as one)
  sidebar pane ------------------------>  --sidebar  the long-running UI, one per window
- prefix P ---------------------------->  --watch    the same UI in a popup
  prefix a ---------------------------->  --next     jump to the next waiting / done member and exit
  prefix R ---------------------------->  --menu      open a pane running --select, the select screen
  sidebar r --------------------------->  --open-report  open a report pane: floating (tmux 3.8+) or split, running --report
@@ -100,8 +99,7 @@ with Unicode placeholders:
 1. When a sidebar has been visible for a second, it sends the 16 PNGs once (wrapped in tmux passthrough), each with
    an id. `allow-passthrough` is a pane option; `mark_sidebar` sets it on the sidebar pane only, so other panes keep
    tmux's default and cannot reach the outer terminal. `mark_report` does the same for the quest report pane (`@party_report`), which draws the
-   member's portrait. The `--watch` popup has no pane and gets images only when the user set it
-   globally. The wait matters: while tmux redraws a client (after a split, a session switch or an attach) it drops
+   member's portrait. The wait matters: while tmux redraws a client (after a split, a session switch or an attach) it drops
    passthrough without counting it, and an image that loses one chunk stays black.
 2. Each image cell is drawn as the character U+10EEEE, colored with the image id, plus two combining
    diacritics for row and column. tmux treats these as normal text, so scrolling, redrawing and pane
@@ -119,7 +117,7 @@ about 55 ms for a 300-row report, so the measured rate there is about 17 per sec
 
 The split page's left column scrolls with nothing, so `report_parts` (fixed) cuts it to the pane height when it is taller: rows are cut from the bottom (the order is portrait and name, TOOK, ASKED, FILES, WHERE, page number, so lists go first), a dim `…` row (no arrow: the column does not scroll) stands above the hint, and the hint stays on the last content row. A portrait that the cut would split is dropped whole. This runs in `report_parts`, once per page, per resize, per live re-read and per time redraw of the page, never per scroll step.
 
-`?` on the report page lays `help_overlay` over the rows `report_view` returns: every page row in faint text (SGR 2 after each SGR, so a Kitty placeholder keeps its image-id color and the image stays bright), the key box centered, page text kept left and right of it. It is computed on open, resize, live re-read and the redraw at a time boundary (`tick_wait` over `start` of a live page and `end` of a split page, each through `time_anchor` because `fmt_took` rounds; a tick whose rows equal the last ones written writes nothing; text only: images, scroll offset and the opening animation are untouched), not per frame; the sidebar and popup `?` still show the full-pane `help_screen`.
+`?` on the report page lays `help_overlay` over the rows `report_view` returns: every page row in faint text (SGR 2 after each SGR, so a Kitty placeholder keeps its image-id color and the image stays bright), the key box centered, page text kept left and right of it. It is computed on open, resize, live re-read and the redraw at a time boundary (`tick_wait` over `start` of a live page and `end` of a split page, each through `time_anchor` because `fmt_took` rounds; a tick whose rows equal the last ones written writes nothing; text only: images, scroll offset and the opening animation are untouched), not per frame; the sidebar `?` still shows the full-pane `help_screen`.
 
 A fresh page (the first one, `n`, `N`; not a resize, a live re-read or a scroll) opens with `report_frames`: the banner, head and left column are in every frame and the right column's paragraphs appear in at most 5 steps over `ANIM_TOTAL` (0.4 s), counting only paragraphs that start in the visible rows. `report_parts` runs once per page (the animation plays only on a fresh page), and a step is one slice plus one write. The wait between steps is the loop's own `select`, so input or SIGWINCH ends the animation without being read, and the main loop handles it as before. The image wait `REPORT_ART_SETTLE` (0.3 s, shorter than the sidebar's 1 s `ART_SETTLE`, chosen by trying it in Ghostty) counts from the first frame, so the animation does not delay the images. `@party_anim off` (read once when the pane opens) turns it off.
 

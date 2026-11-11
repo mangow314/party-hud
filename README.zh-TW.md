@@ -160,7 +160,6 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 | 按鍵 | 動作 |
 |---|---|
 | `prefix C-t` | 在所有 window 開／關側欄 |
-| `prefix P` | popup 版 |
 | `prefix a` | 不開任何東西，直接跳到下一個等你或做完的隊員 |
 | `prefix R` | 任務回報：選隊畫面，跨小隊列出 lead（waiting、done、working、idle、sleep）並預覽，選一位開它的報告，報告頁按 `h` 回來 |
 | `j`／`k` | 同一隊的下一位／上一位（到頭尾就停） |
@@ -182,14 +181,11 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 | 選項 | 預設 | 意思 |
 |---|---|---|
 | `@party_key_toggle` | `C-t` | 開／關側欄的鍵 |
-| `@party_key_popup` | `P` | popup 的鍵 |
 | `@party_key_next` | `a` | 「跳到下一個等你的」的鍵 |
 | `@party_key_report` | `R` | 任務回報的鍵 |
 | `@party_art` | `auto` | `on`／`off` 強制開／關圖片；`auto` 在 Ghostty、Kitty 自動開 |
 | `@party_anim` | `on` | 設為 `off` 關閉報告頁的開場動畫，以及側欄的卡片閃爍和 HP／SP 的 `+N`／`-N` 標籤 |
 | `@party_sidebar_width` | `34` | 側欄寬度（欄） |
-
-`prefix P` 的 popup 要全域設定 `allow-passthrough on` 才有圖片，原因見 [docs/sidebar.md](docs/sidebar.md#images-and-passthrough)（英文）。
 
 ## 怎麼認出隊員
 

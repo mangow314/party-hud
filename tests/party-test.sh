@@ -49,7 +49,7 @@ cat >"$tmp/fixture.json" <<'EOF'
 }
 EOF
 
-# Width 33 = drawable width of the default 34-column sidebar / 36-column popup after borders
+# Width 33 = drawable width of the default 34-column sidebar after borders
 python3 "$party" --fixture "$tmp/fixture.json" --width 33 >"$tmp/out.ansi"
 sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' "$tmp/out.ansi" >"$tmp/out.txt"
 
@@ -111,7 +111,7 @@ print(render.render(e,33,"%1",focus="squad",squad=2))' "$party" "$tmp/fixture.js
   | sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' >"$tmp/squad.txt"
 check "Empty squad selected -> every box line is 33 wide" widths_ok "$tmp/squad.txt"
 
-# Popup / sidebar: sidebar pane not a squad member, peek, key hints, row highlight, key handling
+# Sidebar: sidebar pane not a squad member, peek, key hints, row highlight, key handling
 ui_ok() {
   python3 - "$party" "$tmp/fixture.json" <<'EOF'
 import os, re, sys
@@ -123,15 +123,14 @@ fails = []
 def ok(cond, msg):
     if not cond: fails.append(msg)
 ok(snap["panes"]["%9"]["window_panes"] == 0 and "%9" not in [a["pane"] for a in agents], "Sidebar pane is not a squad member")
-peek = strip(render.render(towns, 33, "%1", ["line1", "", "最後一行", "", ""], "popup"))
+peek = strip(render.render(towns, 33, "%1", ["line1", "", "最後一行", "", ""], "sidebar"))
 ok("Peek · Frontend" in peek and "最後一行" in peek and "│ HP" not in peek, "v peek: pane output replaces the status box")
-hint = strip(render.render(towns, 34, "%1", None, "popup")).splitlines()[-1]
-ok("? keys" in hint and "q close" in hint and not re.search(r"[一-鿿]", hint), "Popup key hints are in English")
-ok("q hide" in strip(render.render(towns, 34, "%1", None, "sidebar")).splitlines()[-1], "Sidebar key hints are in English")
+hint = strip(render.render(towns, 34, "%1", None, "sidebar")).splitlines()[-1]
+ok("? keys" in hint and "q hide" in hint and not re.search(r"[一-鿿]", hint), "Sidebar key hints are in English")
 ok(any(common.bg("view") in l and "Server" in l for l in render.render(towns, 33, "%1", focus="squad", squad=1).splitlines()), "Selected squad row gets the warm-gold background")
-tall = strip(render.render(towns, 33, "%1", [f"L{i}" for i in range(100)], "popup", 40)).splitlines()
+tall = strip(render.render(towns, 33, "%1", [f"L{i}" for i in range(100)], "sidebar", 40)).splitlines()
 ok(len(tall) == 40 and any("L99" in l for l in tall) and sum(l.startswith("│L") for l in tall) > 12, "v peek fills the remaining height")
-ok(len(tall) == 40 and "q close" in tall[-1], "v peek: key hints stay on the last line; q still fits at width 33")
+ok(len(tall) == 40 and "q hide" in tall[-1], "v peek: key hints stay on the last line; q still fits at width 33")
 low = strip(render.render(towns, 33, "%1", None, "sidebar", 40)).splitlines()
 ok(len(low) == 40 and "q hide" in low[-1], "Key hints pinned to the last line (blank gap when content is short)")
 empty = towns + [dict(towns[1], name="Empty", agents=[])]
@@ -347,7 +346,7 @@ ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > s
    "report: finished subagent listed below the main report with its own report (Markdown), no running")
 nr = strip(render.render_no_report(40, 10)).splitlines()
 ok(len(nr) == 10 and "No party members." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
-   "report popup with no party members: says so and waits (a popup that exits at once only flashes)")
+   "report pane with no party members: says so and waits (a pane that exits at once only flashes)")
 ok(render.wrap("一二三四五", 4) == ["一二", "三四", "五"] and render.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
    "report: wrap by display width; tabs expanded, control characters dropped")
 md = render.render_markdown
@@ -503,9 +502,9 @@ qm = [{"name": "A", "agents": [dict(mk("%1", "idle"), window="@1")]}, {"name": "
 ok([a["pane"] for _, a in ui.report_queue(qm, None, "@2")] == ["%2", "%1"], "report queue: the caller's window orders the queue, whichever session it is in")
 ok([a["pane"] for _, a in ui.report_queue(qi, "%3", "@2")] == ["%3", "%2", "%1"], "report queue: the pane asked for stays first with a current window")
 ok(ui.report_queue([]) == [] and ui.report_queue([{"name": "A", "agents": []}], "%1", "@1") == [], "report queue: no members, empty queue")
-ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") == "report"
-   and ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "popup") is None,
-   "r in the sidebar opens the report pane (not inside the P popup)")
+ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns) == "report"
+   and ui.handle_key("r", {"focus": "party", "sel": None, "squad": None, "peek": False}, towns) is None,
+   "r in the sidebar opens the report pane; with no member selected it does nothing")
 mm = lambda pane, name, status, lead=None: dict(mk(pane, status), name=name, **({"lead": lead} if lead else {}))
 mt = [{"name": "Studio", "agents": [mm("%1", "a", "idle"), mm("%2", "b", "working"), mm("%3", "c", "waiting"), mm("%4", "d", "done")]},
       {"name": "Empty", "agents": []}, {"name": "Lab", "agents": [mm("%5", "lead", "working"), mm("%6", "w1", "idle", "%5"), mm("%7", "w2", "waiting", "%5"), mm("%8", "e", "waiting")]}]
@@ -1585,7 +1584,7 @@ long_a = dict(nar2, name="party-hud-long-name", cls=0, kind="claude", status="wo
 nc = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card(long_a, 28, True, True)]
 ok(all(w(l) == 28 for l in nc) and "890k/1.2M" in nc[2] and "…" in nc[1] and "party-hud-long-name" not in nc[1],
    "Narrow art card: name truncated with … while the HP value stays whole; every line exactly 28 wide")
-text = render.render(towns, 33, "%1", hints="sidebar") + render.render(towns, 33, "%1", art=True) + render.render(towns, 33, "%1", ["x"], "popup")
+text = render.render(towns, 33, "%1", hints="sidebar") + render.render(towns, 33, "%1", art=True) + render.render(towns, 33, "%1", ["x"], "sidebar")
 en_lv = {"live": True, "text": "", "start": 1000, "end": None, "tool": "Bash: ls", "said": "thinking",
          "prev": {"text": "## Earlier\nold report", "start": 1, "end": 2}, "task": {"ask": "do it", "files": [], "cmds": 2, "agents": 0, "dir": "~/x", "branch": "main", "cwd": "/x"}}
 en_rep = {"text": "## Result\nall done", "start": 100, "end": 860}
@@ -1959,7 +1958,7 @@ ok(pi("\x1b[<64;1;1M\x1b[<65;1;1M") == [("key", "k"), ("key", "j")], "Wheel -> k
 ok(pi("\x1b[A\x1b[B") == [("key", "k"), ("key", "j")], "Arrow keys -> k / j")
 ok(pi("\x1b") == [("key", "\x1b")] and pi("jv") == [("key", "j"), ("key", "v")], "Lone Esc and plain keys")
 ok(pi("\x1b[5~\x1b[6~j") == [("key", "PgUp"), ("key", "PgDn"), ("key", "j")], "PgUp / PgDn -> own keys, no stray ~")
-ok(ui.handle_key("PgUp", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns, "sidebar") is None,
+ok(ui.handle_key("PgUp", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns) is None,
    "Sidebar ignores PgUp")
 ok([ui.report_scroll(k, 5, 20, 10) for k in ["k", "j", "PgUp", "PgDn", "g", "G", "b", " ", "x"]] == [4, 6, 0, 14, 0, 20, 5, 5, 5],
    "Report scroll keys -> offset: k / j one row, PgUp / PgDn a page (height - 1), g / G top / bottom; other keys keep it")
@@ -2040,11 +2039,9 @@ for h in (8, 12, 17, 24):
 need = {
     "report": "n N j k ↑ ↓ wheel PgUp PgDn g G ⏎ q Esc ?",
     "sidebar": "j k J K 1-9 n v r ⏎ q Esc P ?",
-    "popup": "j k J K 1-9 n v ⏎ q Esc P ?",
 }
-ok(all(set(need[m].split()) <= {t for k, _ in render.HELP[m] for t in k.replace(" / ", " ").split()} for m in need)
-   and all(k != "r" for k, _ in render.HELP["popup"]),
-   "Key help lists every key of its mode (r only in the sidebar's)")
+ok(all(set(need[m].split()) <= {t for k, _ in render.HELP[m] for t in k.replace(" / ", " ").split()} for m in need),
+   "Key help lists every key of its mode")
 ok(all(len(rows) == h and all(common.cw(r) == w for r in rows) for m in need for w in (28, 33, 80) for h in (3, 12, 30)
        for rows in [[strip(r) for r in render.help_screen(m, w, h)]]),
    "Key help: exactly height rows, every row exactly width cells (CJK-safe), also in a short pane")
@@ -2076,11 +2073,11 @@ left_part, right_part = render.cols_of(ph, 0, ol), render.cols_of(ph, ol + hw, 8
 ok(left_part.count("\U0010eeee") == ol and right_part.count("\U0010eeee") == 60 - ol - hw and "\x1b[38;2;" in right_part
    and strip(left_part) + strip(render.cols_of(ph, ol, ol + hw)) + strip(right_part) == strip(render.cols_of(ph, 0, 80)),
    "Key help overlay: placeholder cells left and right of the box keep their color and marks")
-ok(all(t.startswith("next") for m in ("sidebar", "popup") for k, t in render.HELP[m] if k in ("j k", "J K")),
+ok(all(t.startswith("next") for k, t in render.HELP["sidebar"] if k in ("j k", "J K")),
    "Key help: j / J are listed as next and k / K as prev, the way handle_key moves")
-ok(all("? keys" in strip(render.hint_line(m, w)) for m, w in (("sidebar", 28), ("popup", 28), ("report", 24)))
+ok(all("? keys" in strip(render.hint_line(m, w)) for m, w in (("sidebar", 28), ("report", 24)))
    and "q close" in strip(render.hint_line("report", 60)) and "? keys" in strip(render.render(towns, 28, "%1", None, "sidebar")).splitlines()[-1],
-   "Key hints keep ? keys at the narrowest widths (sidebar / popup 28, report left column 24)")
+   "Key hints keep ? keys at the narrowest widths (sidebar 28, report left column 24)")
 ok([ui.help_toggle(k, s) for k, s in [("?", False), ("j", False), ("?", True), ("\x1b", True), ("q", True), ("n", True), ("\r", True)]]
    == [(True, True), (False, False), (False, True), (False, True), (False, True), (True, True), (True, True)],
    "Key help: ? opens; ?, Esc, q close it and are eaten (q never reaches the report's close); other keys are eaten while it is open")
@@ -2103,9 +2100,9 @@ ok(len(fl) == 40 and strip(fl[-1]).startswith("┗") and len(fr) > 40,
 fe = next(a for a in agents if a["pane"] == "%1")
 ok(common.class_icon(fe) in render.render(towns, 33) and collect.collect(sys.argv[2])["towns"][0]["agents"][1]["cls"] == fe["cls"],
    "Class icon fixed by session id (same after re-reading the snapshot)")
-def hk(k, sel="%1", mode="popup", focus="party", squad=None, ts=None):
+def hk(k, sel="%1", focus="party", squad=None, ts=None):
     st = {"focus": focus, "sel": sel, "squad": squad, "peek": False}
-    return st, ui.handle_key(k, st, ts or towns, mode)
+    return st, ui.handle_key(k, st, ts or towns)
 # After sorting: Studio = [%2 waiting, %1 busy], Server = [%4]
 ok(hk("k")[0]["sel"] == "%2" and hk("j", "%2")[0]["sel"] == "%1", "j / k step one member at a time within the squad")
 ok(hk("j")[0]["sel"] == "%1" and hk("k", "%2")[0]["sel"] == "%2" and hk("j", "%4")[0]["sel"] == "%4",
@@ -2149,13 +2146,12 @@ ok(pt["focus"] == "party" and pt["sel"] == "%2", "Mouse over a card -> select th
 ok(ui.next_waiting(agents, "%1") == "%2" and ui.next_waiting(agents, "%2") == "%2"
    and ui.next_waiting([a for a in agents if a["status"] != "waiting"], "%1") is None,
    "\"Next waiting\" for prefix a: searches forward, returns self if alone, None if none")
-ok(hk("q")[1] == "close" and hk("P")[1] == "close" and hk("\x1b")[1] == "close", "Popup: q / P / Esc close")
 common.CURSOR = sys.argv[2] + ".cursor"
 a = {"focus": "squad", "sel": "%4", "squad": 1, "peek": True}
 b = {"focus": "party", "sel": "%1", "squad": None, "peek": False}
 common.save_cursor(a); common.load_cursor(b)
 ok(b == {"focus": "squad", "sel": "%4", "squad": 1, "peek": False}, "Shared cursor: one sidebar writes, another reads the same cursor (peek not shared)")
-ok(hk("q", mode="sidebar")[1] == "hide" and hk("\x1b", mode="sidebar")[1] == "back", "Sidebar: q hides, Esc returns to the previous pane")
+ok(hk("q")[1] == "hide" and hk("\x1b")[1] == "back" and hk("P")[1] == "back", "Sidebar: q hides, Esc and P return to the previous pane")
 many = [dict(towns[0], name=f"s{i}") for i in range(12)]
 rm = []
 tall = render.render(many, 33, "%1", height=24, hints="sidebar", row_map=rm, art=True)
@@ -2190,7 +2186,7 @@ print("\n".join(fails), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
 }
-check "Popup and sidebar: peek, hint bar, highlight, key handling" ui_ok
+check "Sidebar: peek, hint bar, highlight, key handling" ui_ok
 
 # --report-text --wait: exit codes, the wait-for wake-up from the collector, the 2 s re-read, the timeout
 report_text_ok() {

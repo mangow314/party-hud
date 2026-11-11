@@ -149,7 +149,7 @@ bench/live.sh 300 --no-offline # live numbers only
 It samples every 5 s. The first six lines are the sidebars: panes, agents, running sidebar processes (average, max),
 their CPU together (100% = one core), average and peak memory (RSS), and how many snapshots were collected.
 The next three lines (`running other screens`, `other screens CPU`, `other screens RSS`) are the same measures for
-`--select`, `--menu`, `--report`, `--watch` and `--report-text --wait` processes; they are 0 when none is open.
+`--select`, `--menu`, `--report` and `--report-text --wait` processes; they are 0 when none is open.
 These lines are new, so there are no earlier numbers.
 
 Do not leave another copy of `party.py` running while you measure (for example the plugin directory and a development
