@@ -25,6 +25,16 @@ saved rounds) is imported where it is used; only the three long-running processe
 `argparse` loads it. Nothing in `party_hud/` imports `typing` or `traceback` at start-up
 (`log_error` imports `traceback` when an error is logged).
 
+The same three sub-commands leave through `ui.leave_without_teardown`: when the screen function returns normally,
+`party.py` flushes stdout and stderr and calls `os._exit(0)`, which skips the interpreter's module and object teardown
+(about 5 ms of CPU per exit; a sidebar leaves and starts again on every window switch). It is not used when the screen
+function raises (the exception propagates, the traceback is printed, the exit code is not 0, the interpreter shuts down
+normally), on the `argparse` path (`--sidebar --fixture F` and the like) or in any short-lived sub-command. The terminal
+is restored before `party.py` is back in control: every screen function restores termios, mouse reporting, the cursor
+and the alternate screen in its own `finally` block and flushes stdout there, so no exit path of `run_ui`, `run_select`
+or `run_report` depends on the interpreter's shutdown. Nothing in `party.py` or `party_hud/` uses `atexit`, `__del__`
+or a temporary file.
+
 ```
  tmux key / hook                         party.py modes
  ----------------                        --------------

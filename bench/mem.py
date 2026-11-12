@@ -163,6 +163,7 @@ else:
 if kind == "startup":
     with open(out_path, "w") as f:
         json.dump(dict(marks, T0=T0, imported=P1 - P0, run_at=PR - P0), f)
+ui.leave_without_teardown()
 """
 
 STATE = """

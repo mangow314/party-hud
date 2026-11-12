@@ -9,8 +9,8 @@ About 90 s, no tmux, stdlib only. Same fake outside world as bench/use.py (a fix
      rows a second frame repeats, and the Markdown layout of a whole report against the part the preview lays out.
   2. The idle 5 s on the working member: frames drawn, why each wake happened, CPU per wake split into snapshot, compute,
      write, other. 3. Per k / j press: report_for stub, snapshot, Markdown, rest of the screen, images.
-  4. h, Enter, n: fixed cost of entering a screen, draw, images. 5. Process start-up and exit, and `os._exit(0)` instead
-     of the normal interpreter shutdown. 6. Writing a whole frame against only the changed rows into a pty (CPU incl.
+  4. h, Enter, n: fixed cost of entering a screen, draw, images. 5. Process start-up and exit, against the interpreter's
+     whole shutdown (the product leaves with `os._exit(0)`, the plays do too). 6. Writing a whole frame against only the changed rows into a pty (CPU incl.
      the diff). 7. cProfile ranking of the frames.
 Parts 2-5 and the final table come from PLAYS concurrent plays of the fixed key script (use.STEPS) in a pty. The child
 (`child_main`) is bench/use.py's child with timers around the product functions and a record of every wake: CPU time
@@ -262,7 +262,7 @@ class Out:
 
 
 def child_main(data_path, rec_path, exit_mode):
-    """bench/use.py's child with timers and a wake record. exit_mode "os_exit" leaves with os._exit(0) after the record is written."""
+    """bench/use.py's child with timers and a wake record. exit_mode "os_exit" leaves the way the product does (ui.leave_without_teardown) after the record is written; "normal" is the control that runs the interpreter's whole shutdown."""
     t_entry = time.process_time_ns()
     from party_hud import collect, render, ui
 
@@ -322,8 +322,7 @@ def child_main(data_path, rec_path, exit_mode):
     with open(rec_path, "w") as f:
         json.dump({"t_entry": t_entry, "t_ready": t_ready, "iters": rec.iters, "events": rec.events}, f)
     if exit_mode == "os_exit":
-        real_stdout.flush()
-        os._exit(0)
+        ui.leave_without_teardown()
 
 
 # ---------------------------------------------------------------- parts 1, 6, 7: this process
@@ -664,7 +663,7 @@ def play_main(data_path, work):
             t_step = time.monotonic()
             if spawn:
                 rec = os.path.join(work, f"rec{len(procs)}.json")
-                child = Child([sys.executable, "-c", BOOT, HERE, data_path, rec, "normal"])
+                child = Child([sys.executable, "-c", BOOT, HERE, data_path, rec, "os_exit"])
                 procs.append({"rec": rec, "cpu_ms": None})
                 cpu_prev = 0.0
             assert child
@@ -846,7 +845,7 @@ def run_plays(data_path, tmp):
 
 
 def exit_trials(data_path, tmp):
-    """Child CPU of open -> first frame and images -> q, with the normal exit and with os._exit(0); alternating."""
+    """Child CPU of open -> first frame and images -> q: "normal" is the interpreter's whole shutdown (what the product did before), "os_exit" is the product's exit; alternating."""
     from use import Child
 
     cpus = {"normal": [], "os_exit": []}

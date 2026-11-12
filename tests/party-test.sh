@@ -2995,6 +2995,8 @@ def fake(name):
 for t in targets:
     mod, _, name = t.rpartition(".")
     setattr(importlib.import_module(mod), name, fake(t))
+    if mod == "party_hud.ui":
+        importlib.import_module(mod).leave_without_teardown = lambda: None
 rc = 0
 try:
     party.main()
@@ -3062,5 +3064,101 @@ sys.exit(1 if fails else 0)
 EOF
 }
 check "party.py imports only what it needs: resident sub-commands skip argparse, short-lived ones skip ui and render" imports_only_ok
+
+# the resident sub-commands leave through ui.leave_without_teardown, and only when their screen returns
+leaves_ok() {
+  python3 - "$party" "$tmp/fixture.json" <<'EOF'
+import fcntl, io, os, pty, select, struct, subprocess, sys, termios, time
+root = os.path.dirname(sys.argv[1])
+sys.path.insert(0, root)
+import party
+from party_hud import ui
+fails = []
+def ok(cond, msg):
+    if not cond: fails.append(msg)
+events = []
+class Stream(io.StringIO):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+    def flush(self):
+        events.append(self.name + " flush")
+real = (ui.run_ui, ui.run_menu, ui.run_report, os._exit, sys.stdout, sys.stderr, sys.argv)
+def main_with(argv, screen_error=None):
+    events.clear()
+    def screen(*a, **k):
+        events.append("screen")
+        sys.stdout.write("last bytes")
+        if screen_error:
+            raise screen_error
+    ui.run_ui = ui.run_menu = ui.run_report = screen
+    os._exit = lambda rc: events.append("exit %s" % rc)
+    sys.stdout, sys.stderr, sys.argv = Stream("out"), Stream("err"), ["party.py", *argv]
+    raised = None
+    try:
+        party.main()
+    except Exception as e:
+        raised = e
+    finally:
+        ui.run_ui, ui.run_menu, ui.run_report, os._exit, sys.stdout, sys.stderr, sys.argv = real
+    return list(events), raised
+for argv in (["--sidebar"], ["--select"], ["--report"], ["--report", "%5"]):
+    ev, raised = main_with(argv)
+    ok(raised is None and ev == ["screen", "out flush", "err flush", "exit 0"], "%s: flushes stdout and stderr, then exits with 0 after the screen returns (%s %s)" % (argv, ev, raised))
+    ev, raised = main_with(argv, RuntimeError("boom"))
+    ok(type(raised) is RuntimeError and ev == ["screen"], "%s: a screen that raises propagates and does not exit early (%s %r)" % (argv, ev, raised))
+for argv in (["--sidebar", "--fixture", "F"], ["--select", "--fixture", "F"], ["--report", "%1", "--fixture", "F"]):
+    ev, raised = main_with(argv)
+    ok(raised is None and ev == ["screen"], "%s: the argparse path does not exit early (%s %r)" % (argv, ev, raised))
+CHILD = """
+import sys
+sys.path.insert(0, %r)
+sys.argv = ["party.py", "--report", "%%1"]
+import party
+from party_hud import collect, ui
+ui.get_snapshot = lambda f=None: collect.collect(%r)
+ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(30)), "start": 1, "end": 2}
+ui.tmux = lambda *a: "off" if "@party_anim" in a else ""
+party.main()
+print("NOT REACHED", flush=True)
+""" % (root, sys.argv[2])
+m, sl = pty.openpty()
+fcntl.ioctl(sl, termios.TIOCSWINSZ, struct.pack("HHHH", 10, 60, 0, 0))
+before = termios.tcgetattr(sl)
+p = subprocess.Popen([sys.executable, "-c", CHILD], stdin=sl, stdout=sl, stderr=sl, env=dict(os.environ, TMUX_PANE="%99"), close_fds=True)
+out = b""
+def pump(until):
+    global out
+    while time.monotonic() < until:
+        if select.select([m], [], [], 0.1)[0]:
+            try:
+                out += os.read(m, 65536)
+            except OSError:
+                return
+        elif p.poll() is not None:
+            return
+t_end = time.monotonic() + 10
+while b"\x1b[J" not in out and time.monotonic() < t_end:
+    pump(time.monotonic() + 0.1)
+os.write(m, b"q")
+pump(time.monotonic() + 10)
+try:
+    rc = p.wait(timeout=5)
+except subprocess.TimeoutExpired:
+    p.kill()
+    rc = None
+while select.select([m], [], [], 0.2)[0]:
+    out += os.read(m, 65536)
+after = termios.tcgetattr(sl)
+text = out.decode(errors="ignore")
+tail = ui.MOUSE_OFF + "\x1b[?25h\x1b[?1049l"
+ok(rc == 0, "report pane through party.py: exit code 0 (%r)" % rc)
+ok(text.endswith(tail) and "NOT REACHED" not in text, "report pane through party.py: the last bytes written are mouse reporting off, cursor shown, alternate screen left (%r)" % text[-60:])
+ok(after == before, "report pane through party.py: the terminal settings are the ones it started with")
+print("\n".join(fails[:8]), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF
+}
+check "party.py leaves without the interpreter's teardown: the resident sub-commands flush and os._exit(0) after their screen returns, with the terminal restored" leaves_ok
 
 exit "$fail"

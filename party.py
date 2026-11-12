@@ -84,19 +84,22 @@ def ask(pane, text):
 def main():
     argv = sys.argv[1:]
     if argv == ["--sidebar"]:
-        from party_hud.ui import run_ui
+        from party_hud.ui import leave_without_teardown, run_ui
 
         run_ui()
+        leave_without_teardown()
         return
     if argv == ["--select"]:
-        from party_hud.ui import run_menu
+        from party_hud.ui import leave_without_teardown, run_menu
 
         run_menu()
+        leave_without_teardown()
         return
     if argv == ["--report"] or (len(argv) == 2 and argv[0] == "--report" and not argv[1].startswith("-")):
-        from party_hud.ui import run_report
+        from party_hud.ui import leave_without_teardown, run_report
 
         run_report(argv[1] or None if len(argv) == 2 else None)
+        leave_without_teardown()
         return
     import argparse
 

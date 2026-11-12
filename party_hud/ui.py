@@ -430,6 +430,12 @@ def run_select(sel=None, fixture=None, images=None):
         sys.stdout.flush()
 
 
+def leave_without_teardown():
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)  # skips the interpreter's module and object teardown, about 5 ms of CPU per exit
+
+
 def run_menu(fixture=None):
     host = "" if fixture else os.environ.get("TMUX_PANE", "")
     images = load_images(fixture)

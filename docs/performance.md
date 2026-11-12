@@ -79,22 +79,25 @@ and `tmux` return nothing, `mark_seen` does nothing, images are forced on and re
 tmux passthrough wrapper), the opening animation is on. Not covered: a real tmux (`resize-pane`, hooks, `list-panes`),
 resizes, and what the terminal spends decoding and drawing the images.
 
-AMD Ryzen 9 5900XT, Linux, Python 3.14.8, `cpu_pct` 0.832 / 0.845 / 0.838 in the three runs of one `bench.py` after ticket 043 (median 0.838; after 044, before 043: 0.894 / 0.843 / 0.846, median 0.846; before 044, after 042: 1.138 / 1.094 / 1.117, median 1.117; before ticket 042, with a snapshot read of its own: 1.278 / 1.283 / 1.281, median 1.281):
+AMD Ryzen 9 5900XT, Linux, Python 3.14.8, `cpu_pct` 0.698 / 0.732 / 0.735 in the three runs of one `bench.py` after ticket 008 (median 0.732; before 008, same machine: 0.808 / 0.76 / 0.769, median 0.769; after 043: 0.832 / 0.845 / 0.838, median 0.838; after 044, before 043: 0.894 / 0.843 / 0.846, median 0.846; before 044, after 042: 1.138 / 1.094 / 1.117, median 1.117; before ticket 042, with a snapshot read of its own: 1.278 / 1.283 / 1.281, median 1.281):
 
 | step | CPU (ms) | written (KB) |
 |---|---:|---:|
-| open select | 54.0 | 493.9 |
-| idle on working (5 s) | 21.8 | 302.6 |
-| k x4, new members (4 s) | 37.1 | 270.3 |
-| j x3, seen members (3 s) | 13.2 | 180.2 |
-| Enter, open report | 8.6 | 334.0 |
-| scroll j j j k k (3 s) | 2.4 | 106.0 |
-| n, next member | 7.1 | 309.7 |
-| h, back to select | 15.8 | 523.2 |
-| q, close | 6.0 | 0.1 |
-| reopen, then q (3 s) | 63.5 | 554.5 |
+| open select | 49.9 | 493.9 |
+| idle on working (5 s) | 22.5 | 302.5 |
+| k x4, new members (4 s) | 27.1 | 270.3 |
+| j x3, seen members (3 s) | 13.1 | 180.2 |
+| Enter, open report | 8.0 | 335.2 |
+| scroll j j j k k (3 s) | 2.3 | 107.0 |
+| n, next member | 7.3 | 310.7 |
+| h, back to select | 13.5 | 180.2 |
+| q, close | 1.5 | 0.0 |
+| reopen, then q (3 s) | 54.9 | 554.4 |
 
-Total 0.84 % over 27.5 s (ticket 043, a 6-row report banner and a 14-column big portrait, changed the report steps only by the smaller placeholder text: written 357 -> 334 KB on Enter, 324 -> 310 KB on `n`, 166 -> 106 KB on scroll; CPU stays within the run-to-run noise; before ticket 043 0.85 %; before ticket 044: 1.12 %, 1.28 % before 042), peak RSS 20.6 MB (22.4 MB before 044, the bench process's own peak): below the target (the idle step 41.3 -> 27.9 -> 21.8 ms). Where the time goes (cProfile of the child, steps cut at
+Ticket 008: the three long-running sub-commands leave with `os._exit(0)` after their screen function returns, so the
+interpreter's own shutdown (module and object teardown) is skipped. `q, close` went from 6.6 ms (6.0 ms in the older table
+below, 5.4 to 7 ms in ticket 004) to 1.5 ms, and `bench/use.py`'s child, like the other bench children, now ends the
+same way, so the numbers include it; the rest of the saving is in the second process of `reopen, then q`. Total 0.73 % over 27.5 s (ticket 043, a 6-row report banner and a 14-column big portrait, changed the report steps only by the smaller placeholder text: written 357 -> 334 KB on Enter, 324 -> 310 KB on `n`, 166 -> 106 KB on scroll; CPU stays within the run-to-run noise; before ticket 043 0.85 %; before ticket 044: 1.12 %, 1.28 % before 042), peak RSS 20.6 MB (22.4 MB before 044, the bench process's own peak): below the target (the idle step 41.3 -> 27.9 -> 21.8 ms). Where the time goes (cProfile of the child, steps cut at
 each key; profiling inflates every number, read the shares):
 
 - A select frame is the cost. Measured without a profiler on the same data (`time.perf_counter`, median of 30):
