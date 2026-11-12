@@ -1060,7 +1060,7 @@ ui.portrait_id = lambda a: -1
 ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
 ui.run_report"""
 fp = report_session([b"n", b"q"], src=child.replace("ui.run_report", first_inject, 1))
-ok(fp.count("a=d,d=I,i=7") == 2 and fp.index("a=d,d=I,i=7") < fp.index("\x1b[H") < fp.rindex("a=d,d=I,i=7"),
+ok(fp.count("a=d,d=I,i=7") == 1 and fp.index("a=d,d=I,i=7") < fp.index("\x1b[H"),
    "report pane: the first frame is written with a delete of the unsent image id, and n does not delete it again")
 live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5)]", "ui.report_image_plan = lambda a, final, *r: [(7 if final else 8, 10, 5)]").replace(
     "ui.run_report", "ui.LIVE_REFRESH = 0.2\nui.report_for = lambda a: {'live': True, 'text': 'x', 'start': None, 'end': 2}\nui.refresh_live = lambda q, i: {'text': 'done', 'start': 1, 'end': 3}\nui.run_report", 1)
@@ -1095,8 +1095,8 @@ for ph in ("0.0", "0.7"):
        f"report pane: the shown running time (fmt_took) changes within 0.3 s after each S + n + 0.5 (phase {ph}); a re-read between two changes does not move it (offsets {[round(o, 3) for o in late]})")
 ex_src = first_inject.replace("[(7, 10, 5)]", "[(7, 10, 5), (-1, 6, 3)]")
 ex = report_session([b"q"], src=child.replace("ui.run_report", ex_src, 1))
-ok("a=d,d=I,i=7" in ex[ex.index("\x1b[H"):] and ex.rindex("a=d,d=I,i=7") < ex.rindex("\x1b[?1049l") and "a=d,d=I,i=-1" not in ex[ex.index("\x1b[H"):],
-   "report pane: on exit the images it sent are deleted before leaving the alternate screen, the sidebar portrait is not")
+ok("\x1b[?1049l" in ex and "a=d" not in ex[ex.rindex("\x1b[H"):ex.rindex("\x1b[?1049l")],
+   "report pane: on exit it deletes no image, since another pane may show the same ids")
 scr = report_session([b"G", b"q"])
 ok("L59" in scr[scr.index("\x1b[H", scr.index("\x1b[J")):] and "L59" not in once, "report pane: G redraws the bottom rows in place")
 fit = report_session([b"j", b"q"], rows=40, lines=3, draws=[1, 1])

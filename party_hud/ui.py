@@ -307,7 +307,7 @@ def select_images_out(plan, art, sent, shared):
 
 def run_select(sel=None, fixture=None):
     """Select screen (prefix R): the member cards beside the report preview of the member under the cursor. Returns the pane whose report to open, or None when it was closed.
-    With images, the banner and the portraits of the cards on screen are sent once the window size has settled; the banner is deleted on exit."""
+    With images, the banner and the portraits of the cards on screen are sent once the window size has settled; they stay in the terminal on exit, since another pane may still show them under the same id."""
     art = (
         load_art()
         if not fixture
@@ -424,7 +424,7 @@ def run_select(sel=None, fixture=None):
         os.close(wake_r)
         os.close(wake_w)
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        sys.stdout.write(MOUSE_OFF + "\033[?25h" + report_exit_deletes(sent, queue) + "\033[?1049l")
+        sys.stdout.write(MOUSE_OFF + "\033[?25h\033[?1049l")
         sys.stdout.flush()
 
 
@@ -535,12 +535,6 @@ def report_first_deletes(a, has_report, art, width, banner, big, sent, labels=()
         for img_id, _, _ in report_image_plan(a, has_report, art, width, banner, big, labels)
         if img_id not in sent and img_id != portrait_id(a)
     )
-
-
-def report_exit_deletes(sent, queue):
-    """Deletes for every image the report pane sent except the sidebar portraits, so the next report page has no older image to show."""
-    shared = {portrait_id(a) for _, a in queue}
-    return "".join(kitty_delete(k) for k in sent if k not in shared)
 
 
 RESIZE_INTERVAL = 0.05
@@ -852,10 +846,6 @@ def run_report(pane=None, fixture=None, back=False):
                     break
                 if "\r" in keys or "\n" in keys:
                     save_cursor({"focus": "party", "sel": a["pane"], "squad": None})
-                    # tmux drops passthrough from a pane that is out of view, so delete before switching away
-                    sys.stdout.write(report_exit_deletes(sent, queue))
-                    sys.stdout.flush()
-                    sent.clear()
                     tmux("switch-client", "-t", a["pane"])
                     return
                 if back and "h" in keys:
@@ -874,7 +864,7 @@ def run_report(pane=None, fixture=None, back=False):
         os.close(wake_r)
         os.close(wake_w)
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
-        sys.stdout.write(MOUSE_OFF + "\033[?25h" + report_exit_deletes(sent, queue) + "\033[?1049l")
+        sys.stdout.write(MOUSE_OFF + "\033[?25h\033[?1049l")
         sys.stdout.flush()
 
 
