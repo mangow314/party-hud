@@ -1015,7 +1015,7 @@ a_first = aq[aq.index("\x1b[H") : aq.index("\x1b[H", aq.index("\x1b[H") + 1)]
 a_last = aq[aq.rindex("\x1b[H") :]
 ok(aq.count("\x1b[H") == 2 and "L1" in a_first and "L3" not in a_first and "L3" in a_last and "EXITED" in aq,
    "report pane: a key during the opening animation draws the whole page at once and is still handled (q exits)")
-an = report_session([b"n", b"q"], rows=16, lines=12, src=anim_src)
+an = report_session([b"n", b"q"], rows=16, lines=12, draws=[1, 3], src=anim_src)
 ok("report 2/3" in an and an.count("\x1b[H") == 4 and "EXITED" in an, "report pane: n during the animation changes page at once, and the new page starts its own animation")
 art_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
