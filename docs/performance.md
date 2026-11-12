@@ -138,6 +138,42 @@ screen never sends). Reopening from the key binding is a new process and sends a
 the page itself). A resize redraw resends only images whose cell count changed, under the same id; the script has no resize,
 so this part is read from the code, not measured.
 
+## Report page: time to the first image (`bench/art.py`)
+
+`python3 bench/art.py` (about 20 s, no tmux, stdlib only) runs the real `run_report` / `run_menu` in a pty (179 x 47)
+and timestamps every read of the child's output. Scenarios, 5 runs each, median: (a) the report page opened directly,
+animation on; (b) the same, animation off; (c) `run_menu`: the select screen, wait until its images are out, Enter, the
+report page (only the report page is timed). Each prints process start (in (c): the Enter key) to the first frame (first
+`\x1b[H`), the first frame to the last animation frame, the last animation frame to the first image (first `a=T`), the
+first image to the last image, and the line `first image after first frame`. `load_art()` and the Python start plus
+`import party_hud.ui` are timed on their own.
+
+What is measured is time inside the program. Not covered: what tmux spends forwarding the passthrough, what the terminal
+spends decoding and drawing the images, and in (c) the two tmux round trips of `fit_report_pane` (it needs `TMUX_PANE`,
+which the child does not have). In (c) `load_art()` runs when the select screen opens, so it is not in the report
+segment, and the first image of the report page is its banner (the small portrait is not on the split page).
+
+AMD Ryzen 9 5900XT, Linux, Python 3.14.8, HEAD 20a56a7:
+
+| segment (ms) | (a) animation on | (b) animation off | (c) menu, Enter |
+|---|---:|---:|---:|
+| process start (or key) -> first frame | 41.9 | 41.9 | 4.9 |
+| first frame -> last animation frame | 400.1 | 0.0 | 400.1 |
+| last animation frame -> first image | 1.0 | 300.1 | 0.7 |
+| **first frame -> first image** | **401.1** | **300.1** | **400.8** |
+| first image -> last image | 0.5 | 0.5 | 0.7 |
+
+On their own: `load_art()` 0.6 ms (56 PNGs, warm cache), `python3` + `import party_hud.ui` 33.0 ms.
+
+The first image is not sent before `ANIM_TOTAL` (0.4 s, `play_report_anim`) has passed: `report_art_wait`
+waits `REPORT_ART_SETTLE` (0.3 s) counted from before the first frame, and the animation is longer, so with
+it on the image follows the last frame at once and the settle wait costs nothing extra; with it off the settle wait is the whole
+delay. Reading the files (`load_art`), encoding and writing the images are 1 ms or less each. The largest segment is the
+fixed wait (the animation, or the settle wait when it is off): 300 to 400 of 300 to 401 ms. The 2 s seen in a real
+tmux is not in these numbers; it has to come from outside the program (tmux round trips such as `fit_report_pane`,
+forwarding and terminal decoding), or from `RESIZE_SETTLE` (0.15 s) restarting after the pane resize
+signal, which this script does not produce.
+
 ## Live: your real tmux (`bench/live.sh`)
 
 Run inside tmux with the sidebars open:
