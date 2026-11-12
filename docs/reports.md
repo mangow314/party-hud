@@ -22,7 +22,7 @@ current window in half.
 - For Claude Code the report is the text after the last tool call of its last answer; for Codex, its last finished reply;
   for agy and Grok, which write no log, their last reply read off the screen.
 - Without a report the pane's last lines are shown instead (`Last output`): usually for a
-  Claude member waiting for a permission or an answer, whose question is in those lines. The lines keep the pane's own colours. A member waiting for you always gets the `Waiting` banner (also with a report or running subagents); others without a report get `Last output`.
+  Claude member waiting for a permission or an answer, whose question is in those lines. The lines keep the pane's own colours. A line too long for the page wraps, and its continuation rows repeat the line's leading spaces and box-drawing characters (unless those take more than half the width). A member waiting for you always gets the `Waiting` banner (also with a report or running subagents); others without a report get `Last output`.
 - The banner follows the member: `Quest Complete` (done, nothing still running), `Waiting for You` (waiting for your answer), `Report` (a finished report of an idle member, or of any member with running subagents), `Last Output` (no finished report yet).
 
   <img src="img/banners.svg" width="480" alt="The four report banners one above the other, each with a line saying when it shows: Quest Complete, Waiting for You, Report and Last Output">

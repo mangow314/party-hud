@@ -129,13 +129,48 @@ the banner row limit from 10 to 5 (patched in the child, 3 runs each): Enter 14.
 357 -> 330 KB written (the 8:1 banner is a smaller file); the select screen's idle output fell 303 -> 216 KB, because
 fewer placeholder rows are text; `cpu_pct` 1.25 -> 1.22. Terminal-side decoding is not in these numbers.
 
-Are images resent or reused? Resent on every page change, reused within a page. `run_select` and `run_report` each
-start with an empty `sent` (`ui.py:304`, `ui.py:664`) and both delete their images on exit (`ui.py:411`,
-`ui.py:854`), so Enter, `h` and reopening send them again: `h` writes 523 KB (the select banner and 5 portraits are
-about 350 KB of it), Enter 357 KB (big portrait 182 KB as base64). Inside the report page `n` keeps `sent` and
-`report_images` skips an image whose cells are unchanged (`ui.py:505-507`); only the new member's big portrait is sent
-(324 KB written, mostly the page itself). A resize redraw resends only images whose cell count changed, under the same
-id (`ui.py:502`); the script has no resize, so this part is read from the code, not measured.
+Are images resent or reused? Reused within one process, resent on a new one. `run_menu` reads the files and builds one `sent`
+(`load_images`) and passes it to every `run_select` and `run_report` it starts, and neither deletes images on exit, so `h` and
+Enter send only the images whose cells changed: `h` writes 523 -> 180 or 210 KB depending on the run (the select banner and portraits were already in
+the terminal; what is left is the frame), Enter stays at 335 KB (the page itself and the big portrait, which the select
+screen never sends). Reopening from the key binding is a new process and sends again. Inside the report page `n` keeps `sent` and
+`report_images` skips an image whose cells are unchanged; only the new member's big portrait is sent (311 KB written, mostly
+the page itself). A resize redraw resends only images whose cell count changed, under the same id; the script has no resize,
+so this part is read from the code, not measured.
+
+## Report page: time to the first image (`bench/art.py`)
+
+`python3 bench/art.py` (about 20 s, no tmux, stdlib only) runs the real `run_report` / `run_menu` in a pty (179 x 47)
+and timestamps every read of the child's output. Scenarios, 5 runs each, median: (a) the report page opened directly,
+animation on; (b) the same, animation off; (c) `run_menu`: the select screen, wait until its images are out, Enter, the
+report page (only the report page is timed). Each prints process start (in (c): the Enter key) to the first frame (first
+`\x1b[H`), the first frame to the last animation frame, the first image (first `a=T`) to the last image, and the line
+`first image after first frame`. `load_art()` and the Python start plus
+`import party_hud.ui` are timed on their own.
+
+What is measured is time inside the program. Not covered: what tmux spends forwarding the passthrough, what the terminal
+spends decoding and drawing the images, and in (c) the two tmux round trips of `fit_report_pane` (it needs `TMUX_PANE`,
+which the child does not have). In (c) `load_art()` runs when the select screen opens, so it is not in the report
+segment, and the first image of the report page is its banner (the small portrait is not on the split page).
+
+AMD Ryzen 9 5900XT, Linux, Python 3.14.8, HEAD 7a96a3b plus the change that sends the images with the first frame:
+
+| segment (ms) | (a) animation on | (b) animation off | (c) menu, Enter |
+|---|---:|---:|---:|
+| process start (or key) -> first frame | 41.6 | 41.9 | 4.9 |
+| first frame -> last animation frame | 400.1 | 0.0 | 400.6 |
+| **first frame -> first image** | **0.9** | **1.0** | **0.5** |
+| first image -> last image | 0.5 | 0.5 | 0.4 |
+
+Before, a fixed 0.3 s wait came first and the images followed the last animation frame (401 / 300 / 401 ms).
+
+On their own: `load_art()` 1.1 ms (56 PNGs, warm cache), `python3` + `import party_hud.ui` 31.6 ms.
+
+The images are written right after the first frame, so the animation no longer delays them: the first image comes
+1 ms or less after the first frame, and the other animation frames follow. Reading the files (`load_art`), encoding and
+writing the images are 1 ms or less each. The 2 s seen in a real tmux is not in these numbers; it has to come from
+outside the program (tmux round trips such as `fit_report_pane`, forwarding and terminal decoding), or from
+`RESIZE_SETTLE` (0.15 s) restarting after the pane resize signal, which this script does not produce.
 
 ## Live: your real tmux (`bench/live.sh`)
 

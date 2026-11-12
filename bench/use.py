@@ -124,7 +124,7 @@ def child_main(data_path):
 
     subprocess.run = run
     run_select = ui.run_select
-    ui.run_select = lambda sel=None, fixture=None: run_select(sel or data["working"], fixture)
+    ui.run_select = lambda sel=None, fixture=None, images=None: run_select(sel or data["working"], fixture, images)
     ui.run_menu()
 
 

@@ -203,6 +203,20 @@ wr = render.wrap_sgr("\x1b[1;32m" + "你好ab" * 5 + "\x1b[0m tail", 9)
 ok(len(wr) > 2 and all(common.cw(strip(r)) <= 9 for r in wr) and all(r.endswith("\x1b[0m") for r in wr[:-1])
    and all(r.startswith("\x1b[1;32m") for r in wr[:3]) and wr[-1].endswith(" tail\x1b[0m"),
    "Last output: a long line wraps with the colour carried to every row, every row within the width (CJK = 2)")
+pr = [strip(r) for r in render.report_rows(None, ["  │ " + "ab " * 20], [], 30)]
+ok(len(pr) > 1 and all(r.startswith("  │ ") for r in pr) and all(common.cw(r) <= 30 for r in pr)
+   and "".join(r[4:] for r in pr) == ("ab " * 20).rstrip(),
+   "Last output: a continuation row starts with the first row's spaces and box-drawing characters")
+pn = [strip(r) for r in render.report_rows(None, [" 你你你"], [], 2)]
+ok(all(common.cw(r) <= 2 for r in pn) and "".join(pn).replace(" ", "") == "你你你",
+   "Last output: no continuation prefix when it leaves no room for a wide character, nothing overflows or is lost")
+pc = [strip(r) for r in render.report_rows(None, ["│ " + "你好" * 20], [], 21)]
+ok(len(pc) > 1 and all(r.startswith("│ ") for r in pc) and all(common.cw(r) <= 21 for r in pc) and "".join(r[2:] for r in pc) == "你好" * 20,
+   "Last output: a continuation row keeps the prefix with CJK text, within the width, no character lost")
+ok([strip(r) for r in render.report_rows(None, [" " * 20 + "abc" * 10], [], 30)] == [" " * 20 + "abcabcabca", "bcabcabcabcabcabcabc"],
+   "Last output: no continuation prefix when it is over half the width")
+ok([strip(r) for r in render.report_rows(None, ["x" * 50], [], 20)] == ["x" * 20, "x" * 20, "x" * 10],
+   "Last output: a row without a prefix gets no continuation prefix")
 sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## 子結果\nsubagent said hi"}
 busy = dict(done, summons=[{"type": "executor", "desc": "Branch 還在跑" * 8}])
 bf = strip(render.render_report(busy, "Studio", dict(rep, subagents=[sub]), [], 60))
@@ -483,8 +497,6 @@ ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"]
 ok(abs(ui.report_resize_wait(5.0, 5.0) - ui.RESIZE_INTERVAL) < 1e-9 and ui.RESIZE_INTERVAL > 0 and abs(ui.report_resize_wait(5.0, 5.02) - (ui.RESIZE_INTERVAL - 0.02)) < 1e-9
    and ui.report_resize_wait(5.0, 5.0 + ui.RESIZE_INTERVAL) == 0 and ui.report_resize_wait(5.0, 9.0) == 0,
    "report resize: redraws are at least RESIZE_INTERVAL apart, a redraw after a pause is not delayed")
-ok(ui.ART_SETTLE > ui.report_art_wait(None) == ui.REPORT_ART_SETTLE > 0 and ui.report_art_wait({1: (10, 5)}) == 0 and ui.report_art_wait({}) == 0,
-   "report art wait: a fresh page (first open, n) waits REPORT_ART_SETTLE (shorter than the sidebar's ART_SETTLE), a resize redraw sends images at once")
 pk, grabs = {}, []
 ok(ui.report_peek(pk, "%1", None, None, lambda p: grabs.append(p) or ["x"]) == ["x"] and ui.report_peek(pk, "%1", None, None, lambda p: grabs.append(p) or ["y"]) == ["x"]
    and grabs == ["%1"] and ui.report_peek(pk, "%2", {}, None, grabs.append) == [] and grabs == ["%1"],
@@ -865,8 +877,8 @@ sidebars._new_pane = None
 fit_calls = []
 real_fit, real_rs, real_rr = ui.fit_report_pane, ui.run_select, ui.run_report
 ui.fit_report_pane = lambda p, s: fit_calls.append(("fit", p, s))
-ui.run_select = lambda p=None, f=None: fit_calls.append(("select", p)) or ("%1" if p is None else None)
-ui.run_report = lambda p, f=None, back=False: fit_calls.append(("report", p)) or "%1"
+ui.run_select = lambda p=None, f=None, images=None: fit_calls.append(("select", p)) or ("%1" if p is None else None)
+ui.run_report = lambda p, f=None, back=False, images=None: fit_calls.append(("report", p)) or "%1"
 os.environ["TMUX_PANE"] = "%5"
 ui.run_menu()
 ui.fit_report_pane, ui.run_select, ui.run_report = real_fit, real_rs, real_rr
@@ -972,8 +984,8 @@ sel_open = report_session([b"\r", b"q"], src=select_child)
 ok("EXITED" in sel_open and "Traceback" not in sel_open and "L0" in sel_open[sel_open.index("PARTY SELECT"):] and "display-menu" not in sel_open,
    "select screen: Enter opens the report page in the same process and q on it ends the program")
 trace_child = select_child.replace("ui.run_menu()", """_rs, _rr = ui.run_select, ui.run_report
-ui.run_select = lambda sel=None, fixture=None: print("TRACE_SELECT", sel, flush=True) or _rs(sel, fixture)
-ui.run_report = lambda pane=None, fixture=None, back=False: print("TRACE_REPORT", pane, back, flush=True) or _rr(pane, fixture, back)
+ui.run_select = lambda sel=None, fixture=None, images=None: print("TRACE_SELECT", sel, flush=True) or _rs(sel, fixture, images)
+ui.run_report = lambda pane=None, fixture=None, back=False, images=None: print("TRACE_REPORT", pane, back, flush=True) or _rr(pane, fixture, back, images)
 ui.run_menu()""")
 tw = collect.collect(sys.argv[2])["towns"]
 first = render.select_roster(tw)[0][1]["pane"]
@@ -992,6 +1004,24 @@ ok("EXITED" in nh and "Traceback" not in nh and f"TRACE_SELECT {nxt_expect}" in 
 sel_close = report_session([b"\r", b"q"], src=trace_child)
 ok("EXITED" in sel_close and "Traceback" not in sel_close and sel_close.count("TRACE_SELECT") == 1 and sel_close.count("TRACE_REPORT") == 1 and sel_close.count("PARTY SELECT") == 1,
    "select screen: q on the report page ends the program, it does not go back")
+share_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
+ui.art_supported = lambda *a: True
+def counting_load_art():
+    print("LOAD_ART", flush=True)
+    return {11: (b"s", 6, 3), 7: (b"r", 10, 5)}
+ui.load_art = counting_load_art
+ui.portrait_id = lambda a: -1
+ui.fit_report_pane = lambda *a: None
+ui.select_banner = lambda *a: None
+ui.select_image_plan = lambda cards, art: [(11, 6, 3)]
+ui.report_image_plan = lambda *a: [(11, 6, 3), (7, 10, 5)]
+ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
+ui.run_menu()"""
+sh = report_session([b"\r", b"h", b"\r", b"q"], rows=60, src=select_child.replace("ui.run_menu()", share_inject, 1))
+sh_second = sh[[m.start() for m in re.finditer(re.escape("\x1b[?1049h"), sh)][3]:]
+ok("EXITED" in sh and "Traceback" not in sh and sh.count("\x1b[?1049h") == 4 and "a=T,U=1,f=100,i=7," in sh
+   and all(sh.count(f"a=T,U=1,f=100,i={i},") == 1 for i in (11, 7)) and "a=d" not in sh_second and sh.count("LOAD_ART") == 1 and sh.count("\x1b[?25h\x1b[?1049l") == 4,
+   "select and report: the select screen, the report page and the select screen again sends no image twice (each id once, no delete on the second report page or when a screen is left, the files read once)")
 direct_h = report_session([b"h", b"q"], rows=80)
 ok("EXITED" in direct_h and "Traceback" not in direct_h and direct_h.count("\x1b[?1049h") == 1 and "close" in strip(direct_h) and "back" not in strip(direct_h),
    "report pane: h does nothing on a directly opened page, q ends it, and the hint row has no h")
@@ -1015,12 +1045,22 @@ a_first = aq[aq.index("\x1b[H") : aq.index("\x1b[H", aq.index("\x1b[H") + 1)]
 a_last = aq[aq.rindex("\x1b[H") :]
 ok(aq.count("\x1b[H") == 2 and "L1" in a_first and "L3" not in a_first and "L3" in a_last and "EXITED" in aq,
    "report pane: a key during the opening animation draws the whole page at once and is still handled (q exits)")
-an = report_session([b"n", b"q"], rows=16, lines=12, src=anim_src)
+an = report_session([b"n", b"q"], rows=16, lines=12, draws=[1, 3], src=anim_src)
 ok("report 2/3" in an and an.count("\x1b[H") == 4 and "EXITED" in an, "report pane: n during the animation changes page at once, and the new page starts its own animation")
+first_img = """ag = ui.get_snapshot()["towns"][0]["agents"][0]
+ui.report_queue = lambda towns, pane=None, window=None: [("A", dict(ag, pane="%%1", round=0))]
+ui.art_supported = lambda *a: True
+ui.load_art = lambda: {"k": 1}
+ui.report_images = lambda *a: "<IMG>"
+ui.report_image_plan = lambda *a: []
+ui.run_report"""
+wf = report_session([b"q"], rows=16, lines=12, hold=0.6, src=anim_src.replace("ui.run_report", first_img, 1))
+wf_none = report_session([b"q"], rows=16, lines=12, hold=0.6, src=anim_src.replace("ui.run_report", first_img.replace("<IMG>", ""), 1))
+ok(wf.count("<IMG>") == 1 and wf.count("\x1b[H") == wf_none.count("\x1b[H") > 2 and wf.index("\x1b[H") < wf.index("<IMG>") < wf.index("\x1b[H", wf.index("\x1b[H") + 1),
+   "report pane: on a new page with the opening animation the images are sent with the first frame, before the second animation frame, and the animation still plays out")
 art_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
 ui.load_art = lambda: {"k": 1}
-ui.REPORT_ART_SETTLE = 0
 ui.report_images = lambda *a: "<IMG r=%%d>" %% os.get_terminal_size(1).lines
 ui.report_image_plan = lambda *a: []
 ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
@@ -1039,20 +1079,26 @@ ok("EXITED" in still and still.count("\x1b[J") == 1, f"report pane: a time tick 
 first_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
 ui.load_art = lambda: {"k": 1}
-ui.REPORT_ART_SETTLE = 0
 ui.report_images = lambda *a: ""
 ui.report_image_plan = lambda *a: [(7, 10, 5)]
 ui.portrait_id = lambda a: -1
 ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
 ui.run_report"""
 fp = report_session([b"n", b"q"], src=child.replace("ui.run_report", first_inject, 1))
-ok(fp.count("a=d,d=I,i=7") == 2 and fp.index("a=d,d=I,i=7") < fp.index("\x1b[H") < fp.rindex("a=d,d=I,i=7"),
+ok(fp.count("a=d,d=I,i=7") == 1 and fp.index("a=d,d=I,i=7") < fp.index("\x1b[H"),
    "report pane: the first frame is written with a delete of the unsent image id, and n does not delete it again")
 live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5)]", "ui.report_image_plan = lambda a, final, *r: [(7 if final else 8, 10, 5)]").replace(
     "ui.run_report", "ui.LIVE_REFRESH = 0.2\nui.report_for = lambda a: {'live': True, 'text': 'x', 'start': None, 'end': 2}\nui.refresh_live = lambda q, i: {'text': 'done', 'start': 1, 'end': 3}\nui.run_report", 1)
 lv = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", live_inject, 1))
 ok("a=d,d=I,i=7" in lv and lv.index("a=d,d=I,i=7") > lv.index("\x1b[H") and lv.index("a=d,d=I,i=7") < lv.rindex("\x1b[H"),
    "report pane: when the in-progress page turns into the final report, the new banner id is deleted with the next frame, as for a new page")
+resend_inject = live_inject.replace("ui.load_art = lambda: {\"k\": 1}", "ui.load_art = lambda: {7: (b'x', 1, 1), 8: (b'x', 1, 1)}").replace("ui.report_images = lambda *a: \"\"\n", "").replace("ui.run_report", "ui.ART_SETTLE = 0.3\nui.run_report", 1)
+T7 = "a=T,U=1,f=100,i=7"
+rl = report_session([b"q"], draws=[2], hold=1.2, src=child.replace("ui.run_report", resend_inject, 1))
+ok(rl.count(T7) == 2 and rl.index(T7) < rl.rindex(T7) and "a=d,d=I,i=7" not in rl[rl.index(T7) :] and "a=d,d=I,i=7" in rl and rl.index("a=d,d=I,i=7") < rl.index(T7),
+   "report pane: the banner sent when the page turns final is sent once more after ART_SETTLE, with no delete between, and not a third time")
+rf = report_session([b"q"], draws=[1], hold=1.2, src=child.replace("ui.run_report", resend_inject.replace("ui.LIVE_REFRESH = 0.2\n", "").replace("'live': True, ", ""), 1))
+ok(rf.count(T7) == 1, "report pane: a page that was final from the start has each image sent once, with no later resend")
 tick_inject = """ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("T" + str(int(r[6] * 10))).ljust(width)] + [("L" + str(n)).ljust(width) for n in range(80)])
 S = __import__('time').time() - 99.9
 ui.report_for = lambda a: {'live': True, 'text': 'x', 'start': S, 'end': 2}
@@ -1081,10 +1127,12 @@ for ph in ("0.0", "0.7"):
        f"report pane: the shown running time (fmt_took) changes within 0.3 s after each S + n + 0.5 (phase {ph}); a re-read between two changes does not move it (offsets {[round(o, 3) for o in late]})")
 ex_src = first_inject.replace("[(7, 10, 5)]", "[(7, 10, 5), (-1, 6, 3)]")
 ex = report_session([b"q"], src=child.replace("ui.run_report", ex_src, 1))
-ok("a=d,d=I,i=7" in ex[ex.index("\x1b[H"):] and ex.rindex("a=d,d=I,i=7") < ex.rindex("\x1b[?1049l") and "a=d,d=I,i=-1" not in ex[ex.index("\x1b[H"):],
-   "report pane: on exit the images it sent are deleted before leaving the alternate screen, the sidebar portrait is not")
+ok("\x1b[?1049l" in ex and "a=d" not in ex[ex.rindex("\x1b[H"):ex.rindex("\x1b[?1049l")],
+   "report pane: on exit it deletes no image, since another pane may show the same ids")
 scr = report_session([b"G", b"q"])
 ok("L59" in scr[scr.index("\x1b[H", scr.index("\x1b[J")):] and "L59" not in once, "report pane: G redraws the bottom rows in place")
+sj = report_session([b"j", b"q"], hold=0.3)
+ok(sj.count("\x1b[H") == 2 and "L1" in sj[sj.rindex("\x1b[H"):] and "EXITED" in sj, "report pane: j draws the scrolled page once and nothing after it")
 fit = report_session([b"j", b"q"], rows=40, lines=3, draws=[1, 1])
 ok(fit.count("\x1b[H") == 1, "report pane: a report that fits the pane does not redraw on j")
 ok("EXITED" in twice, "report pane: q ends the program, which closes the pane")

@@ -381,11 +381,18 @@ def wrap(text, width):
 ESCAPE = re.compile(r"\x1b(?:\[([0-?]*)[ -/]*([@-~])|\][^\x07\x1b]*(?:\x07|\x1b\\)?|[^\[\]]?)")
 
 
-def wrap_sgr(text, width):
-    """Like wrap, but keeps SGR escapes (zero width) and drops every other escape; each row ends in RESET and the next restarts the active style."""
+def wrap_sgr(text, width, indent=False):
+    """Like wrap, but keeps SGR escapes (zero width) and drops every other escape; each row ends in RESET and the next restarts the active style. indent: a continuation row starts with the first row's leading spaces and box-drawing characters unless they are over half the width."""
     rows = []
     for line in text.replace("\r", "").expandtabs(4).split("\n"):
         active, row, used, styled, pos = "", "", 0, False, 0
+        plain, npre, pw = printable(ESCAPE.sub("", line)), 0, 0
+        while indent and npre < len(plain) and (plain[npre] == " " or "\u2500" <= plain[npre] <= "\u257f"):
+            pw += cw(plain[npre])
+            npre += 1
+        if pw * 2 > width or width - pw < 2:
+            npre = 0
+        seen, lead = 0, ""
         parts = []
         for m in ESCAPE.finditer(line):
             parts.append((line[pos : m.start()], m))
@@ -396,8 +403,13 @@ def wrap_sgr(text, width):
                 if used + cw(ch) > width:
                     rows.append(row + RESET if styled else row)
                     row, used, styled = active, 0, bool(active)
+                    if npre:
+                        row, used = lead + (RESET if "\x1b" in lead else "") + active, pw
                 row += ch
                 used += cw(ch)
+                seen += 1
+                if seen == npre:
+                    lead = row
             if m and m.group(2) == "m" and re.fullmatch(r"[0-9;:]*", m.group(1)):
                 active = "" if m.group(1) in ("", "0") else active + m.group(0)
                 row += m.group(0)
@@ -658,7 +670,7 @@ def report_rows(report, peek, summons, width, wide=None, now=None, status_row=Tr
         lines = [l.rstrip() for l in peek]
         while lines and not ESCAPE.sub("", lines[-1]):
             lines.pop()
-        rows += [r for l in lines for r in wrap_sgr(l, wide)] or [fg("dim") + "no report yet" + RESET]
+        rows += [r for l in lines for r in wrap_sgr(l, wide, True)] or [fg("dim") + "no report yet" + RESET]
     for s in summons:
         rows += [
             "",
