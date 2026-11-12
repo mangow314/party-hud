@@ -305,9 +305,8 @@ def select_images_out(plan, art, sent, shared):
     )
 
 
-def run_select(sel=None, fixture=None):
-    """Select screen (prefix R): the member cards beside the report preview of the member under the cursor. Returns the pane whose report to open, or None when it was closed.
-    With images, the banner and the portraits of the cards on screen are sent once the window size has settled; they stay in the terminal on exit, since another pane may still show them under the same id."""
+def load_images(fixture):
+    """(art, sent) for a screen: art is None without image support; sent maps id -> (cols, rows) already sent to the terminal."""
     art = (
         load_art()
         if not fixture
@@ -317,9 +316,15 @@ def run_select(sel=None, fixture=None):
         )
         else None
     )
-    sent: dict[int, tuple[int, int]] = {}
+    return art, {}
+
+
+def run_select(sel=None, fixture=None, images=None):
+    """Select screen (prefix R): the member cards beside the report preview of the member under the cursor. Returns the pane whose report to open, or None when it was closed.
+    With images, the banner and the portraits of the cards on screen are sent once the window size has settled; they stay in the terminal on exit, since another pane may still show them under the same id."""
+    art, sent = images or load_images(fixture)
     queue: list = []
-    last_winch, shown = 0.0, 0.0
+    last_winch, shown, settled = 0.0, 0.0, False
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     sys.stdout.write("\033[?1049h\033[?25l" + MOUSE_ON)
@@ -385,11 +390,11 @@ def run_select(sel=None, fixture=None):
                 shown = time.monotonic()
             due = bool(art) and bool(select_images_due(plan, sent))
             if art and due and time.monotonic() - last_winch >= RESIZE_SETTLE:
-                time.sleep(max(0.0, report_art_wait(sent or None) - (time.monotonic() - shown)))
+                time.sleep(max(0.0, report_art_wait(sent if settled else None) - (time.monotonic() - shown)))
                 sys.stdout.write(select_images_out(plan, art, sent, shared))
                 sys.stdout.flush()
                 sent.update((i, (c, r)) for i, c, r in plan)
-                due = False
+                due, settled = False, True
             while True:
                 wait = select_wait(fetched, time.monotonic(), tick_at, time.time())
                 if due:
@@ -430,15 +435,16 @@ def run_select(sel=None, fixture=None):
 
 def run_menu(fixture=None):
     host = "" if fixture else os.environ.get("TMUX_PANE", "")
-    pane = run_select(None, fixture)
+    images = load_images(fixture)
+    pane = run_select(None, fixture, images)
     while pane:
         if host:
             fit_report_pane(host, False)
-        pane = run_report(pane, fixture, back=True)
+        pane = run_report(pane, fixture, back=True, images=images)
         if pane:
             if host:
                 fit_report_pane(host, True)
-            pane = run_select(pane, fixture)
+            pane = run_select(pane, fixture, images)
 
 
 def report_queue(towns, pane=None, window=None):
@@ -651,7 +657,7 @@ def draw_report(left, right, height, offset, screen=None):
     return rows
 
 
-def run_report(pane=None, fixture=None, back=False):
+def run_report(pane=None, fixture=None, back=False, images=None):
     """Report pane (prefix R, or r in the sidebar): draws one member's last report on the alternate screen and scrolls it itself
     (j/k, arrows, wheel, PgUp/PgDn, g/G): in the split page only the right column moves. Rows are overwritten in place, also on a
     resize (at most one redraw per RESIZE_INTERVAL), and never scroll the pane. Images follow a resize only once it has settled.
@@ -659,21 +665,12 @@ def run_report(pane=None, fixture=None, back=False):
     here = os.environ.get("TMUX_PANE", "")
     window = tmux("display-message", "-p", "-t", here, "#{window_id}").strip() if here and not fixture else ""
     queue = report_queue(get_snapshot(fixture)["towns"], pane, window)
-    art = (
-        load_art()
-        if not fixture
-        and art_supported(
-            tmux("show-option", "-gqv", "@party_art").strip(),
-            tmux("display-message", "-p", "#{client_termname}").strip(),
-        )
-        else None
-    )
+    art, sent = images or load_images(fixture)
     anim = not fixture and report_anim_enabled(tmux("show-option", "-gqv", "@party_anim"))
     reports, peeks, i = {}, {}, 0
     read_rounds: dict[str, int] = {}
     fresh, cut, helping = True, False, False
     drawn: dict[int, tuple[int, int]] | None = None
-    sent: dict[int, tuple[int, int]] = {}
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     sys.stdout.write("\033[?1049h\033[?25l" + MOUSE_ON)

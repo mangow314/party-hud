@@ -129,13 +129,14 @@ the banner row limit from 10 to 5 (patched in the child, 3 runs each): Enter 14.
 357 -> 330 KB written (the 8:1 banner is a smaller file); the select screen's idle output fell 303 -> 216 KB, because
 fewer placeholder rows are text; `cpu_pct` 1.25 -> 1.22. Terminal-side decoding is not in these numbers.
 
-Are images resent or reused? Resent on every page change, reused within a page. `run_select` and `run_report` each
-start with an empty `sent` (`ui.py:304`, `ui.py:664`) and both delete their images on exit (`ui.py:411`,
-`ui.py:854`), so Enter, `h` and reopening send them again: `h` writes 523 KB (the select banner and 5 portraits are
-about 350 KB of it), Enter 357 KB (big portrait 182 KB as base64). Inside the report page `n` keeps `sent` and
-`report_images` skips an image whose cells are unchanged (`ui.py:505-507`); only the new member's big portrait is sent
-(324 KB written, mostly the page itself). A resize redraw resends only images whose cell count changed, under the same
-id (`ui.py:502`); the script has no resize, so this part is read from the code, not measured.
+Are images resent or reused? Reused within one process, resent on a new one. `run_menu` reads the files and builds one `sent`
+(`load_images`) and passes it to every `run_select` and `run_report` it starts, and neither deletes images on exit, so `h` and
+Enter send only the images whose cells changed: `h` writes 523 -> 180 or 210 KB depending on the run (the select banner and portraits were already in
+the terminal; what is left is the frame), Enter stays at 335 KB (the page itself and the big portrait, which the select
+screen never sends). Reopening from the key binding is a new process and sends again. Inside the report page `n` keeps `sent` and
+`report_images` skips an image whose cells are unchanged; only the new member's big portrait is sent (311 KB written, mostly
+the page itself). A resize redraw resends only images whose cell count changed, under the same id; the script has no resize,
+so this part is read from the code, not measured.
 
 ## Live: your real tmux (`bench/live.sh`)
 

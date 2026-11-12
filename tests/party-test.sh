@@ -879,8 +879,8 @@ sidebars._new_pane = None
 fit_calls = []
 real_fit, real_rs, real_rr = ui.fit_report_pane, ui.run_select, ui.run_report
 ui.fit_report_pane = lambda p, s: fit_calls.append(("fit", p, s))
-ui.run_select = lambda p=None, f=None: fit_calls.append(("select", p)) or ("%1" if p is None else None)
-ui.run_report = lambda p, f=None, back=False: fit_calls.append(("report", p)) or "%1"
+ui.run_select = lambda p=None, f=None, images=None: fit_calls.append(("select", p)) or ("%1" if p is None else None)
+ui.run_report = lambda p, f=None, back=False, images=None: fit_calls.append(("report", p)) or "%1"
 os.environ["TMUX_PANE"] = "%5"
 ui.run_menu()
 ui.fit_report_pane, ui.run_select, ui.run_report = real_fit, real_rs, real_rr
@@ -986,8 +986,8 @@ sel_open = report_session([b"\r", b"q"], src=select_child)
 ok("EXITED" in sel_open and "Traceback" not in sel_open and "L0" in sel_open[sel_open.index("PARTY SELECT"):] and "display-menu" not in sel_open,
    "select screen: Enter opens the report page in the same process and q on it ends the program")
 trace_child = select_child.replace("ui.run_menu()", """_rs, _rr = ui.run_select, ui.run_report
-ui.run_select = lambda sel=None, fixture=None: print("TRACE_SELECT", sel, flush=True) or _rs(sel, fixture)
-ui.run_report = lambda pane=None, fixture=None, back=False: print("TRACE_REPORT", pane, back, flush=True) or _rr(pane, fixture, back)
+ui.run_select = lambda sel=None, fixture=None, images=None: print("TRACE_SELECT", sel, flush=True) or _rs(sel, fixture, images)
+ui.run_report = lambda pane=None, fixture=None, back=False, images=None: print("TRACE_REPORT", pane, back, flush=True) or _rr(pane, fixture, back, images)
 ui.run_menu()""")
 tw = collect.collect(sys.argv[2])["towns"]
 first = render.select_roster(tw)[0][1]["pane"]
@@ -1006,6 +1006,25 @@ ok("EXITED" in nh and "Traceback" not in nh and f"TRACE_SELECT {nxt_expect}" in 
 sel_close = report_session([b"\r", b"q"], src=trace_child)
 ok("EXITED" in sel_close and "Traceback" not in sel_close and sel_close.count("TRACE_SELECT") == 1 and sel_close.count("TRACE_REPORT") == 1 and sel_close.count("PARTY SELECT") == 1,
    "select screen: q on the report page ends the program, it does not go back")
+share_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
+ui.art_supported = lambda *a: True
+def counting_load_art():
+    print("LOAD_ART", flush=True)
+    return {11: (b"s", 6, 3), 7: (b"r", 10, 5)}
+ui.load_art = counting_load_art
+ui.REPORT_ART_SETTLE = 0
+ui.portrait_id = lambda a: -1
+ui.fit_report_pane = lambda *a: None
+ui.select_banner = lambda *a: None
+ui.select_image_plan = lambda cards, art: [(11, 6, 3)]
+ui.report_image_plan = lambda *a: [(11, 6, 3), (7, 10, 5)]
+ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
+ui.run_menu()"""
+sh = report_session([b"\r", b"h", b"\r", b"q"], rows=60, src=select_child.replace("ui.run_menu()", share_inject, 1))
+sh_second = sh[[m.start() for m in re.finditer(re.escape("\x1b[?1049h"), sh)][3]:]
+ok("EXITED" in sh and "Traceback" not in sh and sh.count("\x1b[?1049h") == 4 and "a=T,U=1,f=100,i=7," in sh
+   and all(sh.count(f"a=T,U=1,f=100,i={i},") == 1 for i in (11, 7)) and "a=d" not in sh_second and sh.count("LOAD_ART") == 1 and sh.count("\x1b[?25h\x1b[?1049l") == 4,
+   "select and report: the select screen, the report page and the select screen again sends no image twice (each id once, no delete on the second report page or when a screen is left, the files read once)")
 direct_h = report_session([b"h", b"q"], rows=80)
 ok("EXITED" in direct_h and "Traceback" not in direct_h and direct_h.count("\x1b[?1049h") == 1 and "close" in strip(direct_h) and "back" not in strip(direct_h),
    "report pane: h does nothing on a directly opened page, q ends it, and the hint row has no h")
