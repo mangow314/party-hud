@@ -19,7 +19,9 @@ import argparse
 import atexit
 import builtins
 import cProfile
+import datetime
 import fcntl
+import glob
 import importlib
 import json
 import os
@@ -52,10 +54,12 @@ def med(xs):
 
 
 def isolate():
-    """A private state folder: PARTY_DIR is read from XDG_RUNTIME_DIR when party_hud.common is first imported."""
+    """A private state folder and home: PARTY_DIR and the agent roots (~/.claude, ~/.codex) are read from
+    XDG_RUNTIME_DIR and HOME when party_hud.common and party_hud.collect are first imported."""
     tmp = tempfile.mkdtemp(prefix="party-idle-xdg-")
     atexit.register(shutil.rmtree, tmp, ignore_errors=True)
     os.environ["XDG_RUNTIME_DIR"] = tmp
+    os.environ["HOME"] = os.path.join(tmp, "home")
     os.environ.pop("TMUX_PANE", None)
 
 
@@ -332,12 +336,13 @@ def report_run(label, res, out):
     return total, span, len(w), len(calls)
 
 
-def profile_table(path, out):
+def profile_table(path, out, title=None, top=15):
     st = pstats.Stats(path).stats  # type: ignore[attr-defined]
     rows = sorted(st.items(), key=lambda kv: kv[1][3], reverse=True)  # type: ignore[union-attr]
-    rows = [r for r in rows if not any(s in r[0][2] for s in SKIP)][:15]
+    rows = [r for r in rows if not any(s in r[0][2] for s in SKIP)][:top]
     out.append(
-        f"\ncProfile of the working window ({SPAN:.0f} s after {WARM:.0f} s warm-up), by cumulative CPU: read the ranking only;"
+        title
+        or f"\ncProfile of the working window ({SPAN:.0f} s after {WARM:.0f} s warm-up), by cumulative CPU: read the ranking only;"
     )
     out.append("the profiler's own cost inflates every number, and it sees only calls made after it started.")
     out.append("| cumulative (ms) | own (ms) | calls | function |")
@@ -437,6 +442,226 @@ def make_fixtures(tmp, fixture):
     return paths
 
 
+WATCHED = (
+    "read_tmux",
+    "read_claude_sessions",
+    "read_party",
+    "transcript_for",
+    "cache_info",
+    "summons_for",
+    "codex_rollout",
+    "rollouts_since",
+    "_tail_lines",
+    "_codex_usage",
+    "_turn_done",
+    "screen_changed",
+    "git_branch",
+    "proc_table",
+    "proc_children",
+    "proc_args",
+    "proc_start",
+    "proc_alive",
+    "child_cmdlines",
+    "agent_kind",
+    "parse_panes",
+)
+
+
+def disk_world(collect):
+    """5 agents whose files sit on disk under the private HOME: 3 Claude (sessions, 2-3 MB transcripts, one with
+    subagents), 1 codex (a 2.5 MB rollout), 1 judged by its screen. tmux and /proc are fakes; the files are real."""
+    home = os.path.expanduser("~")
+    for root in (collect.CLAUDE_SESSIONS, collect.CLAUDE_PROJECTS, collect.CODEX_SESSIONS, collect.PARTY_DIR):
+        if "party-idle-xdg-" not in os.path.abspath(root) or "party-idle-xdg-" not in os.path.abspath(home):
+            raise RuntimeError(f"idle bench: {root} is outside the private home made by isolate() ({home})")
+    now = time.time()
+    iso = datetime.datetime.fromtimestamp(now - 600, datetime.timezone.utc).strftime("%Y-%m-%dT%H:%M:%S.000Z")
+    panes, children, args = [], {}, {}
+    for i in range(1, 6):
+        panes.append(
+            {
+                "session_name": "squad0",
+                "window_index": str(i),
+                "window_name": f"task-{i}",
+                "window_active": "1" if i == 1 else "0",
+                "session_attached": "1",
+                "pane_id": f"%{i}",
+                "pane_active": "1",
+                "pane_current_command": "agy" if i == 5 else ("zsh" if i == 4 else "claude"),
+                "pane_current_path": f"/work/{i}",
+                "@workmux_pane_status": "",
+                "window_id": f"@{i}",
+                "window_panes": "1",
+                "@party_sidebar": "",
+                "@party_report": "",
+                "pane_pid": str(2000 + i),
+                "pane_dead": "0",
+                "pane_tty": f"/dev/pts/{i}",
+                "@party_lead": "",
+                "@xv": "",
+            }
+        )
+        children[str(2000 + i)] = [str(3000 + i)] if i <= 4 else []
+    args["3004"] = ["node", "/usr/lib/codex"]
+    for k in (1, 2, 3):
+        args[str(3000 + k)] = ["claude"]
+    os.makedirs(collect.CLAUDE_SESSIONS)
+    os.makedirs(collect.PARTY_DIR, exist_ok=True)
+    proj = os.path.join(collect.CLAUDE_PROJECTS, "-work")
+    os.makedirs(proj)
+    live = {"3001", "3002", "3003"}
+    for k in range(1, 9):
+        pid = 3000 + k if k <= 3 else 4000 + k
+        live.add(str(pid))
+        where = f"/tmp/tmux-1000/default,100,0%{k if k <= 3 else 10 + k}"
+        rec = {
+            "pid": pid,
+            "sessionId": f"sid{k}",
+            "name": f"agent {k}",
+            "status": "busy" if k == 1 else "idle",
+            "tmux": where,
+        }
+        rec.update(cwd=f"/work/{k}", startedAt=1_700_000_000_000, kind="interactive", version="2.1.0", entrypoint="cli")
+        with open(os.path.join(collect.CLAUDE_SESSIONS, f"{pid}.json"), "w") as f:
+            json.dump(rec, f)
+    line = json.dumps(
+        {
+            "type": "assistant",
+            "timestamp": iso,
+            "message": {
+                "content": [{"type": "text", "text": "x" * 1200}],
+                "usage": {
+                    "input_tokens": 3,
+                    "cache_read_input_tokens": 90_000,
+                    "cache_creation_input_tokens": 700,
+                    "cache_creation": {"ephemeral_5m_input_tokens": 700, "ephemeral_1h_input_tokens": 0},
+                },
+            },
+        }
+    )
+    for k, mb in ((1, 3), (2, 2), (3, 2)):
+        with open(os.path.join(proj, f"sid{k}.jsonl"), "w") as f:
+            f.write((line + "\n") * (mb * 1_000_000 // len(line)))
+        with open(os.path.join(collect.PARTY_DIR, f"{k}.json"), "w") as f:
+            json.dump({"session_id": f"sid{k}", "ctx_left": 70 - k, "ctx_size": 1_000_000, "model": "opus"}, f)
+    subs = os.path.join(proj, "sid3", "subagents")
+    os.makedirs(subs)
+    for k, (finished, age) in enumerate(((False, 5), (False, 30), (True, 5), (False, 3600))):
+        meta = {"agentType": "explore", "description": f"look around {k}", "finished": finished}
+        with open(os.path.join(subs, f"agent-{k}.meta.json"), "w") as f:
+            json.dump(meta, f)
+        log = os.path.join(subs, f"agent-{k}.jsonl")
+        with open(log, "w") as f:
+            f.write(line + "\n")
+        os.utime(log, (now - age, now - age))
+    day = datetime.date.today()
+    rdir = os.path.join(collect.CODEX_SESSIONS, f"{day:%Y}", f"{day:%m}", f"{day:%d}")
+    os.makedirs(rdir)
+    rollout = os.path.join(rdir, "rollout-bench.jsonl")
+    filler = json.dumps({"type": "event_msg", "payload": {"type": "agent_message", "message": "y" * 1000}})
+    with open(rollout, "w") as f:
+        f.write(json.dumps({"type": "session_meta", "payload": {"cwd": "/work/4", "timestamp": iso}}) + "\n")
+        f.write((filler + "\n") * (2_500_000 // len(filler)))
+        usage = {"info": {"last_token_usage": {"total_tokens": 40_000}, "model_context_window": 258_400}}
+        f.write(json.dumps({"type": "event_msg", "payload": {"type": "token_count", **usage}}) + "\n")
+        f.write(json.dumps({"type": "event_msg", "payload": {"type": "task_complete", "turn_id": "t"}}) + "\n")
+    starts = {"3004": now - 300}
+    return {
+        "panes": panes,
+        "children": children,
+        "args": args,
+        "live": live,
+        "starts": starts,
+        "screen": "the screen\n" * 20,
+    }
+
+
+def install_fakes(collect, w):
+    collect.read_tmux = lambda: w["panes"]
+    collect.tmux = lambda *a: w["screen"]
+    collect.proc_children = lambda pid: list(w["children"].get(str(pid), []))
+    collect.proc_args = lambda pid: w["args"].get(str(pid), ["zsh"])
+    collect.proc_start = lambda pid: w["starts"].get(str(pid))
+    collect.proc_alive = lambda pid: str(pid) in w["live"]
+    collect.proc_table = dict
+
+
+def disk_collect(out):
+    """collect() on files in a private HOME: cold, unchanged, per function, cProfile."""
+    from party_hud import collect
+
+    saved = {n: getattr(collect, n) for n in (*WATCHED, "tmux", "collect")}
+    w = disk_world(collect)
+    install_fakes(collect, w)
+    real_collect = collect.collect
+    cold = cpu_pair(real_collect)[0]
+    unchanged = [cpu_pair(real_collect)[0] for _ in range(30)]
+    first = real_collect()
+    again = real_collect()
+    same = json.dumps(first["towns"], sort_keys=True) == json.dumps(again["towns"], sort_keys=True)
+    tm = Timers()
+    fn_files: dict[str, list] = {}
+    real_open = builtins.open
+
+    def attributing_open(file, mode="r", *a, **k):
+        f = real_open(file, mode, *a, **k)
+        if isinstance(file, str) and not any(c in mode for c in "wa+x") and tm.stack and "party-idle-xdg-" in file:
+            rec = fn_files.setdefault(tm.stack[-1][0], [0, 0, 0])
+            rec[0] += 1
+            return CountedFile(f, rec)
+        return f
+
+    for name in WATCHED:
+        if hasattr(collect, name):
+            tm.wrap(collect, name, name)
+    tm.wrap(collect, "collect", "collect (own lines)")
+    builtins.open = attributing_open
+    runs = 30
+    try:
+        for _ in range(runs):
+            collect.collect()
+    finally:
+        builtins.open = real_open
+    names = {*tm.acc, *fn_files}
+    rows = sorted(names, key=lambda n: -tm.acc.get(n, 0))
+    out.append(f"\ncollect() on files on disk under a private HOME, {runs} runs once the files are cached (unchanged):")
+    out.append(
+        "tmux and /proc are fakes (no spawn, no /proc read, no fd glob), so this does not include their cost; the files read below are real. Exclusive CPU."
+    )
+    out.append("| function | calls per collect | CPU per collect (ms) | files per collect | bytes per collect |")
+    out.append("|---|---:|---:|---:|---:|")
+    total_files = [0, 0]
+    for n in rows:
+        fl = fn_files.get(n, [0, 0, 0])
+        total_files[0] += fl[0]
+        total_files[1] += fl[1]
+        out.append(
+            f"| {n} | {tm.count.get(n, 0) / runs:.1f} | {tm.acc.get(n, 0) / runs / 1e6:.3f} | {fl[0] / runs:.1f} | {fl[1] / runs:.0f} |"
+        )
+    out.append(
+        f"| total (wrapped timing overhead included) | | {sum(tm.acc.values()) / runs / 1e6:.3f} | {total_files[0] / runs:.1f} | {total_files[1] / runs:.0f} |"
+    )
+    for name, fn in saved.items():
+        setattr(collect, name, fn)
+    install_fakes(collect, w)
+    pr = cProfile.Profile(time.process_time)
+    pr.enable()
+    for _ in range(runs):
+        real_collect()
+    pr.disable()
+    profile_table(
+        pr, out, "\ncProfile of 30 unchanged collects on disk, by cumulative CPU: read the ranking only;", top=15
+    )
+    out.append("")
+    out.append(f"collect, files on disk, cold: {cold:.3f} ms")
+    out.append(f"collect, files on disk, unchanged: {med(unchanged):.3f} ms")
+    if not same:
+        out.append("WARNING: two collects on unchanged files returned different towns")
+    for name, fn in saved.items():
+        setattr(collect, name, fn)
+    return cold, med(unchanged)
+
+
 def offline():
     t0 = time.monotonic()
     isolate()
@@ -451,6 +676,7 @@ def offline():
         total, span, wakes, ncalls = report_run("working member, run_ui in a pty", work, out)
         ctotal, cspan, _, _ = report_run("control, no member working", calm, out)
         profile_table(run_child("profile", paths["working"]), out)
+        disk_collect(out)
         collect_ms, read_ms, full_ms = snapshot_paths(paths["working"], out)
         spawn = spawn_costs(out)
     per_s = total / 1e6 / span
@@ -479,29 +705,38 @@ def offline():
 
 
 class CountedFile:
-    """A read-only file object that counts what it returns."""
+    """A read-only file object that counts what it returns and the CPU its reads take, into each stat list [n, bytes, cpu_ns]."""
 
-    def __init__(self, f, stat):
-        self._f, self._stat = f, stat
+    def __init__(self, f, *stats):
+        self._f, self._stats = f, stats
+
+    def _add(self, size, t0):
+        dt = time.process_time_ns() - t0
+        for st in self._stats:
+            st[1] += size
+            st[2] += dt
 
     def read(self, *a):
+        t0 = time.process_time_ns()
         d = self._f.read(*a)
-        self._stat[1] += len(d)
+        self._add(len(d), t0)
         return d
 
     def readline(self, *a):
+        t0 = time.process_time_ns()
         d = self._f.readline(*a)
-        self._stat[1] += len(d)
+        self._add(len(d), t0)
         return d
 
     def readlines(self, *a):
+        t0 = time.process_time_ns()
         ds = self._f.readlines(*a)
-        self._stat[1] += sum(len(d) for d in ds)
+        self._add(sum(len(d) for d in ds), t0)
         return ds
 
     def __iter__(self):
         for d in self._f:
-            self._stat[1] += len(d)
+            self._add(len(d), time.process_time_ns())
             yield d
 
     def __enter__(self):
@@ -515,8 +750,31 @@ class CountedFile:
         return getattr(self._f, name)
 
 
+def proc_kind(path):
+    name = os.path.basename(path)
+    return name if name in ("children", "cmdline", "stat") else "other"
+
+
+def file_kind(path, roots):
+    """What an agent file is, without its name: ids and project folders stay out of the report."""
+    if path.startswith("/proc/"):
+        return "/proc " + proc_kind(path)
+    sessions, projects, codex, party_dir = roots
+    if path.startswith(sessions):
+        return "claude session"
+    if path.startswith(projects):
+        if "/subagents/" in path:
+            return "subagent meta" if path.endswith(".meta.json") else "subagent log"
+        return "transcript"
+    if path.startswith(codex):
+        return "codex rollout"
+    if path.startswith(party_dir):
+        return "activity.json" if path.endswith("/activity.json") else "party state"
+    return "other"
+
+
 class Counters:
-    """Counts of what collect() does outside this process: spawned commands and files read."""
+    """Counts of what collect() does outside this process: spawned commands, files read, /proc reads by kind."""
 
     def __init__(self, party_dir):
         self.party_dir = party_dir
@@ -525,21 +783,28 @@ class Counters:
     def reset(self):
         self.cmds: dict[str, list] = {}
         self.files: dict[str, list] = {}
+        self.proc: dict[str, list] = {}
+        self.paths: dict[str, list] = {}
 
     def install(self):
-        real_run, real_open = subprocess.run, builtins.open
+        real_run, real_open, real_glob, real_readlink = subprocess.run, builtins.open, glob.glob, os.readlink
 
         def run(args, *a, **k):
             key = " ".join([os.path.basename(args[0]), *args[1:2]]) if isinstance(args, list) and args else str(args)
-            t = time.perf_counter()
+            t, c = time.perf_counter(), time.process_time_ns()
+            res = None
             try:
-                return real_run(args, *a, **k)
+                res = real_run(args, *a, **k)
+                return res
             finally:
-                rec = self.cmds.setdefault(key, [0, 0.0])
+                rec = self.cmds.setdefault(key, [0, 0.0, 0, 0])
                 rec[0] += 1
                 rec[1] += time.perf_counter() - t
+                rec[2] += time.process_time_ns() - c
+                rec[3] += len(getattr(res, "stdout", None) or "")
 
         def counting_open(file, mode="r", *a, **k):
+            c0 = time.process_time_ns()
             f = real_open(file, mode, *a, **k)
             if isinstance(file, str) and not any(c in mode for c in "wa+x"):
                 group = (
@@ -549,24 +814,137 @@ class Counters:
                     if file.startswith(self.party_dir)
                     else "agent files"
                 )
-                rec = self.files.setdefault(group, [0, 0])
-                rec[0] += 1
-                return CountedFile(f, rec)
+                stats = [self.files.setdefault(group, [0, 0, 0]), self.paths.setdefault(file, [0, 0, 0])]
+                if group == "/proc":
+                    stats.append(self.proc.setdefault(proc_kind(file), [0, 0, 0]))
+                for rec in stats:
+                    rec[0] += 1
+                    rec[2] += time.process_time_ns() - c0
+                return CountedFile(f, *stats)
             return f
+
+        def counting_glob(pattern, *a, **k):
+            c0 = time.process_time_ns()
+            res = real_glob(pattern, *a, **k)
+            if isinstance(pattern, str) and pattern.startswith("/proc/") and pattern.endswith("/fd/*"):
+                rec = self.proc.setdefault("fd glob", [0, 0, 0])
+                rec[0] += 1
+                rec[1] += len(res)
+                rec[2] += time.process_time_ns() - c0
+            return res
+
+        def counting_readlink(path, *a, **k):
+            c0 = time.process_time_ns()
+            try:
+                return real_readlink(path, *a, **k)
+            finally:
+                if isinstance(path, str) and path.startswith("/proc/"):
+                    rec = self.proc.setdefault("fd readlink", [0, 0, 0])
+                    rec[0] += 1
+                    rec[2] += time.process_time_ns() - c0
 
         subprocess.run = run
         builtins.open = counting_open
+        glob.glob = counting_glob
+        os.readlink = counting_readlink
 
 
 def table_cmds(cn, runs, out):
-    out.append("| spawned command | calls per collect | wall ms per call |")
-    out.append("|---|---:|---:|")
-    for key, (n, wall) in sorted(cn.cmds.items(), key=lambda kv: -kv[1][1]):
-        out.append(f"| {key} | {n / runs:.1f} | {1e3 * wall / n:.2f} |")
+    out.append(
+        "| spawned command | calls per collect | wall ms per call | own CPU ms per call | stdout bytes per call |"
+    )
+    out.append("|---|---:|---:|---:|---:|")
+    for key, (n, wall, cpu, size) in sorted(cn.cmds.items(), key=lambda kv: -kv[1][1]):
+        out.append(f"| {key} | {n / runs:.1f} | {1e3 * wall / n:.2f} | {cpu / n / 1e6:.3f} | {size / n:.0f} |")
     out.append("| file group | files per collect | bytes returned per collect |")
     out.append("|---|---:|---:|")
-    for key, (n, size) in sorted(cn.files.items()):
+    for key, (n, size, _) in sorted(cn.files.items()):
         out.append(f"| {key} | {n / runs:.1f} | {size / runs:.0f} |")
+
+
+LIVE_WATCHED = (
+    "read_tmux",
+    "parse_panes",
+    "proc_table",
+    "proc_children",
+    "proc_args",
+    "proc_start",
+    "child_cmdlines",
+    "proc_tree",
+    "agent_kind",
+    "find_codex",
+    "codex_rollout",
+    "screen_changed",
+    "read_claude_sessions",
+    "transcript_for",
+    "cache_info",
+    "summons_for",
+    "read_party",
+    "rollouts_since",
+    "_tail_lines",
+    "codex_usage",
+    "codex_turn_done",
+    "git_branch",
+)
+
+
+def live_breakdown(collect, cn, out, runs=10):
+    """Where one real collect() goes: exclusive CPU per function, spawn CPU, /proc reads, the biggest files, cProfile.
+    Two more batches of collects: one with the functions wrapped, one under cProfile."""
+    roots = (collect.CLAUDE_SESSIONS, collect.CLAUDE_PROJECTS, collect.CODEX_SESSIONS, collect.PARTY_DIR)
+    home = os.path.expanduser("~").rstrip("/")
+    tm = Timers()
+    saved = {n: getattr(collect, n) for n in (*LIVE_WATCHED, "collect") if hasattr(collect, n)}
+    real_collect = collect.collect
+    for name in saved:
+        tm.wrap(collect, name, "collect (own lines)" if name == "collect" else name)
+    cn.reset()
+    per_run, owns = [], []
+    try:
+        for _ in range(runs):
+            before = dict(tm.acc)
+            own = cpu_pair(collect.collect)[0]
+            owns.append(own)
+            per_run.append({k: v - before.get(k, 0) for k, v in tm.acc.items()})
+    finally:
+        for name, fn in saved.items():
+            setattr(collect, name, fn)
+    counts = dict(tm.count)
+    names = sorted({k for r in per_run for k in r}, key=lambda n: -med(r.get(n, 0) for r in per_run))
+    out.append(
+        f"\n1b. where one collect() goes, {runs} more collects with the functions wrapped (exclusive CPU, median)"
+    )
+    out.append("| function | calls per collect | CPU per collect (ms) |")
+    out.append("|---|---:|---:|")
+    for n in names:
+        out.append(f"| {n} | {counts.get(n, 0) / runs:.1f} | {med(r.get(n, 0) for r in per_run) / 1e6:.3f} |")
+    accounted = med(sum(r.values()) for r in per_run) / 1e6
+    out.append(
+        "\nspawned commands, this process's side (process_time delta, apart from the wall time), stdout returned:"
+    )
+    table_cmds(cn, runs, out)
+    out.append("\n/proc reads by kind (CPU is this process's, per collect):")
+    out.append("| kind | calls per collect | bytes (fd glob: entries) per collect | CPU per collect (ms) |")
+    out.append("|---|---:|---:|---:|")
+    for key, (n, size, ns) in sorted(cn.proc.items(), key=lambda kv: -kv[1][2]):
+        out.append(f"| {key} | {n / runs:.1f} | {size / runs:.0f} | {ns / runs / 1e6:.3f} |")
+    sizes = sorted(((size / runs, file_kind(p, roots), p) for p, (_, size, _) in cn.paths.items()), reverse=True)
+    out.append("\nbiggest files read per collect (kind and bytes only, no names):")
+    out.append("| kind | folder | bytes read per collect |")
+    out.append("|---|---|---:|")
+    for size, kind, path in sizes[:10]:
+        folder = "/proc" if path.startswith("/proc/") else next((r for r in roots if path.startswith(r)), "")
+        folder = "~" + folder[len(home) :] if home and folder.startswith(home + "/") else folder
+        out.append(f"| {kind} | {folder} | {size:.0f} |")
+    cn.reset()
+    pr = cProfile.Profile(time.process_time)
+    pr.enable()
+    for _ in range(runs):
+        real_collect()
+    pr.disable()
+    profile_table(pr, out, f"\ncProfile of {runs} other collects, by cumulative CPU: read the ranking only;", top=15)
+    out.append("")
+    out.append(f"live collect: {med(owns):.3f} ms own CPU, accounted {accounted:.3f} ms")
 
 
 def live(secs):
@@ -607,6 +985,7 @@ def live(secs):
     out.append(f"median: wall {wall_med:.1f} ms, own CPU {own_med:.2f} ms, children CPU {child_med:.2f} ms")
     table_cmds(cn, runs, out)
     n_cmds = sum(v[0] for v in cn.cmds.values()) / runs
+    live_breakdown(collect, cn, out)
 
     out.append(
         f"\n2. get_snapshot() once a second for {secs:g} s (this process competes with the sidebars for snapshot.lock;"
