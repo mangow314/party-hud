@@ -497,8 +497,6 @@ ok([a["pane"] for _, a in ui.report_queue(qt, "%2")] == ["%2", "%3", "%1", "%4"]
 ok(abs(ui.report_resize_wait(5.0, 5.0) - ui.RESIZE_INTERVAL) < 1e-9 and ui.RESIZE_INTERVAL > 0 and abs(ui.report_resize_wait(5.0, 5.02) - (ui.RESIZE_INTERVAL - 0.02)) < 1e-9
    and ui.report_resize_wait(5.0, 5.0 + ui.RESIZE_INTERVAL) == 0 and ui.report_resize_wait(5.0, 9.0) == 0,
    "report resize: redraws are at least RESIZE_INTERVAL apart, a redraw after a pause is not delayed")
-ok(ui.ART_SETTLE > ui.report_art_wait(None) == ui.REPORT_ART_SETTLE > 0 and ui.report_art_wait({1: (10, 5)}) == 0 and ui.report_art_wait({}) == 0,
-   "report art wait: a fresh page (first open, n) waits REPORT_ART_SETTLE (shorter than the sidebar's ART_SETTLE), a resize redraw sends images at once")
 pk, grabs = {}, []
 ok(ui.report_peek(pk, "%1", None, None, lambda p: grabs.append(p) or ["x"]) == ["x"] and ui.report_peek(pk, "%1", None, None, lambda p: grabs.append(p) or ["y"]) == ["x"]
    and grabs == ["%1"] and ui.report_peek(pk, "%2", {}, None, grabs.append) == [] and grabs == ["%1"],
@@ -1012,7 +1010,6 @@ def counting_load_art():
     print("LOAD_ART", flush=True)
     return {11: (b"s", 6, 3), 7: (b"r", 10, 5)}
 ui.load_art = counting_load_art
-ui.REPORT_ART_SETTLE = 0
 ui.portrait_id = lambda a: -1
 ui.fit_report_pane = lambda *a: None
 ui.select_banner = lambda *a: None
@@ -1050,10 +1047,20 @@ ok(aq.count("\x1b[H") == 2 and "L1" in a_first and "L3" not in a_first and "L3" 
    "report pane: a key during the opening animation draws the whole page at once and is still handled (q exits)")
 an = report_session([b"n", b"q"], rows=16, lines=12, draws=[1, 3], src=anim_src)
 ok("report 2/3" in an and an.count("\x1b[H") == 4 and "EXITED" in an, "report pane: n during the animation changes page at once, and the new page starts its own animation")
+first_img = """ag = ui.get_snapshot()["towns"][0]["agents"][0]
+ui.report_queue = lambda towns, pane=None, window=None: [("A", dict(ag, pane="%%1", round=0))]
+ui.art_supported = lambda *a: True
+ui.load_art = lambda: {"k": 1}
+ui.report_images = lambda *a: "<IMG>"
+ui.report_image_plan = lambda *a: []
+ui.run_report"""
+wf = report_session([b"q"], rows=16, lines=12, hold=0.6, src=anim_src.replace("ui.run_report", first_img, 1))
+wf_none = report_session([b"q"], rows=16, lines=12, hold=0.6, src=anim_src.replace("ui.run_report", first_img.replace("<IMG>", ""), 1))
+ok(wf.count("<IMG>") == 1 and wf.count("\x1b[H") == wf_none.count("\x1b[H") > 2 and wf.index("\x1b[H") < wf.index("<IMG>") < wf.index("\x1b[H", wf.index("\x1b[H") + 1),
+   "report pane: on a new page with the opening animation the images are sent with the first frame, before the second animation frame, and the animation still plays out")
 art_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
 ui.load_art = lambda: {"k": 1}
-ui.REPORT_ART_SETTLE = 0
 ui.report_images = lambda *a: "<IMG r=%%d>" %% os.get_terminal_size(1).lines
 ui.report_image_plan = lambda *a: []
 ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
@@ -1072,7 +1079,6 @@ ok("EXITED" in still and still.count("\x1b[J") == 1, f"report pane: a time tick 
 first_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
 ui.load_art = lambda: {"k": 1}
-ui.REPORT_ART_SETTLE = 0
 ui.report_images = lambda *a: ""
 ui.report_image_plan = lambda *a: [(7, 10, 5)]
 ui.portrait_id = lambda a: -1
@@ -1125,6 +1131,8 @@ ok("\x1b[?1049l" in ex and "a=d" not in ex[ex.rindex("\x1b[H"):ex.rindex("\x1b[?
    "report pane: on exit it deletes no image, since another pane may show the same ids")
 scr = report_session([b"G", b"q"])
 ok("L59" in scr[scr.index("\x1b[H", scr.index("\x1b[J")):] and "L59" not in once, "report pane: G redraws the bottom rows in place")
+sj = report_session([b"j", b"q"], hold=0.3)
+ok(sj.count("\x1b[H") == 2 and "L1" in sj[sj.rindex("\x1b[H"):] and "EXITED" in sj, "report pane: j draws the scrolled page once and nothing after it")
 fit = report_session([b"j", b"q"], rows=40, lines=3, draws=[1, 1])
 ok(fit.count("\x1b[H") == 1, "report pane: a report that fits the pane does not redraw on j")
 ok("EXITED" in twice, "report pane: q ends the program, which closes the pane")

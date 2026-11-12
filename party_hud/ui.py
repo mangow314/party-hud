@@ -324,7 +324,7 @@ def run_select(sel=None, fixture=None, images=None):
     With images, the banner and the portraits of the cards on screen are sent once the window size has settled; they stay in the terminal on exit, since another pane may still show them under the same id."""
     art, sent = images or load_images(fixture)
     queue: list = []
-    last_winch, shown, settled = 0.0, 0.0, False
+    last_winch = 0.0
     fd = sys.stdin.fileno()
     old = termios.tcgetattr(fd)
     sys.stdout.write("\033[?1049h\033[?25l" + MOUSE_ON)
@@ -387,14 +387,12 @@ def run_select(sel=None, fixture=None, images=None):
                 sys.stdout.write("\033[H" + "\033[K\n".join(frame.split("\n")) + "\033[K\033[J")
                 sys.stdout.flush()
                 last_frame = frame
-                shown = time.monotonic()
             due = bool(art) and bool(select_images_due(plan, sent))
             if art and due and time.monotonic() - last_winch >= RESIZE_SETTLE:
-                time.sleep(max(0.0, report_art_wait(sent if settled else None) - (time.monotonic() - shown)))
                 sys.stdout.write(select_images_out(plan, art, sent, shared))
                 sys.stdout.flush()
                 sent.update((i, (c, r)) for i, c, r in plan)
-                due, settled = False, True
+                due = False
             while True:
                 wait = select_wait(fetched, time.monotonic(), tick_at, time.time())
                 if due:
@@ -546,17 +544,11 @@ def report_first_deletes(a, has_report, art, width, banner, big, sent, labels=()
 RESIZE_INTERVAL = 0.05
 RESIZE_SETTLE = 0.15
 ANIM_TOTAL = 0.4
-REPORT_ART_SETTLE = 0.3
 
 
 def report_resize_wait(last_draw, now):
     """Seconds to wait before the next resize redraw so that redraws are at least RESIZE_INTERVAL apart."""
     return max(0.0, last_draw + RESIZE_INTERVAL - now)
-
-
-def report_art_wait(drawn):
-    """Seconds to wait before sending report images: a fresh page (drawn=None) waits REPORT_ART_SETTLE, a resize redraw sends at once."""
-    return REPORT_ART_SETTLE if drawn is None else 0.0
 
 
 def report_anim_enabled(value):
@@ -612,16 +604,10 @@ def animate(anim, agents, now):
     return shown, lit, busy
 
 
-def play_report_anim(frames, left, height, fd, wake_r):
-    """Draw the frames evenly over ANIM_TOTAL. True when input or a signal arrived first; it stays unread for the main loop."""
-    start = time.monotonic()
-    for j, right in enumerate(frames):
-        if (
-            j
-            and select.select(
-                [fd, wake_r], [], [], max(0.0, start + j * ANIM_TOTAL / (len(frames) - 1) - time.monotonic())
-            )[0]
-        ):
+def play_report_anim(rest, left, height, fd, wake_r, start):
+    """Draw the frames after the first one, evenly over ANIM_TOTAL counted from start (when the first was drawn). True when input or a signal arrived first; it stays unread for the main loop."""
+    for j, right in enumerate(rest, 1):
+        if select.select([fd, wake_r], [], [], max(0.0, start + j * ANIM_TOTAL / len(rest) - time.monotonic()))[0]:
             return True
         draw_report(left, right, height, 0)
     return False
@@ -684,6 +670,7 @@ def run_report(pane=None, fixture=None, back=False, images=None):
     next_live, tick_at, cause = 0.0, None, ""
     written: list[str] | None = None
     after_live = False
+    anim_start = 0.0
     resend: tuple[float, list[tuple[int, int, int]]] | None = None
     try:
         tty.setcbreak(fd)
@@ -739,7 +726,6 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                 if helping
                 else None
             )
-            shown = time.monotonic()
             frames = report_frames(right, size.lines, tail=0 if left else 2) if fresh and anim else [right]
             fresh = False
             names = side_labels(report, now)
@@ -751,11 +737,11 @@ def run_report(pane=None, fixture=None, back=False, images=None):
             tick_at = now + tick_wait(now, anchors) if anchors else None
             if art and drawn is None:
                 sys.stdout.write(report_first_deletes(a, is_final(report), art, width, banner, big, sent, names))
-            if len(frames) > 1:
-                cut = play_report_anim(frames, left, size.lines, fd, wake_r)
+            steps = frames[1:]
+            if steps:
+                anim_start = time.monotonic()
+                draw_report(left, frames[0], size.lines, 0)
                 written = None
-                if cut and os.get_terminal_size(sys.stdout.fileno()) == size:
-                    written = draw_report(left, right, size.lines, offset, screen)
             else:
                 rows = screen or report_view(left, right, size.lines, offset)[0]
                 if not (ticked and rows == written):
@@ -766,7 +752,6 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                     out = report_images(a, is_final(report), art, width, banner, big, drawn, names, sent)
                     plan = report_image_plan(a, is_final(report), art, width, banner, big, names)
                     if out:
-                        time.sleep(max(0.0, report_art_wait(drawn) - (time.monotonic() - shown)))
                         sys.stdout.write(out)
                         sys.stdout.flush()
                         if after_live:
@@ -775,6 +760,11 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                     drawn = {k: (c, r) for k, c, r in plan}
                     sent.update(drawn)
                     art_pending = False
+                if steps:
+                    cut = play_report_anim(steps, left, size.lines, fd, wake_r, anim_start)
+                    steps = []
+                    if cut and os.get_terminal_size(sys.stdout.fileno()) == size:
+                        written = draw_report(left, right, size.lines, offset, screen)
                 timeout = max(0.0, RESIZE_SETTLE - (time.monotonic() - last_winch)) if art_pending else None
                 dues = ([next_live - time.monotonic()] if live else []) + ([tick_at - time.time()] if tick_at else [])
                 if resend:

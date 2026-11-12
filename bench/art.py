@@ -8,8 +8,9 @@ timestamp per read. Three scenarios, RUNS runs each, every number is the median 
   (b) the same with the animation off
   (c) `run_menu`: select screen, wait until its images are out, Enter, the report page (only the report page is timed)
 Segments (first frame = first `\\x1b[H`, first image = first `a=T`, last image = end of the last image chunk):
-  start -> first frame, first frame -> last animation frame, last animation frame -> first image, first frame -> first
-  image, first image -> last image. `load_art()` and `import party_hud.ui` are timed on their own.
+  start -> first frame, first frame -> last animation frame (draws within ANIM_TOTAL + 100 ms of it), first image -> last image, and the headline number
+  first frame -> first image. The images are sent right after the first frame, so the first image can come before the
+  later animation frames. `load_art()` and `import party_hud.ui` are timed on their own.
 
 What it measures: time inside the program. `load_art`, `kitty_image`, the wait constants and the animation are the real
 ones. Replaced in the child only: the snapshot, the report source, `capture`, `art_supported` (images forced on) and tmux
@@ -184,15 +185,16 @@ def run_once(scenario, data_path):
     first_image = IMAGE.search(cap.buf, base)
     assert first_frame >= 0 and first_image
     last_chunk = list(IMAGE_BYTES.finditer(cap.buf, base))[-1].start()
-    frames = cap.buf[first_frame : first_image.start()].count(b"\x1b[H")
-    last_frame = cap.buf.rfind(b"\x1b[H", first_frame, first_image.start())
-    t_frame, t_last_frame = cap.time_at(first_frame), cap.time_at(last_frame)
+    t_frame = cap.time_at(first_frame)
+    window = bisect.bisect_right(cap.times, t_frame + ui.ANIM_TOTAL + 0.1)
+    anim_end = cap.starts[window] if window < len(cap.starts) else len(cap.buf)
+    frames = cap.buf[first_frame:anim_end].count(b"\x1b[H")
+    t_last_frame = cap.time_at(cap.buf.rfind(b"\x1b[H", first_frame, anim_end))
     t_image, t_end = cap.time_at(first_image.start()), cap.time_at(last_chunk)
     ms = 1000.0
     return {
         "start": (t_frame - t0) * ms,
         "anim": (t_last_frame - t_frame) * ms,
-        "wait": (t_image - t_last_frame) * ms,
         "first": (t_image - t_frame) * ms,
         "send": (t_end - t_image) * ms,
         "id": int(first_image.group(1)),
@@ -233,14 +235,13 @@ def main():
         print(f"Report page image delay, {COLS} x {ROWS} pty, median of {RUNS} runs, ms\n")
         for key, title, scenario in SCENARIOS:
             runs = [run_once(scenario, path) for _ in range(RUNS)]
-            med = {k: statistics.median(r[k] for r in runs) for k in ("start", "anim", "wait", "first", "send")}
+            med = {k: statistics.median(r[k] for r in runs) for k in ("start", "anim", "first", "send")}
             first_label = "key -> report first frame" if scenario == "menu" else "process start -> first frame"
             print(f"({key}) {title}")
             print(f"  {first_label:<40}{med['start']:8.1f} ms")
             print(
                 f"  {'first frame -> last animation frame':<40}{med['anim']:8.1f} ms  ({runs[-1]['frames']} frames drawn)"
             )
-            print(f"  {'last animation frame -> first image':<40}{med['wait']:8.1f} ms")
             print(f"  {'first image -> last image':<40}{med['send']:8.1f} ms")
             print(f"  first image is {image_name(runs[-1]['id'])} (id 0x{runs[-1]['id']:x})")
             print(f"first image after first frame: {med['first']:.1f} ms\n")
@@ -248,8 +249,7 @@ def main():
         print(f"  {'load_art() (56 PNGs, warm cache)':<40}{time_load_art():8.1f} ms")
         print(f"  {'python3 + import party_hud.ui':<40}{time_import():8.1f} ms")
         print(
-            f"\nwait constants in party_hud/ui.py: REPORT_ART_SETTLE {ui.REPORT_ART_SETTLE * 1000:.0f} ms, "
-            f"ANIM_TOTAL {ui.ANIM_TOTAL * 1000:.0f} ms, RESIZE_SETTLE {ui.RESIZE_SETTLE * 1000:.0f} ms"
+            f"\nwait constants in party_hud/ui.py: ANIM_TOTAL {ui.ANIM_TOTAL * 1000:.0f} ms, RESIZE_SETTLE {ui.RESIZE_SETTLE * 1000:.0f} ms"
         )
 
 
