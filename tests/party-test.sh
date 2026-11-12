@@ -935,7 +935,14 @@ def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), g
     for key, n in zip(keys, draws or range(1, len(keys) + 1)):
         if not resizes:
             read_until(b"\x1b[J", n)
-        time.sleep(hold)
+        # a pty holds little unread output (far less on macOS than on Linux); unread, the child blocks in its write
+        held = time.monotonic() + hold
+        while time.monotonic() < held:
+            if _sel.select([m], [], [], max(0.0, held - time.monotonic()))[0]:
+                try:
+                    out += os.read(m, 65536)
+                except OSError:
+                    break
         os.write(m, key)
     read_until(b"EXITED", 1)
     p.wait(timeout=5)
