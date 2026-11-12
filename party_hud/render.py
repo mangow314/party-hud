@@ -575,9 +575,9 @@ def md_table(src, width):
     return out
 
 
-def render_markdown(text, width, code_width=None):
-    """Markdown subset -> rows of at most width columns (fenced code up to code_width, default width) with SGR styles. Tables are aligned columns when they fit, else one "name: value" group per row. Nested lists, images and HTML stay raw. The last 32 results are kept; callers get their own copy of the rows."""
-    return list(_markdown_rows(text, width, code_width or width))
+def render_markdown(text, width, code_width=None, limit=None):
+    """Markdown subset -> rows of at most width columns (fenced code up to code_width, default width) with SGR styles. Tables are aligned columns when they fit, else one "name: value" group per row. Nested lists, images and HTML stay raw. With limit, laying out stops after the block that brings the rows past limit: the rows are the first rows of the full layout, and more than limit only when the text goes on. The last 32 results are kept; callers get their own copy of the rows."""
+    return list(_markdown_rows(text, width, code_width or width, limit))
 
 
 def clear_markdown_cache():
@@ -585,11 +585,11 @@ def clear_markdown_cache():
 
 
 @lru_cache(maxsize=32)
-def _markdown_rows(text, width, code_width):
+def _markdown_rows(text, width, code_width, limit):
     rows, code = [], False
     lines = printable_lines(text)
     i = 0
-    while i < len(lines):
+    while i < len(lines) and (limit is None or len(rows) <= limit):
         line = lines[i]
         i += 1
         if not code and line.startswith("|") and i < len(lines) and MD_TABLE_SEP.fullmatch(lines[i]):
@@ -632,7 +632,7 @@ def is_final(report):
     return bool(report) and not report.get("live")
 
 
-def live_rows(report, width, wide, now, status_row=True):
+def live_rows(report, width, wide, now, status_row=True, limit=None):
     """Page of a member still working: status row (unless status_row is False) with the time so far, the "Now" block (newest tool call, tail of the newest text), then the previous round's report."""
     gold = fg("gold", True)
     status = "Working" + (f" · {fmt_took(now - report['start'])}" if now is not None and report.get("start") else "")
@@ -646,7 +646,9 @@ def live_rows(report, width, wide, now, status_row=True):
         rows.append(fg("dim") + "…" + RESET)
     rows += ["", fg("line") + "─" * width + RESET, gold + "Previous report" + RESET, ""]
     prev = report.get("prev")
-    rows += render_markdown(prev["text"], width, wide) if prev else [fg("dim") + "no earlier report" + RESET]
+    if limit is not None:
+        limit -= len(rows)
+    rows += render_markdown(prev["text"], width, wide, limit) if prev else [fg("dim") + "no earlier report" + RESET]
     return rows
 
 
@@ -658,20 +660,22 @@ def wrap_lines(text, width):
     return [r for line in printable_lines(text) for r in wrap(line, width)]
 
 
-def report_rows(report, peek, summons, width, wide=None, now=None, status_row=True):
-    """Report body rows: the Markdown (or the pane's last lines), running branch tasks, finished subagents; code and pane lines may use wide columns (default width)."""
+def report_rows(report, peek, summons, width, wide=None, now=None, status_row=True, limit=None):
+    """Report body rows: the Markdown (or the pane's last lines), running branch tasks, finished subagents; code and pane lines may use wide columns (default width). With limit, the Markdown is laid out only until the rows pass limit: the first rows of the full body, more than limit only when it goes on."""
     wide = wide or width
     rows = []
     if report and report.get("live"):
-        rows += live_rows(report, width, wide, now, status_row)
+        rows += live_rows(report, width, wide, now, status_row, limit)
     elif report:
-        rows += render_markdown(report["text"], width, wide)
+        rows += render_markdown(report["text"], width, wide, limit)
     else:
         lines = [l.rstrip() for l in peek]
         while lines and not ESCAPE.sub("", lines[-1]):
             lines.pop()
         rows += [r for l in lines for r in wrap_sgr(l, wide, True)] or [fg("dim") + "no report yet" + RESET]
     for s in summons:
+        if limit is not None and len(rows) > limit:
+            return rows
         rows += [
             "",
             fg("gold", True)
@@ -683,8 +687,12 @@ def report_rows(report, peek, summons, width, wide=None, now=None, status_row=Tr
             + RESET,
         ]
     for s in (report or {}).get("subagents", []):
+        if limit is not None and len(rows) > limit:
+            return rows
         rows += ["", fg("gold", True) + clip(f"{SUMMON_ICON} {s['desc'] or s['type']}", width) + RESET]
-        rows += render_markdown(s["text"], width, wide) if s["text"] else []
+        rows += (
+            render_markdown(s["text"], width, wide, None if limit is None else limit - len(rows)) if s["text"] else []
+        )
     return rows
 
 
@@ -1160,7 +1168,7 @@ def select_card(n, a, sel, art):
 
 
 def select_preview(roster, towns, at, width, height, report, now, peek=()):
-    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… N more lines" row."""
+    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… more" row; only the part of the report that shows is laid out."""
     _, a, _ = roster[at]
     task = (report or {}).get("task") or {}
     rows = []
@@ -1202,11 +1210,10 @@ def select_preview(roster, towns, at, width, height, report, now, peek=()):
         + RESET,
         fg("line") + "─" * width + RESET,
     ]
-    body = report_rows(report, peek, a.get("summons", []), width, width, now, False)
     room = height - len(rows)
+    body = report_rows(report, peek, a.get("summons", []), width, width, now, False, max(room, 0))
     if len(body) > room > 0:
-        left = len(body) - (room - 1)
-        body = [*body[: room - 1], fg("dim") + f"… {left} more line{'s' * (left != 1)} · ⏎ to read" + RESET]
+        body = [*body[: room - 1], fg("dim") + "… more · ⏎ to read" + RESET]
     return [pad_to(r, width) for r in (rows + body)[:height]] + [" " * width] * (height - len(rows) - len(body))
 
 

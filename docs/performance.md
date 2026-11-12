@@ -115,6 +115,11 @@ each key; profiling inflates every number, read the shares):
   unseen one (the Markdown layout calls it per token).
 - A new member's preview (`k`) adds the Markdown layout of the report: `md_rows` 32 ms under the profiler (68 blocks,
   `md_tokens` half of it), 10 ms without. Seen members reuse the cache (`j x3` costs a third of `k x4`).
+  The preview now lays out only the part of the report it shows (`render_markdown(..., limit)`, stopping at the end of the block that
+  brings the rows past the preview height; a table is one block): `render_select` for a member not seen yet 5.61 -> 3.17 ms
+  (`bench/frame.py`, median of 30; the first layout of a whole report 4.28 ms, of the part shown 2.73 ms), and in the key script
+  (`bench/bench.py`, before -> after) open select 58.5 -> 49.4 ms, `k x4` 38.5 -> 27.9 ms, reopen 65.7 -> 60.9 ms, the other steps within
+  1.1 ms, in use 0.847 -> 0.781 % of one core (medians of 3 runs). The report page still lays out the whole report.
 - Starting a process (open select, reopen): `import party_hud.ui` 14 ms, `load_art` 0.4 ms (56 PNGs opened, not read; each file is read when it is sent), the
   base64 encoding of the images 0.03 to 0.4 ms each; the rest is the select frames above. A process start is 65 to 80 ms
   of which frames are about half.

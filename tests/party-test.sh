@@ -615,11 +615,44 @@ ok("".join(art_out).count(PH) == 18 * sum(1 for r in art_out if "╭" in strip(r
 mo = [strip(r) for r in srows_of(100, 20, "%2")]
 last = max(i for i, l in enumerate(mo) if "to read" in l)
 rule_i = next(i for i, l in enumerate(mo) if "─" * 10 in l)
-ok("more lines" in mo[last] and mo[last].split("…")[1].split()[0] == str(len(render.report_rows(srep, [], [], 100 - 36 - 2, 100 - 36 - 2, 4000.0)) - (last - rule_i - 1)) and last == len(mo) - 2,
-   "select screen: a report that does not fit ends in a '… N more lines · ⏎ to read' row with N the rows left out")
+ok(mo[last][38:].rstrip() == "… more · ⏎ to read" and last == len(mo) - 2,
+   "select screen: a report that does not fit ends in a '… more · ⏎ to read' row")
 short = {"text": "short report", "start": 1.0, "end": 2.0, "task": {}}
-ok(not any("more line" in l for l in map(strip, srows_of(180, 40, "%2", short))) and any("no report yet" in strip(r) for r in srows_of(180, 40, "%2", None)),
-   "select screen: a report that fits has no more-lines row; no report shows no report yet")
+ok(not any("more ·" in l for l in map(strip, srows_of(180, 40, "%2", short))) and any("no report yet" in strip(r) for r in srows_of(180, 40, "%2", None)),
+   "select screen: a report that fits has no more row; no report shows no report yet")
+tbl = "| name | note | n |\n|---|---|---|\n" + "\n".join(f"| row{i} | {'長い説明 ' * (i % 4)}text {i} | {i * 7} |" for i in range(40))
+fence = "```python\n" + "\n".join(f"line_{i} = '" + "x" * (i % 40) + "'" for i in range(60)) + "\n```\n\nafter"
+nested = "\n".join(f"- item {i} " + "word " * (i % 9) + f"\n  - nested {i}\n    1. deep {i}" for i in range(30))
+quote = "\n".join(f"> quoted {i} " + "q " * (i % 12) + "\n>> inner" for i in range(30))
+cjk = "\n\n".join("你好，世界。" * (3 + i % 5) + "ABC def" for i in range(25))
+heads = "\n".join(f"## Head {i}\nparagraph {i} " + "text " * (i % 15) + "\n" for i in range(30))
+reports_ = [tbl, fence, nested, quote, cjk, heads, "intro\n\n" + tbl, "x\n\n" + fence.replace("after", tbl)]
+pv_ok, pv_n, pv_seen = True, 0, []
+mdcount = [0]
+real_rows, real_table = render.md_rows, render.md_table
+render.md_rows = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_rows(*a, **k))[1]
+render.md_table = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_table(*a, **k))[1]
+at_ = next(i for i, (_, a, _) in enumerate(srs) if a["pane"] == "%3")
+for text in reports_:
+    rp = dict(srep, text=text)
+    for w in (30, 44, 62):
+        render.clear_markdown_cache()
+        mdcount[0] = 0
+        full = [strip(r).rstrip() for r in render.report_rows(rp, [], [], w, w, 4000.0, False)]
+        n_full = mdcount[0]
+        for h in (12, 20, 30):
+            render.clear_markdown_cache()
+            mdcount[0] = 0
+            pv = [strip(r).rstrip() for r in render.select_preview(srs, sst, at_, w, h, rp, 4000.0)]
+            rule = next(i for i, r in enumerate(pv) if r.startswith("─" * w))
+            body = pv[rule + 1 :]
+            pv_seen.append(mdcount[0] < n_full if "| name |" not in text[:20] else mdcount[0] <= n_full)
+            pv_n += 1
+            pv_ok = pv_ok and body[-1] == "… more · ⏎ to read" and body[:-1] == full[: len(body) - 1] and len(pv) == h
+ok(pv_ok and pv_n == 72, "select preview: the report rows shown are the first rows of the full layout and the last row is '… more · ⏎ to read', for tables, code fences, nested lists, quotes, CJK and headings at several sizes")
+ok(all(pv_seen), "select preview: only part of the report is laid out (fewer layout calls than the full layout, a table counts as one block) at every size")
+render.md_rows, render.md_table = real_rows, real_table
+render.clear_markdown_cache()
 cxst = [{"name": "S", "agents": [{**sm(f"%{i}", f"m{i}", st_), **({"kind": "codex", "sp": None} if i % 2 else {})} for i, st_ in enumerate(["waiting", "done", "working", "idle", "waiting", "idle", "done", "sleep"], 20)]}]
 cxro = render.select_roster(cxst)
 ok({len(render.card(a, render.SELECT_CARD, False, False)) for _, a, _ in cxro} == {4, 5}, "select screen: fixture has both 4-row (codex) and 5-row (claude) cards without art")
@@ -627,8 +660,8 @@ cx_ok = True
 for w, h in [(179, 47), (100, 30), (100, 20), (100, 14), (179, 12)]:
     for _, a, _ in cxro:
         out = [strip(r) for r in srows_of(w, h, a["pane"], srep, False, cxro, cxst)]
-        cx_ok = cx_ok and len(out) == h and all(common.cw(r) == w for r in out) and "more lines" in out[-2]
-ok(cx_ok, "select screen: with 4-row and 5-row cards mixed the screen is exactly height rows of width cells and the preview still ends in the more-lines row, for every cursor position")
+        cx_ok = cx_ok and len(out) == h and all(common.cw(r) == w for r in out) and out[-2][38:].rstrip() == "… more · ⏎ to read"
+ok(cx_ok, "select screen: with 4-row and 5-row cards mixed the screen is exactly height rows of width cells and the preview still ends in the more row, for every cursor position")
 pk_rows = lambda rep, pk_: [strip(r) for r in render.render_select(srs, sst, "%2", 120, 30, rep, 4000.0, None, False, pk_)]
 ok(any("$ make test" in r for r in pk_rows(None, ["$ make test", "ok"])) and not any("no report yet" in r for r in pk_rows(None, ["$ make test"]))
    and any("no report yet" in r for r in pk_rows(None, [])) and not any("$ make test" in r for r in pk_rows(srep, ["$ make test"])),

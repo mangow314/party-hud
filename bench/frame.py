@@ -6,7 +6,7 @@ About 90 s, no tmux, stdlib only. Same fake outside world as bench/use.py (a fix
 179 x 47); only the measuring process patches product functions, no product file is touched. Parts:
   1. One select frame in this process (`time.perf_counter`, REPS runs, median): `render_select` for a seen, a working and
      an unseen member (first Markdown layout), then the whole loop body of `run_select` split into its pieces, how many
-     rows a second frame repeats, and what the Markdown costs when only the rows on screen are laid out.
+     rows a second frame repeats, and the Markdown layout of a whole report against the part the preview lays out.
   2. The idle 5 s on the working member: frames drawn, why each wake happened, CPU per wake split into snapshot, compute,
      write, other. 3. Per k / j press: report_for stub, snapshot, Markdown, rest of the screen, images.
   4. h, Enter, n: fixed cost of entering a screen, draw, images. 5. Process start-up and exit, and `os._exit(0)` instead
@@ -329,18 +329,6 @@ def child_main(data_path, rec_path, exit_mode):
 # ---------------------------------------------------------------- parts 1, 6, 7: this process
 
 
-def cut_report(report, n):
-    """The report with its Markdown source cut to n lines (the preview of a working member shows the previous report)."""
-    if report.get("live"):
-        prev = report["prev"]
-        return dict(report, prev=dict(prev, text="\n".join(prev["text"].split("\n")[:n])))
-    return dict(report, text="\n".join(report["text"].split("\n")[:n]))
-
-
-def source_lines(report):
-    return len((report["prev"] if report.get("live") else report)["text"].split("\n"))
-
-
 class Scene:
     def __init__(self, data):
         self.data = data
@@ -356,11 +344,9 @@ class Scene:
             for r in range(banner[1])
         ]
 
-    def select(self, sel, now, cut=None):
+    def select(self, sel, now):
         """`render_select` as `run_select` calls it."""
         report = self.data["reports"][sel]
-        if cut:
-            report = cut_report(report, cut)
         return self.render.render_select(
             self.roster, self.towns, sel, COLS - 1, ROWS, report, now, self.title, True, []
         )
@@ -550,24 +536,18 @@ def part1(sc, sink, emit):
             f"{[i for i, (x, y) in enumerate(zip(a, b)) if x != y]}; same instant again: {sum(x == y for x, y in zip(a, c))} of {len(a)}",
         )
     emit(1, "")
-    # Markdown laid out only as far as the preview shows
+    # What the preview saves: the report page lays out the whole report, the preview only what shows
     out = {}
+    width = sc.ui.select_widths(COLS - 1)[1]
     for name, sel in (("unseen member", unseen), ("working member, previous report", working)):
         report = sc.data["reports"][sel]
-        base = sc.select(sel, now)
-        n_cut = source_lines(report)
-        for n in range(5, source_lines(report) + 1):
-            rows = sc.select(sel, now, n)
-            if sum(x != y for x, y in zip(base, rows)) <= 1:
-                n_cut = n
-                break
-        full = sample_ms(lambda sel=sel: sc.select(sel, now), clear)
-        cutd = sample_ms(lambda sel=sel, n=n_cut: sc.select(sel, now, n), clear)
-        out[name] = (n_cut, source_lines(report), full, cutd)
-    emit(1, "Markdown laid out only as far as the preview shows (source cut to the fewest lines that leave the rows on")
-    emit(1, "screen unchanged except the '... N more lines' row; first layout, render_select only, ms)")
-    for name, (n_cut, n_all, full, cutd) in out.items():
-        emit(1, f"  {name}: {n_cut} of {n_all} source lines: {full:.2f} -> {cutd:.2f} ms, saves {full - cutd:.2f} ms")
+        full = sample_ms(lambda r=report: render.report_rows(r, [], [], width, width, now, False), clear)
+        part = sample_ms(lambda r=report: render.report_rows(r, [], [], width, width, now, False, ROWS), clear)
+        out[name] = (full, part)
+    emit(1, "Markdown layout, whole report (the report page) against only the part the preview shows (what the select")
+    emit(1, "screen does since it lays out no more than the rows on screen; first layout, report_rows, ms)")
+    for name, (full, part) in out.items():
+        emit(1, f"  {name}: whole {full:.2f} ms, preview part {part:.2f} ms")
     return r_ms, out
 
 
@@ -1219,12 +1199,10 @@ def main():
                 f"      +{(x['t'] - t_first) * 1000:6.0f} ms after start of run_menu: {reason}, {x['cpu'] / 1e6:.2f} ms"
             )
         extra["cut"].append(
-            "  Markdown laid out only as far as the preview shows (first layout, render_select, see part 1):"
+            "  Markdown layout, whole report against the part the preview shows (first layout, see part 1):"
         )
-        for name, (n_cut, n_all, full, cutd) in cuts.items():
-            extra["cut"].append(
-                f"    {name}: {n_cut} of {n_all} source lines: {full:.2f} -> {cutd:.2f} ms, saves {full - cutd:.2f} ms per first layout"
-            )
+        for name, (full, part) in cuts.items():
+            extra["cut"].append(f"    {name}: whole {full:.2f} ms, preview part {part:.2f} ms")
         print_steps(M, steps, lambda n, l: emit(0, l))
         print_parts(M, steps, extra, exits, inst, emit, len(good), skipped)
         print_total(M, emit)
