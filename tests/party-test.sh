@@ -203,6 +203,20 @@ wr = render.wrap_sgr("\x1b[1;32m" + "你好ab" * 5 + "\x1b[0m tail", 9)
 ok(len(wr) > 2 and all(common.cw(strip(r)) <= 9 for r in wr) and all(r.endswith("\x1b[0m") for r in wr[:-1])
    and all(r.startswith("\x1b[1;32m") for r in wr[:3]) and wr[-1].endswith(" tail\x1b[0m"),
    "Last output: a long line wraps with the colour carried to every row, every row within the width (CJK = 2)")
+pr = [strip(r) for r in render.report_rows(None, ["  │ " + "ab " * 20], [], 30)]
+ok(len(pr) > 1 and all(r.startswith("  │ ") for r in pr) and all(common.cw(r) <= 30 for r in pr)
+   and "".join(r[4:] for r in pr) == ("ab " * 20).rstrip(),
+   "Last output: a continuation row starts with the first row's spaces and box-drawing characters")
+pn = [strip(r) for r in render.report_rows(None, [" 你你你"], [], 2)]
+ok(all(common.cw(r) <= 2 for r in pn) and "".join(pn).replace(" ", "") == "你你你",
+   "Last output: no continuation prefix when it leaves no room for a wide character, nothing overflows or is lost")
+pc = [strip(r) for r in render.report_rows(None, ["│ " + "你好" * 20], [], 21)]
+ok(len(pc) > 1 and all(r.startswith("│ ") for r in pc) and all(common.cw(r) <= 21 for r in pc) and "".join(r[2:] for r in pc) == "你好" * 20,
+   "Last output: a continuation row keeps the prefix with CJK text, within the width, no character lost")
+ok([strip(r) for r in render.report_rows(None, [" " * 20 + "abc" * 10], [], 30)] == [" " * 20 + "abcabcabca", "bcabcabcabcabcabcabc"],
+   "Last output: no continuation prefix when it is over half the width")
+ok([strip(r) for r in render.report_rows(None, ["x" * 50], [], 20)] == ["x" * 20, "x" * 20, "x" * 10],
+   "Last output: a row without a prefix gets no continuation prefix")
 sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## 子結果\nsubagent said hi"}
 busy = dict(done, summons=[{"type": "executor", "desc": "Branch 還在跑" * 8}])
 bf = strip(render.render_report(busy, "Studio", dict(rep, subagents=[sub]), [], 60))
