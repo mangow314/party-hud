@@ -833,7 +833,7 @@ def phase_seq(segments, t0):
             if t - fetched >= ui.SNAP_AGE:
                 fetched = t
             tick, anchors, state = ui.select_phase(t, True, timed_of(t), state)
-            rows.append((t, tick, state[0]))
+            rows.append((t, tick, state))
             nxt = t + ui.select_wait(fetched, t, t + ui.tick_wait(t, anchors), t)
             if nxt >= end:
                 t = end
@@ -852,10 +852,27 @@ def phase_switch_ok():
         rows = phase_seq(segs, t0)
         ticks = [k for _, k, _ in rows]
         good = good and all(y - x in (0, 1) for x, y in zip(ticks, ticks[1:])) and ticks[-1] - ticks[0] >= 35
-        good = good and all(0.0 <= (t - ph) % 1 < 0.02 for (_, x, _), (t, y, ph) in zip(rows, rows[1:]) if y == x + 1)
+        good = good and all(0.0 <= (t - st[0]) % 1 < 0.02 or (st[0] != old[0] and t - old[3] >= 1.0) for (_, x, old), (t, y, st) in zip(rows, rows[1:]) if y == x + 1)
         good = good and len(rows) <= 42 + 12
     return good
 ok(phase_switch_ok(), "select screen: one wake a second: when the cursor moves to a member with another phase, to none, back, or a time passes 3600 s, the spinner tick only ever stays or steps one (never back or jumps) and the next step falls on the new phase's boundary")
+def phase_moving_ok():
+    if getattr(ui, "select_phase", None) is None:
+        return False
+    good = True
+    for gap in (0.03, 0.2, 0.5):
+        state, steps, ticks = None, [], []
+        for i in range(int(60 / gap)):
+            t = 5000.0 + i * gap
+            start = 4800.0 + (0.3, 0.8, 0.55)[i % 3]
+            tick, _, state = ui.select_phase(t, True, ui.time_anchor(start, t), state)
+            ticks.append(tick)
+            if len(ticks) > 1 and tick != ticks[-2]:
+                steps.append(t)
+        good = good and all(y - x in (0, 1) for x, y in zip(ticks, ticks[1:])) and ticks[-1] - ticks[0] >= 60 / (1 + gap) - 2
+        good = good and all(b - a <= 1 + gap + 1e-6 for a, b in zip(steps, steps[1:]))
+    return good
+ok(phase_moving_ok(), "select screen: one wake a second: a cursor that moves to another phase every 0.03, 0.2 or 0.5 s and draws only then still steps the spinner at least once per 1 + gap seconds, one cell at a time, never back")
 real_gs, real_rf = ui.get_snapshot, ui.report_for
 ui.report_for = lambda a: {"status_seen": a["status"]}
 q = [("S", {"pane": "%1", "status": "working"})]

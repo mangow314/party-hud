@@ -277,15 +277,21 @@ def tick_wait(now, anchors):
 
 
 def select_phase(now, spins, timed, prev=None):
-    """(spinner tick, anchors, state) of a select frame. spins: a member works or has HP <= 10; timed: the cursor member's time_anchor or None; prev: the state of the last frame, or None. A time that turns every second also turns the spinner (and the HP blink), so one anchor wakes both; otherwise the spinner turns on the whole second. When the phase changes the tick holds its last value, so it never steps back or jumps, and the next step falls on the new phase's boundary."""
+    """(spinner tick, anchors, state) of a select frame. spins: a member works or has HP <= 10; timed: the cursor member's time_anchor or None; prev: the state of the last frame, or None. A time that turns every second also turns the spinner (and the HP blink), so one anchor wakes both; otherwise the spinner turns on the whole second.
+    When the phase changes the tick holds, so it never steps back or jumps, and the next step falls on the new phase's next boundary; but a change that finds the last step at least 1 s old makes that step at once, so a cursor that keeps moving cannot freeze the spinner. With frames at most g s apart a step is shown for less than 2 + g s, and for at most 1 + g s while every frame changes the phase. state = (phase, offset, tick, time of the last step)."""
     sync = timed if timed and timed[1] == 1.0 else None
     anchors = [sync] if sync else [SECOND] if spins else []
     if timed and not sync:
         anchors.append(timed)
     phase = sync[0] % 1.0 if sync else 0.0
     raw = math.floor(now - phase)
-    offset = prev[1] if prev and prev[0] == phase else prev[2] - raw if prev else 0
-    return raw + offset, anchors, (phase, offset, raw + offset)
+    if prev is None:
+        return raw, anchors, (phase, 0, raw, now)
+    prev_phase, offset, prev_tick, stepped = prev
+    if prev_phase != phase:
+        offset = prev_tick - raw + (now - stepped >= 1.0)
+    tick = raw + offset
+    return tick, anchors, (phase, offset, tick, now if tick != prev_tick else stepped)
 
 
 def select_wait(fetched, mono, tick_at, wall):
