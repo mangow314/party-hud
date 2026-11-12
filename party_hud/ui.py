@@ -6,7 +6,6 @@ import math
 import os
 import re
 import select
-import shutil
 import signal
 import struct
 import sys
@@ -971,6 +970,8 @@ def run_ui(fixture=None):
             try:  # ask the terminal: shutil.get_terminal_size trusts COLUMNS, which goes stale after a resize
                 size = os.get_terminal_size(sys.stdout.fileno())
             except OSError:
+                import shutil
+
                 size = shutil.get_terminal_size()
             lines = (capture(st["sel"]) if not fixture else []) if st["peek"] and st["sel"] and visible else None
             busy = False

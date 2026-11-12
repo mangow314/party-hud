@@ -8,15 +8,15 @@ About 60 s, no tmux, stdlib only; Linux and macOS (RSS from `/proc/<pid>/status`
      (`run_report`) in a pty (179 x 47), read from outside, after the first frame and its images, after 5 s idle and after
      a round of keys. RUNS runs each, median; the three kinds of a run go at the same time.
   2. RSS and time of fresh `python3` processes: empty, the standard library modules the product imports (read from the
-     import statements of `party.py` and `party_hud/*.py`), then `party_hud.common` ... `party_hud.ui` one more module
+     module-level import statements of `party.py` and `party_hud/*.py`), then `party_hud.common` ... `party_hud.ui` one more module
      per process, then `load_art()`; and the RSS added by each of those standard library modules alone.
   3. (the table of which sub-command needs which module is in docs/performance.md, read from the code)
   4. Spawn to first frame and first image of `run_menu`, split into segments timed inside the child.
 
 What it measures: the real `party_hud.ui` functions in a child process with only the outside world replaced (a fixed
 snapshot and reports from `bench/use.py`, `capture`, `tmux`, the cursor file, `art_supported` forcing images on).
-`load_art` and `kitty_image` are real and the images are really written to the pty. `import party` is what every
-sub-command pays; the children never run `party.main`. Every child imports `time` first (a built-in module) to take its
+`load_art` and `kitty_image` are real and the images are really written to the pty. `import party` plus `party_hud.ui` is what the
+long-running sub-commands pay; the children never run `party.main`. Every child imports `time` first (a built-in module) to take its
 clock; the empty-Python row includes it.
 """
 
@@ -74,9 +74,9 @@ import sys, time
 T0 = time.time()
 P0 = time.perf_counter()
 import party
-P1 = time.perf_counter()
 import json, os, subprocess
 from party_hud import collect, common, sidebars, ui
+P1 = time.perf_counter()
 
 kind, data_path, out_path = sys.argv[1:4]
 with open(data_path) as f:
@@ -314,7 +314,7 @@ def run_startup(data_path, out_dir):
     others = (m["frame_at"] - run_at - m["load_images"] - m["snapshot"] - m["render"] - m["write"]) * ms
     return {
         "Python start (spawn to first line)": begin,
-        "import party": imported,
+        "import party + party_hud.ui": imported,
         "load_images": m["load_images"] * ms,
         "first get_snapshot": m["snapshot"] * ms,
         "first render_select": m["render"] * ms,
@@ -352,12 +352,12 @@ def state(body, runs=RUNS):
 
 
 def product_stdlib():
-    """Standard library modules imported by party.py and party_hud/*.py, from their import statements."""
+    """Standard library modules imported at module level by party.py and party_hud/*.py (imports inside functions are not start-up cost)."""
     names = set()
     for path in [os.path.join(ROOT, "party.py"), *sorted(glob.glob(os.path.join(ROOT, "party_hud", "*.py")))]:
         with open(path) as f:
             tree = ast.parse(f.read())
-        for node in ast.walk(tree):
+        for node in tree.body:
             if isinstance(node, ast.Import):
                 names.update(a.name.split(".")[0] for a in node.names)
             elif isinstance(node, ast.ImportFrom) and node.level == 0 and node.module:

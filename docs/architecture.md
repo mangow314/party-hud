@@ -14,6 +14,17 @@ library only):
 
 A module imports only modules listed above it, so there are no import cycles.
 
+`party.py` loads only what the sub-command it runs needs. `--sidebar`, `--select`, `--report` and `--report PANE`, the
+three long-running processes, are recognised from `sys.argv` before anything else and go straight to `run_ui`,
+`run_menu` or `run_report`, so they never import `argparse` (about 0.5 MB); any other argument list, including
+`--fixture` and `--help`, goes through `argparse` as before. `party.py` imports `collect`, `common` and `sidebars` at the
+top, which every sub-command uses; `ui` and `render` are imported inside the branch that needs them, so the tmux
+hooks that run `--ensure`, `--reflow`, `--nudge`, `--tidy` or `--remember-width` on every window event, and `--ask`,
+`--dismiss`, `--summon` and `--report-text`, do not pay for them. `shutil` (the terminal size, the 14-day cleanup of
+saved rounds) is imported where it is used; only the three long-running processes go without it, because
+`argparse` loads it. Nothing in `party_hud/` imports `typing` or `traceback` at start-up
+(`log_error` imports `traceback` when an error is logged).
+
 ```
  tmux key / hook                         party.py modes
  ----------------                        --------------

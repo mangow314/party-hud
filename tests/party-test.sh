@@ -2900,4 +2900,89 @@ EOF
 }
 check "cw: matches the per-character width algorithm, repeated calls agree, the cache is bounded" cw_ok
 
+# party.py imports only what a sub-command needs: the long-running ones skip argparse, every short-lived one skips ui and render
+imports_only_ok() {
+  python3 - "$party" <<'EOF'
+import json, os, subprocess, sys
+root = os.path.dirname(sys.argv[1])
+CHILD = """
+import importlib, json, sys
+argv, targets = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+sys.argv = ["party.py", *argv]
+sys.path.insert(0, %r)
+import party
+calls = []
+def fake(name):
+    return lambda *a, **k: calls.append([name, list(a)]) or (0, "", "")
+for t in targets:
+    mod, _, name = t.rpartition(".")
+    setattr(importlib.import_module(mod), name, fake(t))
+rc = 0
+try:
+    party.main()
+except SystemExit as e:
+    rc = e.code
+print(json.dumps({"calls": calls, "rc": rc, "loaded": [m for m in ("argparse", "shutil", "typing", "traceback", "party_hud.ui", "party_hud.render") if m in sys.modules]}))
+""" % root
+fails = []
+def run(argv, targets):
+    r = subprocess.run([sys.executable, "-c", CHILD, json.dumps(argv), json.dumps(targets)], capture_output=True, text=True, cwd=root)
+    if r.returncode != 0 or not r.stdout.strip():
+        fails.append("%s: rc %s %s" % (argv, r.returncode, r.stderr[-300:]))
+        return None
+    return json.loads(r.stdout)
+def case(argv, target, args, forbidden):
+    out = run(argv, [target])
+    if out is None:
+        return
+    if out["calls"] != [[target, args]]:
+        fails.append("%s: calls %s" % (argv, out["calls"]))
+    if out["rc"] not in (0, None, 5, 6, 7):
+        fails.append("%s: rc %s" % (argv, out["rc"]))
+    bad = [m for m in out["loaded"] if m in forbidden]
+    if bad:
+        fails.append("%s: loaded %s" % (argv, bad))
+long_run = ("argparse", "shutil", "typing", "traceback")
+short = ("party_hud.ui", "party_hud.render")
+case(["--sidebar"], "party_hud.ui.run_ui", [], long_run)
+case(["--select"], "party_hud.ui.run_menu", [], long_run)
+case(["--report"], "party_hud.ui.run_report", [None], long_run)
+case(["--report", "%5"], "party_hud.ui.run_report", ["%5"], long_run)
+for argv, target, args in (
+    (["--ensure", "@1"], "party.ensure", ["@1"]),
+    (["--reflow", "@1"], "party.reflow", ["@1"]),
+    (["--nudge"], "party.nudge", [""]),
+    (["--nudge", "@2"], "party.nudge", ["@2"]),
+    (["--tidy"], "party.tidy", []),
+    (["--remember-width"], "party.remember_width", []),
+    (["--toggle"], "party.toggle", []),
+    (["--ask", "%5", "hi"], "party.ask", ["%5", "hi"]),
+    (["--dismiss", "%5"], "party.dismiss", ["%5"]),
+    (["--summon", "codex"], "party.summon", ["codex", None, False, 60, False, False]),
+    (["--report-text", "%5"], "party.report_text", ["%5", False, 600, None, {}]),
+    (["--open-report", "%5"], "party.open_report_pane", ["", "%5"]),
+):
+    case(argv, target, args, short)
+# the argparse path: same dispatch as before
+case(["--sidebar", "--fixture", "F"], "party_hud.ui.run_ui", ["F"], ())
+case(["--select", "--fixture", "F"], "party_hud.ui.run_menu", ["F"], ())
+case(["--report", "%1", "--fixture", "F"], "party_hud.ui.run_report", ["%1", "F"], ())
+case(["--report", "--fixture", "F"], "party_hud.ui.run_report", [None, "F"], ())
+case(["--report", ""], "party_hud.ui.run_report", [None], long_run)
+out = run(["--report", "%1", "--fixture", "F"], ["party_hud.ui.run_report"])
+if out and "argparse" not in out["loaded"]:
+    fails.append("--fixture did not go through argparse")
+help_out = subprocess.run([sys.executable, sys.argv[1], "--help"], capture_output=True, text=True, cwd=root)
+flat = " ".join(help_out.stdout.split())
+if help_out.returncode != 0 or not flat.startswith("usage: party.py") or "tmux party sidebar: sessions as squads, agents as members" not in flat or "Exit code 6: the rules do not allow it (stderr says which one)." not in flat:
+    fails.append("--help: rc %s %r" % (help_out.returncode, help_out.stdout[:80]))
+typo = subprocess.run([sys.executable, sys.argv[1], "--sidbar"], capture_output=True, text=True, cwd=root)
+if typo.returncode != 2 or "unrecognized arguments: --sidbar" not in typo.stderr:
+    fails.append("typo flag: rc %s %r" % (typo.returncode, typo.stderr[-80:]))
+print("\n".join(fails[:8]), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF
+}
+check "party.py imports only what it needs: resident sub-commands skip argparse, short-lived ones skip ui and render" imports_only_ok
+
 exit "$fail"

@@ -184,74 +184,75 @@ outside the process: `/proc/<pid>/status` `VmRSS` on Linux, `ps -o rss= -p <pid>
    round of keys (sidebar: `j k J K n` moves; select: `k` x4, every member seen; report: `n` x5 through the pages,
    `j j j k k`). 3 runs, median; the three kinds of one run go at the same time.
 2. Import cost: a fresh `python3` per state (no accumulating in one process), RSS and the time the imports took
-   inside the child, median of 3. The standard library list is read from the import statements of `party.py` and
-   `party_hud/*.py`. Then one more `party_hud` module per process, then `load_art()`, then each standard library
-   module alone over an empty Python. The numbers of one module alone are not additive: `traceback` pulls in
-   `linecache`, `tokenize`, `re` and others that `shutil` or `argparse` also pull in.
+   inside the child, median of 3. The standard library list is read from the module-level import statements of `party.py`
+   and `party_hud/*.py` (an import inside a function is not start-up cost). Then one more `party_hud` module per process, then `load_art()`, then each standard library
+   module alone over an empty Python. The numbers of one module alone are not additive: `json` and `re` share
+   what each pulls in.
 3. Which sub-command needs which module (table below, from the code).
 4. A fresh `run_menu` from spawn to the first frame and the first image byte, segments timed inside the child with
    `time.perf_counter` (the Python start is the spawn to the child's first line, wall clock); 5 runs, median.
 
 Every child imports the built-in `time` first for its clock; the "empty Python" row includes it.
 
-AMD Ryzen 9 5900XT, Linux 7.2.11, Python 3.14.8, HEAD `e7bb50b`:
+AMD Ryzen 9 5900XT, Linux 7.2.11, Python 3.14.8, after the lazy imports (before: HEAD `8357b1a`, 18.8 / 19.1 / 18.8 MB
+after the first frame and 39.1 ms to the first frame):
 
 | process | after first frame | after 5 s idle | after use |
 |---|---:|---:|---:|
-| sidebar (MB) | 18.8 | 18.8 | 18.9 |
-| select (MB) | 19.2 | 19.2 | 19.3 |
-| report (MB) | 18.8 | 18.8 | 19.4 |
+| sidebar (MB) | 17.1 | 17.1 | 17.2 |
+| select (MB) | 17.4 | 17.4 | 17.5 |
+| report (MB) | 17.3 | 17.3 | 17.2 |
 
-Runs agree within 0.1 MB (an earlier full run, with a cold start, had 21.0 to 21.2 MB for the first run of each kind and
-18.8 to 19.4 for the others). Nothing grows while idle; a round of keys adds 0.1 MB (sidebar, select) and 0.6 MB
-(report, the Markdown layout of five reports).
+Two of the three runs agree within 0.1 MB; the first run of a `bench/mem.py` call is 1.5 to 1.7 MB higher (18.7 to
+19.1 MB here), so the median of 3 hides a cold start.
 
 | state (fresh process) | RSS (MB) | added (MB) | imports took (ms) | added (ms) |
 |---|---:|---:|---:|---:|
 | empty Python | 9.9 | | 0.0 | |
-| the 26 standard library modules the product imports | 17.0 | 7.1 | 29.0 | 29.0 |
-| + `party_hud.common` | 17.1 | 0.0 | 29.8 | 0.8 |
-| + `.art` | 17.1 | 0.1 | 29.4 | -0.4 |
-| + `.collect` | 17.4 | 0.3 | 30.8 | 1.4 |
-| + `.render` | 17.6 | 0.2 | 31.2 | 0.4 |
-| + `.sidebars` | 17.7 | 0.1 | 32.3 | 1.1 |
-| + `.ui` | 17.8 | 0.1 | 32.5 | 0.2 |
-| + `load_art()` (result kept) | 19.9 | 2.1 | 34.4 | 1.9 |
+| the 22 standard library modules the product imports at module level | 13.2 | 3.4 | 12.1 | 12.1 |
+| + `party_hud.common` | 13.3 | 0.0 | 12.4 | 0.3 |
+| + `.art` | 13.3 | 0.0 | 12.6 | 0.1 |
+| + `.collect` | 13.6 | 0.3 | 13.6 | 1.0 |
+| + `.render` | 13.9 | 0.3 | 14.5 | 0.9 |
+| + `.sidebars` | 13.9 | 0.0 | 14.7 | 0.2 |
+| + `.ui` | 14.0 | 0.2 | 15.6 | 1.0 |
+| + `load_art()` (result kept) | 16.1 | 2.1 | 17.6 | 2.0 |
 
-(The 29 ms of the standard library import is with the `__pycache__` of the standard library present; the times of
-the `party_hud` rows are within the noise of one another, so read them as "about 3 ms in all".)
+(Before, the list had 26 modules, counting the ones imported inside functions: `traceback`, `shutil`, `argparse`,
+`typing`; the row was 17.0 MB and 29.0 ms.)
 
-Standard library modules alone over the empty Python, above 0.1 MB: `traceback` 3.6, `shutil` 2.6, `subprocess` 2.1,
-`argparse` 1.8, `json` 1.5, `glob` 1.4, `re` 1.3, `typing` 1.2, `contextlib` 0.7, `functools` 0.7, `signal` 0.4,
-`base64` 0.3, `zlib` 0.2, `unicodedata` 0.1, `datetime` 0.1 MB.
+Standard library modules alone over the empty Python, above 0.1 MB: `subprocess` 2.1, `json` 1.6, `glob` 1.5, `re` 1.3,
+`contextlib` 0.7, `functools` 0.7, `signal` 0.4, `base64` 0.3, `unicodedata` 0.1, `zlib` 0.1 MB. `glob`, `datetime`,
+`shlex` and `contextlib` on top of the others add 0.09 MB or less and 0.2 ms or less each (9 runs, median), so they stay
+imported at the top.
 
 Fresh `run_menu`, spawn to first frame and first image (median of 5, ms):
 
 | segment | ms |
 |---|---:|
 | Python start (spawn to the first line of the child) | 9.5 |
-| `import party` | 21.0 |
+| `import party` and `party_hud.ui` | 15.2 |
 | `load_images` (fake tmux, real `load_art`) | 1.5 |
 | first `get_snapshot` (fake) | 0.0 |
 | first `render_select` | 5.8 |
 | write and flush of the first frame | 0.2 |
 | the rest of `run_menu` until the frame | 0.9 |
-| first frame at | 38.8 |
-| first image written at | 40.8 |
+| first frame at | 33.0 |
+| first image written at | 35.0 |
 
 What the numbers say, ranked:
 
-- RSS of a running process is 18.8 to 19.4 MB. Of that, an empty Python is 9.9 MB, the standard library modules the
-  product imports add 7.1 MB, all `party_hud` modules together add 0.8 MB, and the images (`load_art`, 56 PNGs read and
-  base64-encoded) add 2.1 MB in the state process. The sum of those four, 19.9 MB, is above the 18.8 to 19.2 MB of the
-  real processes, which also hold their frame data; the state process and the real process were not made to agree.
-- Largest single standard library modules (overlapping): `traceback`, `shutil`, `subprocess`, `argparse`, `json`.
-- Start of a select process: `import party` 21.0 ms, then the Python start 9.5 ms, then the first `render_select`
-  5.8 ms. The standard library part of the import is 29 ms of the 32.5 ms (up to `.ui`) in the state table.
+- RSS of a running process is 17.1 to 17.5 MB. Of that, an empty Python is 9.9 MB, the standard library modules the
+  product imports add 3.4 MB, all `party_hud` modules together add 0.8 MB, and the images (`load_art`, 56 PNGs read and
+  base64-encoded) add 2.1 MB in the state process.
+- Largest single standard library modules (overlapping): `subprocess`, `json`, `glob`, `re`.
+- Start of a select process: Python start 9.5 ms, `import party` and `party_hud.ui` 15.2 ms, then the first
+  `render_select` 5.8 ms.
 - Not measured: macOS (the `ps` path is written but was not run), and the terminal or tmux side of the images.
 
-Which `party_hud` modules each sub-command calls into (read from the code; `party.py` imports all of them at the top
-whatever the sub-command is, so every process loads all five):
+Which `party_hud` modules each sub-command calls into (read from the code; `party.py` imports `collect`, `common` and
+`sidebars` at the top and `render` and `ui` inside the branch that needs them, so `--ensure`, `--tidy`, `--ask` and the
+other short-lived sub-commands never load those two):
 
 | sub-command | `common` | `art` | `collect` | `render` | `sidebars` | big parts |
 |---|---|---|---|---|---|---|
