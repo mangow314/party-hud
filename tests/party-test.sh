@@ -3154,7 +3154,10 @@ text = out.decode(errors="ignore")
 tail = ui.MOUSE_OFF + "\x1b[?25h\x1b[?1049l"
 ok(rc == 0, "report pane through party.py: exit code 0 (%r)" % rc)
 ok(text.endswith(tail) and "NOT REACHED" not in text, "report pane through party.py: the last bytes written are mouse reporting off, cursor shown, alternate screen left (%r)" % text[-60:])
-ok(after == before, "report pane through party.py: the terminal settings are the ones it started with")
+# macOS sets PENDIN in the local flags when a terminal goes back to canonical mode
+settled = lambda t: [t[0], t[1], t[2], t[3] & ~termios.PENDIN, *t[4:]]
+diff = [(i, a, b) for i, (a, b) in enumerate(zip(settled(before), settled(after))) if a != b]
+ok(not diff, "report pane through party.py: the terminal settings are the ones it started with, PENDIN aside (%r)" % diff)
 print("\n".join(fails[:8]), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
