@@ -448,7 +448,12 @@ ok(ui.banner_cells(99, 0.452) == (53, 6, 4) and ui.banner_cells(60, 0.452) == (5
    "report banner: narrow stays 4:1 with at most 6 rows, a capped height sets the width (rows x 4 / ratio)")
 ok(art.image_row(art.banner_id("done", True, False, 8), 0, 106) in render.render_report(done, "Studio", rep, [], 150, art=True, banner=(106, 6, 8), portrait=(14, 7)).splitlines()[1],
    "report: the banner row carries the image id of its k:1 ratio")
-fake_art = {art.banner_id("done", True, False): (b"B",), art.portrait_id(done): (b"P", 6, 3), art.big_portrait_id(done): (b"G",)}
+import tempfile
+png_dir = tempfile.mkdtemp()
+def png(name, data=b"x"):
+    open(os.path.join(png_dir, name), "wb").write(data)
+    return os.path.join(png_dir, name)
+fake_art = {art.banner_id("done", True, False): (png("B", b"B"),), art.portrait_id(done): (png("P", b"P"), 6, 3), art.big_portrait_id(done): (png("G", b"G"),)}
 bid_, pid_, big_ = art.banner_id("done", True, False), art.portrait_id(done), art.big_portrait_id(done)
 sp = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11))
 nr = ui.report_images(done, True, fake_art, 90, (80, 10), (20, 11))
@@ -456,7 +461,7 @@ ok(sp.index(f"a=d,d=I,i={bid_}") < sp.index(f"a=T,U=1,f=100,i={bid_},c=118,r=15"
    < sp.index(f"a=d,d=I,i={big_}") < sp.index(f"a=T,U=1,f=100,i={big_},c=20,r=11") and big_ != pid_ and f"i={pid_}," not in sp
    and f"a=d,d=I,i={pid_}," not in nr and f"a=d,d=I,i={big_}," not in nr and f"a=T,U=1,f=100,i={pid_},c=6,r=3" in nr and f"i={big_}," not in nr,
    "report images: split deletes then sends the banner and the big portrait (own id); narrow never deletes the sidebar portrait and sends its id")
-fake_art.update({art.label_id("took"): (b"L",), art.label_id("where"): (b"M",)})
+fake_art.update({art.label_id("took"): (png("L", b"L"),), art.label_id("where"): (png("M", b"M"),)})
 lb = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), None, ["took", "where"])
 lb_n = ui.report_images(done, True, fake_art, 90, (80, 10), (20, 11), None, ["took"])
 tid, wid = art.label_id("took"), art.label_id("where")
@@ -670,9 +675,9 @@ ok("c3 waiting" in strip(render.select_crew_line(st[1]["agents"][0], st, 40)) an
    "select crew line: all crew of the lead with their status, None without crew, exact width")
 ok(not any("crew " in strip(r)[38:] for r in srows_of(180, 40, "%1")) and any(strip(r)[38:].startswith("crew") for r in srows_of(180, 40, "%2")),
    "select screen: no crew line in the preview of a member without crew, one for a lead with crew")
-ok(ui.select_image_plan([sst[1]["agents"][0]], {art.portrait_id(sst[1]["agents"][0]): (b"x", 6, 3)}) == [(art.portrait_id(sst[1]["agents"][0]), 6, 3)]
+ok(ui.select_image_plan([sst[1]["agents"][0]], {art.portrait_id(sst[1]["agents"][0]): (png("x"), 6, 3)}) == [(art.portrait_id(sst[1]["agents"][0]), 6, 3)]
    and ui.select_image_plan([sst[1]["agents"][0]], None) == []
-   and art.kitty_delete(7) not in ui.select_images_out([(7, 6, 3)], {7: (b"x", 6, 3)}, {}, {7}) and art.kitty_delete(8) in ui.select_images_out([(8, 6, 3)], {8: (b"x", 6, 3)}, {}, {7}),
+   and art.kitty_delete(7) not in ui.select_images_out([(7, 6, 3)], {7: (png("x"), 6, 3)}, {}, {7}) and art.kitty_delete(8) in ui.select_images_out([(8, 6, 3)], {8: (png("x"), 6, 3)}, {}, {7}),
    "select images: the plan is the small portrait of each card on screen; an id the sidebars share is not deleted before the send")
 cw_row = lambda name, w, sel="%9": render.select_row(2, sm("%20", name, "waiting", "%9"), True, sel, w)
 cw_ok = all(common.cw(strip(cw_row(n, w))) == w for n in ("c1", "建置-worker-with-a-very-long-name", "你好世界") for w in range(12, 60))
@@ -1004,11 +1009,12 @@ ok("EXITED" in nh and "Traceback" not in nh and f"TRACE_SELECT {nxt_expect}" in 
 sel_close = report_session([b"\r", b"q"], src=trace_child)
 ok("EXITED" in sel_close and "Traceback" not in sel_close and sel_close.count("TRACE_SELECT") == 1 and sel_close.count("TRACE_REPORT") == 1 and sel_close.count("PARTY SELECT") == 1,
    "select screen: q on the report page ends the program, it does not go back")
+REAL_PNG = os.path.join(os.path.dirname(sys.argv[1]), "art", "label-took.png")
 share_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
 def counting_load_art():
     print("LOAD_ART", flush=True)
-    return {11: (b"s", 6, 3), 7: (b"r", 10, 5)}
+    return {11: (PNGPATH, 6, 3), 7: (PNGPATH, 10, 5)}
 ui.load_art = counting_load_art
 ui.portrait_id = lambda a: -1
 ui.fit_report_pane = lambda *a: None
@@ -1016,7 +1022,7 @@ ui.select_banner = lambda *a: None
 ui.select_image_plan = lambda cards, art: [(11, 6, 3)]
 ui.report_image_plan = lambda *a: [(11, 6, 3), (7, 10, 5)]
 ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
-ui.run_menu()"""
+ui.run_menu()""".replace("PNGPATH", repr(REAL_PNG))
 sh = report_session([b"\r", b"h", b"\r", b"q"], rows=60, src=select_child.replace("ui.run_menu()", share_inject, 1))
 sh_second = sh[[m.start() for m in re.finditer(re.escape("\x1b[?1049h"), sh)][3]:]
 ok("EXITED" in sh and "Traceback" not in sh and sh.count("\x1b[?1049h") == 4 and "a=T,U=1,f=100,i=7," in sh
@@ -1092,7 +1098,7 @@ live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5
 lv = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", live_inject, 1))
 ok("a=d,d=I,i=7" in lv and lv.index("a=d,d=I,i=7") > lv.index("\x1b[H") and lv.index("a=d,d=I,i=7") < lv.rindex("\x1b[H"),
    "report pane: when the in-progress page turns into the final report, the new banner id is deleted with the next frame, as for a new page")
-resend_inject = live_inject.replace("ui.load_art = lambda: {\"k\": 1}", "ui.load_art = lambda: {7: (b'x', 1, 1), 8: (b'x', 1, 1)}").replace("ui.report_images = lambda *a: \"\"\n", "").replace("ui.run_report", "ui.ART_SETTLE = 0.3\nui.run_report", 1)
+resend_inject = live_inject.replace("ui.load_art = lambda: {\"k\": 1}", "ui.load_art = lambda: {7: (%r, 1, 1), 8: (%r, 1, 1)}" % (REAL_PNG, REAL_PNG)).replace("ui.report_images = lambda *a: \"\"\n", "").replace("ui.run_report", "ui.ART_SETTLE = 0.3\nui.run_report", 1)
 T7 = "a=T,U=1,f=100,i=7"
 rl = report_session([b"q"], draws=[2], hold=1.2, src=child.replace("ui.run_report", resend_inject, 1))
 ok(rl.count(T7) == 2 and rl.index(T7) < rl.rindex(T7) and "a=d,d=I,i=7" not in rl[rl.index(T7) :] and "a=d,d=I,i=7" in rl and rl.index("a=d,d=I,i=7") < rl.index(T7),
@@ -1606,9 +1612,41 @@ for i, n in enumerate(art.PORTRAIT_FILES + art.CREST_FILES + art.BANNER_FILES + 
 for j, n in enumerate(["select"] + [f"select-{k}x1" for k in range(5, 9)]):
     open(os.path.join(art.ART_DIR, "banner-" + n + ".png"), "wb").write(b"PNG" + bytes([51 + j]))
 imgs = art.load_art()
-ok(imgs and len(imgs) == 56 and imgs[art.select_banner_id(7)] == (b"PNG" + bytes([51 + 3]),) and imgs[art.label_id("running")] == (b"PNG" + bytes([50]),) and imgs[art.banner_id("waiting", True, False, 7)] == (b"PNG" + bytes([28 + 2 * 4 + 1]),) and imgs[art.BIG_PORTRAIT_ID + 3] == (b"PNG\x17",) and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2)
-   and imgs[art.BANNER_ID + 2] == (b"PNG\x12",),
+rd = lambda k: (open(imgs[k][0], "rb").read(), *imgs[k][1:])
+ok(imgs and len(imgs) == 56 and rd(art.select_banner_id(7)) == (b"PNG" + bytes([51 + 3]),) and rd(art.label_id("running")) == (b"PNG" + bytes([50]),) and rd(art.banner_id("waiting", True, False, 7)) == (b"PNG" + bytes([28 + 2 * 4 + 1]),) and rd(art.BIG_PORTRAIT_ID + 3) == (b"PNG\x17",) and rd(art.PORTRAIT_ID + 2) == (b"PNG\x02", 6, 3) and rd(art.CREST_ID + 7) == (b"PNG\x0f", 4, 2)
+   and rd(art.BANNER_ID + 2) == (b"PNG\x12",),
    "All 56 images present: portraits 6x3 cells, crests 4x2 cells, 4 banners and the select banner in 5 ratios, 8 big portraits and 7 heading labels (no cell size stored)")
+import builtins
+reads, real_open = [], builtins.open
+class Spy:
+    def __init__(self, f, path): self.f, self.path = f, path
+    def __enter__(self): return self
+    def __exit__(self, *e): self.f.close()
+    def read(self, *n): reads.append(self.path); return self.f.read(*n)
+builtins.open = lambda path, *a, **k: Spy(real_open(path, *a, **k), path) if str(path).startswith(art.ART_DIR) else real_open(path, *a, **k)
+try:
+    loaded = art.load_art()
+    n_load = len(reads)
+    sent_one = art.send_image(loaded, art.PORTRAIT_ID + 2, 6, 3)
+    n_one = len(reads)
+    lost = loaded[art.LABEL_ID][0]
+    lost_bytes = real_open(lost, "rb").read()
+    os.remove(lost)
+    real_err, real_pdir = common.ERROR_LOG, common.PARTY_DIR
+    common.PARTY_DIR = png_dir
+    common.ERROR_LOG = os.path.join(png_dir, "err.log")
+    try:
+        sent_lost, lost_err = art.send_image(loaded, art.LABEL_ID, 8, 1), None
+    except Exception as e:
+        sent_lost, lost_err = None, e
+    common.ERROR_LOG, common.PARTY_DIR = real_err, real_pdir
+    real_open(lost, "wb").write(lost_bytes)
+finally:
+    builtins.open = real_open
+ok(loaded and not any(isinstance(x, bytes) for v in loaded.values() for x in v) and n_load == 0
+   and sent_one == art.kitty_image(art.PORTRAIT_ID + 2, b"PNG\x02", 6, 3) and n_one == 1 and reads == [loaded[art.PORTRAIT_ID + 2][0]]
+   and lost_err is None and sent_lost == "" and "FileNotFoundError" in real_open(os.path.join(png_dir, "err.log")).read(),
+   "Images: a file is read when it is sent, not by load_art (no bytes kept, one file per image sent); an unreadable file sends nothing, raises nothing and is logged")
 old_ids = [art.BANNER_ID + 4 * j + i for j in range(5) for i in range(4)] + [art.BIG_PORTRAIT_ID + i for i in range(8)] + [art.LABEL_ID + i for i in range(7)]
 sel_ids = [art.select_banner_id(k) for k in range(4, 9)]
 ok(len(set(sel_ids)) == 5 and not set(sel_ids) & set(old_ids) and not set(sel_ids) & set(range(art.PORTRAIT_ID, art.PORTRAIT_ID + 8))
@@ -2058,7 +2096,7 @@ ok([ui.report_scroll(k, 5, 20, 10) for k in ["k", "j", "PgUp", "PgDn", "g", "G",
    "Report scroll keys -> offset: k / j one row, PgUp / PgDn a page (height - 1), g / G top / bottom; other keys keep it")
 sel_ros, sel_towns = [("Studio", done, False)], [{"name": "Studio", "agents": [done]}]
 other_ = dict(done, cls=(done["cls"] + 1) % 4)
-sel_art = {art.portrait_id(done): (b"G", 6, 3), art.portrait_id(other_): (b"H", 6, 3)}
+sel_art = {art.portrait_id(done): (png("G"), 6, 3), art.portrait_id(other_): (png("H"), 6, 3)}
 plan_a = ui.select_image_plan([done, other_], sel_art)
 ok(plan_a == [(art.portrait_id(done), 6, 3), (art.portrait_id(other_), 6, 3)] and ui.select_image_plan([done], None) == [],
    "select images: the plan holds the small portrait of each card on screen with its cells; no art -> empty")

@@ -29,11 +29,11 @@ from .art import (
     crest_ids,
     image_row,
     kitty_delete,
-    kitty_image,
     label_id,
     load_art,
     portrait_id,
     select_banner_id,
+    send_image,
 )
 from .collect import alerts, get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
@@ -300,7 +300,7 @@ def select_images_out(plan, art, sent, shared):
     """Kitty sequences for the images of plan not sent yet; an id this pane never sent is deleted first so an older image under it is gone (not the shared ones, the sidebars show those)."""
     due = select_images_due(plan, sent)
     return "".join(kitty_delete(i) for i, _, _ in due if i not in sent and i not in shared) + "".join(
-        kitty_image(i, art[i][0], c, r) for i, c, r in due
+        send_image(art, i, c, r) for i, c, r in due
     )
 
 
@@ -527,7 +527,7 @@ def report_images(a, has_report, art, width, banner, big, drawn=None, labels=(),
             continue
         if drawn is None and img_id not in known and img_id != portrait_id(a):
             out += kitty_delete(img_id)
-        out += kitty_image(img_id, art[img_id][0], cols, rows)
+        out += send_image(art, img_id, cols, rows)
     return out
 
 
@@ -783,7 +783,7 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                 if art and resend and time.monotonic() >= resend[0]:
                     # tmux drops a pane's passthrough while it redraws a client, and nothing tells us
                     sys.stdout.write(
-                        "".join(kitty_image(k, art[k][0], c, r) for k, c, r in resend[1] if sent.get(k) == (c, r))
+                        "".join(send_image(art, k, c, r) for k, c, r in resend[1] if sent.get(k) == (c, r))
                     )
                     sys.stdout.flush()
                     resend = None
@@ -962,7 +962,7 @@ def run_ui(fixture=None):
                     sent.clear()
                 need = set(crest_ids(t["name"] for t in towns).values()) | {portrait_id(a) for a in agents}
                 for img in sorted(need - sent):
-                    sys.stdout.write(kitty_image(img, *art[img]))
+                    sys.stdout.write(send_image(art, img, *art[img][1:]))
                 if need - sent:
                     sys.stdout.flush()  # without this flush the last chunk stays buffered when the frame is unchanged
                 sent |= need

@@ -157,7 +157,7 @@ class Canvas:
             cols, rows = self.sizes[img_id] if img_id in self.sizes else art[img_id][1:]
             self.defs[name] = (
                 f'<image id="{name}" width="{cols * CW}" height="{rows * CH}" preserveAspectRatio="none"'
-                f' href="{png_uri(Image.open(io.BytesIO(art[img_id][0])))}"/>'
+                f' href="{png_uri(Image.open(art[img_id][0]))}"/>'
             )
         return name
 

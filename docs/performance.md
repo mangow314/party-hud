@@ -115,14 +115,14 @@ each key; profiling inflates every number, read the shares):
   unseen one (the Markdown layout calls it per token).
 - A new member's preview (`k`) adds the Markdown layout of the report: `md_rows` 32 ms under the profiler (68 blocks,
   `md_tokens` half of it), 10 ms without. Seen members reuse the cache (`j x3` costs a third of `k x4`).
-- Starting a process (open select, reopen): `import party_hud.ui` 14 ms, `load_art` 1.6 ms (56 PNGs, 2.2 MB read), the
+- Starting a process (open select, reopen): `import party_hud.ui` 14 ms, `load_art` 0.4 ms (56 PNGs opened, not read; each file is read when it is sent), the
   base64 encoding of the images 0.03 to 0.4 ms each; the rest is the select frames above. A process start is 65 to 80 ms
   of which frames are about half.
 - The report page is cheap once drawn: scrolling costs 3 ms for 5 keys; Enter and `n` cost 13 to 15 ms, mostly one
   Markdown layout.
 
 Do the banner and the portraits get cheaper when they take fewer cells? No. The PNGs have a fixed size and the cell
-count only sets the placement (`c=`, `r=` in `kitty_image`, `art.py:117`): the small portrait is 192 x 216
+count only sets the placement (`c=`, `r=` in `kitty_image`, `art.py:119`): the small portrait is 192 x 216
 (`PORTRAIT_PX`, 46 KB), the big one 384 x 432 (136 KB), banners are 960 px wide and 240 to 120 px tall for the 4:1
 to 8:1 shapes (`BANNER_RATIOS`, `art.py:43`), picked by the shape of the cells, not by their number. Halving
 the banner row limit from 10 to 5 (patched in the child, 3 runs each): Enter 14.3 -> 14.7 ms CPU and
@@ -164,10 +164,10 @@ AMD Ryzen 9 5900XT, Linux, Python 3.14.8, HEAD 7a96a3b plus the change that send
 
 Before, a fixed 0.3 s wait came first and the images followed the last animation frame (401 / 300 / 401 ms).
 
-On their own: `load_art()` 1.1 ms (56 PNGs, warm cache), `python3` + `import party_hud.ui` 31.6 ms.
+On their own: `load_art()` 0.3 ms (56 PNGs, warm cache), `python3` + `import party_hud.ui` 31.6 ms.
 
 The images are written right after the first frame, so the animation no longer delays them: the first image comes
-1 ms or less after the first frame, and the other animation frames follow. Reading the files (`load_art`), encoding and
+1 ms or less after the first frame, and the other animation frames follow. Opening the files (`load_art`), reading one when it is sent, encoding and
 writing the images are 1 ms or less each. The 2 s seen in a real tmux is not in these numbers; it has to come from
 outside the program (tmux round trips such as `fit_report_pane`, forwarding and terminal decoding), or from
 `RESIZE_SETTLE` (0.15 s) restarting after the pane resize signal, which this script does not produce.
@@ -194,29 +194,31 @@ outside the process: `/proc/<pid>/status` `VmRSS` on Linux, `ps -o rss= -p <pid>
 
 Every child imports the built-in `time` first for its clock; the "empty Python" row includes it.
 
-AMD Ryzen 9 5900XT, Linux 7.2.11, Python 3.14.8, after the lazy imports (before: HEAD `8357b1a`, 18.8 / 19.1 / 18.8 MB
-after the first frame and 39.1 ms to the first frame):
+AMD Ryzen 9 5900XT, Linux 7.2.11, Python 3.14.8, with the image files read when they are sent (before: HEAD `f6a0f5e`,
+which kept all 56 PNGs in memory: 17.1 / 17.4 / 17.3 MB after the first frame; before the lazy imports 18.8 / 19.1 / 18.8 MB):
 
 | process | after first frame | after 5 s idle | after use |
 |---|---:|---:|---:|
-| sidebar (MB) | 17.1 | 17.1 | 17.2 |
-| select (MB) | 17.4 | 17.4 | 17.5 |
-| report (MB) | 17.3 | 17.3 | 17.2 |
+| sidebar (MB) | 15.1 | 15.1 | 15.1 |
+| select (MB) | 15.3 | 15.3 | 15.4 |
+| report (MB) | 14.9 | 14.9 | 15.1 |
 
-Two of the three runs agree within 0.1 MB; the first run of a `bench/mem.py` call is 1.5 to 1.7 MB higher (18.7 to
-19.1 MB here), so the median of 3 hides a cold start.
+Two of the three runs agree within 0.3 MB; the first run of a `bench/mem.py` call is 3.5 MB higher (18.5 to
+18.8 MB here), so the median of 3 hides a cold start.
 
 | state (fresh process) | RSS (MB) | added (MB) | imports took (ms) | added (ms) |
 |---|---:|---:|---:|---:|
 | empty Python | 9.9 | | 0.0 | |
-| the 22 standard library modules the product imports at module level | 13.2 | 3.4 | 12.1 | 12.1 |
-| + `party_hud.common` | 13.3 | 0.0 | 12.4 | 0.3 |
-| + `.art` | 13.3 | 0.0 | 12.6 | 0.1 |
-| + `.collect` | 13.6 | 0.3 | 13.6 | 1.0 |
-| + `.render` | 13.9 | 0.3 | 14.5 | 0.9 |
-| + `.sidebars` | 13.9 | 0.0 | 14.7 | 0.2 |
-| + `.ui` | 14.0 | 0.2 | 15.6 | 1.0 |
-| + `load_art()` (result kept) | 16.1 | 2.1 | 17.6 | 2.0 |
+| the 22 standard library modules the product imports at module level | 13.2 | 3.4 | 12.2 | 12.2 |
+| + `party_hud.common` | 13.3 | 0.1 | 12.4 | 0.2 |
+| + `.art` | 13.4 | 0.1 | 13.2 | 0.8 |
+| + `.collect` | 13.6 | 0.3 | 13.8 | 0.6 |
+| + `.render` | 13.9 | 0.2 | 15.0 | 1.2 |
+| + `.sidebars` | 13.9 | 0.0 | 15.4 | 0.4 |
+| + `.ui` | 14.0 | 0.1 | 15.1 | -0.4 |
+| + `load_art()` (result kept) | 14.0 | 0.0 | 16.0 | 0.9 |
+
+(Before: `load_art()` kept the 56 PNGs, 16.1 MB, +2.1 MB, +2.0 ms.)
 
 (Before, the list had 26 modules, counting the ones imported inside functions: `traceback`, `shutil`, `argparse`,
 `typing`; the row was 17.0 MB and 29.0 ms.)
@@ -230,23 +232,23 @@ Fresh `run_menu`, spawn to first frame and first image (median of 5, ms):
 
 | segment | ms |
 |---|---:|
-| Python start (spawn to the first line of the child) | 9.5 |
-| `import party` and `party_hud.ui` | 15.2 |
-| `load_images` (fake tmux, real `load_art`) | 1.5 |
+| Python start (spawn to the first line of the child) | 9.6 |
+| `import party` and `party_hud.ui` | 15.4 |
+| `load_images` (fake tmux, real `load_art`) | 0.4 |
 | first `get_snapshot` (fake) | 0.0 |
 | first `render_select` | 5.8 |
 | write and flush of the first frame | 0.2 |
-| the rest of `run_menu` until the frame | 0.9 |
-| first frame at | 33.0 |
-| first image written at | 35.0 |
+| the rest of `run_menu` until the frame | 0.8 |
+| first frame at | 32.3 |
+| first image written at | 34.2 |
 
 What the numbers say, ranked:
 
-- RSS of a running process is 17.1 to 17.5 MB. Of that, an empty Python is 9.9 MB, the standard library modules the
-  product imports add 3.4 MB, all `party_hud` modules together add 0.8 MB, and the images (`load_art`, 56 PNGs read and
-  base64-encoded) add 2.1 MB in the state process.
+- RSS of a running process is 14.9 to 15.4 MB. Of that, an empty Python is 9.9 MB, the standard library modules the
+  product imports add 3.4 MB and all `party_hud` modules together add 0.8 MB. The images add nothing: `load_art` only
+  opens the 56 files, and `send_image` reads one when it sends it (they were 2.1 MB when all 56 stayed in memory).
 - Largest single standard library modules (overlapping): `subprocess`, `json`, `glob`, `re`.
-- Start of a select process: Python start 9.5 ms, `import party` and `party_hud.ui` 15.2 ms, then the first
+- Start of a select process: Python start 9.6 ms, `import party` and `party_hud.ui` 15.4 ms, then the first
   `render_select` 5.8 ms.
 - Not measured: macOS (the `ps` path is written but was not run), and the terminal or tmux side of the images.
 
@@ -256,9 +258,9 @@ other short-lived sub-commands never load those two):
 
 | sub-command | `common` | `art` | `collect` | `render` | `sidebars` | big parts |
 |---|---|---|---|---|---|---|
-| sidebar (`run_ui`) | `tmux`, `load_cursor` | `load_art`, `kitty_image` | `get_snapshot`, `collect` | `render` | `mark_sidebar`, `install_hooks`, `open_report_pane` | images, tmux open pane (`r`); no Markdown, no `report_for` |
-| select (`run_menu`, `run_select`) | `tmux` | `load_art`, `kitty_image` | `get_snapshot`, `report_for` | `render_select` | `fit_report_pane`, `open_report_pane` | images, Markdown layout (`render_markdown` in `report_rows`), report parsing |
-| report (`run_report`) | `tmux` | `load_art`, `kitty_image` | `get_snapshot`, `report_for` | `report_parts` | `mark_seen`, `fit_report_pane` | images, Markdown layout, report parsing |
+| sidebar (`run_ui`) | `tmux`, `load_cursor` | `load_art`, `send_image` | `get_snapshot`, `collect` | `render` | `mark_sidebar`, `install_hooks`, `open_report_pane` | images, tmux open pane (`r`); no Markdown, no `report_for` |
+| select (`run_menu`, `run_select`) | `tmux` | `load_art`, `send_image` | `get_snapshot`, `report_for` | `render_select` | `fit_report_pane`, `open_report_pane` | images, Markdown layout (`render_markdown` in `report_rows`), report parsing |
+| report (`run_report`) | `tmux` | `load_art`, `send_image` | `get_snapshot`, `report_for` | `report_parts` | `mark_seen`, `fit_report_pane` | images, Markdown layout, report parsing |
 | `--report-text` (`report_text`) | `tmux_run` | | `report_text`, `report_for` | | `crew_replied`, `mark_seen` | report parsing; no Markdown, no images |
 | `--ask` (`ask`) | `tmux_run` | | `get_snapshot` | | `crew_asked` | tmux `load-buffer`, `paste-buffer` |
 | `--summon` (`summon`) | `tmux_run`, `tmux` | | `get_snapshot` | | `summon`, `crew_summoned` | tmux open pane |
