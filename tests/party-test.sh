@@ -1086,6 +1086,13 @@ live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5
 lv = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", live_inject, 1))
 ok("a=d,d=I,i=7" in lv and lv.index("a=d,d=I,i=7") > lv.index("\x1b[H") and lv.index("a=d,d=I,i=7") < lv.rindex("\x1b[H"),
    "report pane: when the in-progress page turns into the final report, the new banner id is deleted with the next frame, as for a new page")
+resend_inject = live_inject.replace("ui.load_art = lambda: {\"k\": 1}", "ui.load_art = lambda: {7: (b'x', 1, 1), 8: (b'x', 1, 1)}").replace("ui.report_images = lambda *a: \"\"\n", "").replace("ui.run_report", "ui.ART_SETTLE = 0.3\nui.run_report", 1)
+T7 = "a=T,U=1,f=100,i=7"
+rl = report_session([b"q"], draws=[2], hold=1.2, src=child.replace("ui.run_report", resend_inject, 1))
+ok(rl.count(T7) == 2 and rl.index(T7) < rl.rindex(T7) and "a=d,d=I,i=7" not in rl[rl.index(T7) :] and "a=d,d=I,i=7" in rl and rl.index("a=d,d=I,i=7") < rl.index(T7),
+   "report pane: the banner sent when the page turns final is sent once more after ART_SETTLE, with no delete between, and not a third time")
+rf = report_session([b"q"], draws=[1], hold=1.2, src=child.replace("ui.run_report", resend_inject.replace("ui.LIVE_REFRESH = 0.2\n", "").replace("'live': True, ", ""), 1))
+ok(rf.count(T7) == 1, "report pane: a page that was final from the start has each image sent once, with no later resend")
 tick_inject = """ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("T" + str(int(r[6] * 10))).ljust(width)] + [("L" + str(n)).ljust(width) for n in range(80)])
 S = __import__('time').time() - 99.9
 ui.report_for = lambda a: {'live': True, 'text': 'x', 'start': S, 'end': 2}

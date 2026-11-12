@@ -683,6 +683,8 @@ def run_report(pane=None, fixture=None, back=False, images=None):
     resized, art_pending, last_winch = False, False, 0.0
     next_live, tick_at, cause = 0.0, None, ""
     written: list[str] | None = None
+    after_live = False
+    resend: tuple[float, list[tuple[int, int, int]]] | None = None
     try:
         tty.setcbreak(fd)
         if not queue:
@@ -762,17 +764,21 @@ def run_report(pane=None, fixture=None, back=False, images=None):
             while True:
                 if art and art_pending and not resized and not cut:
                     out = report_images(a, is_final(report), art, width, banner, big, drawn, names, sent)
+                    plan = report_image_plan(a, is_final(report), art, width, banner, big, names)
                     if out:
                         time.sleep(max(0.0, report_art_wait(drawn) - (time.monotonic() - shown)))
                         sys.stdout.write(out)
                         sys.stdout.flush()
-                    drawn = {
-                        k: (c, r) for k, c, r in report_image_plan(a, is_final(report), art, width, banner, big, names)
-                    }
+                        if after_live:
+                            resend = (time.monotonic() + ART_SETTLE, [p for p in plan if sent.get(p[0]) != p[1:]])
+                    after_live = False
+                    drawn = {k: (c, r) for k, c, r in plan}
                     sent.update(drawn)
                     art_pending = False
                 timeout = max(0.0, RESIZE_SETTLE - (time.monotonic() - last_winch)) if art_pending else None
                 dues = ([next_live - time.monotonic()] if live else []) + ([tick_at - time.time()] if tick_at else [])
+                if resend:
+                    dues.append(resend[0] - time.monotonic())
                 if dues:
                     timeout = max(0.0, min(dues) if timeout is None else min(timeout, *dues))
                 ready = select.select([fd, wake_r], [], [], timeout)[0]
@@ -785,6 +791,13 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                     time.sleep(report_resize_wait(last_draw, time.monotonic()))
                     resized = True
                     break
+                if art and resend and time.monotonic() >= resend[0]:
+                    # tmux drops a pane's passthrough while it redraws a client, and nothing tells us
+                    sys.stdout.write(
+                        "".join(kitty_image(k, art[k][0], c, r) for k, c, r in resend[1] if sent.get(k) == (c, r))
+                    )
+                    sys.stdout.flush()
+                    resend = None
                 if live and time.monotonic() >= next_live:
                     new = refresh_live(queue, i)
                     if new is None:
@@ -793,6 +806,7 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                     reports[a["pane"]] = new
                     if is_final(new):
                         drawn = None
+                        after_live = True
                     cause = "live"
                     break
                 if tick_at and time.time() >= tick_at:
@@ -837,6 +851,7 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                         if cur is not None:
                             queue[i] = (queue[i][0], cur)
                     drawn = None
+                    after_live = False
                     resized = False
                     fresh = True
                     offset = 0
