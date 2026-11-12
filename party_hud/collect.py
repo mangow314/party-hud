@@ -296,14 +296,29 @@ def _turn_done(lines):
     return False
 
 
+TAIL_MEMO_MAX = 16  # (path, size) entries; when full the entry stored longest ago goes
+_tail_memo = {}
+
+
 def _tail_lines(path, size=256 * 1024):
     try:
+        st = os.stat(path)
+        sig = (st.st_mtime_ns, st.st_size, st.st_ino)
+        memo = _tail_memo.get((path, size))
+        if memo and memo[0] == sig:
+            return list(memo[1])
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
             f.seek(max(0, f.tell() - size))
-            return f.read().splitlines()
+            lines = f.read().splitlines()
     except OSError:
+        _tail_memo.pop((path, size), None)
         return []
+    _tail_memo.pop((path, size), None)
+    if len(_tail_memo) >= TAIL_MEMO_MAX:
+        del _tail_memo[next(iter(_tail_memo))]
+    _tail_memo[path, size] = (sig, tuple(lines))
+    return lines
 
 
 def codex_report(path):

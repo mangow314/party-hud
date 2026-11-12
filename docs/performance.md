@@ -373,6 +373,46 @@ time within 1 %), AMD Ryzen 9 5900XT, Linux, Python 3.14. "Before" is about 2 ms
 the log back to the prompt). The lookback stops at 32 MB before the last 1 MB; a log whose prompt is further back
 costs that search once per process (the miss is remembered too).
 
+## Cheaper collection (ticket 011)
+
+Starting point (ticket 010, `python3 bench/idle.py --live 30` in a real tmux, 5 agents, Linux, 2026-11-13): one
+`collect()` costs 4.49 ms of this process's CPU. Exclusive CPU per function per collection (wrapping included, so
+the sum is 5.13 ms):
+
+| function | calls | ms |
+|---|---:|---:|
+| proc_children | 34 | 0.933 |
+| proc_args | 21 | 0.740 |
+| parse_panes | 1 | 0.491 |
+| summons_for | 4 | 0.475 |
+| screen_changed | 1 | 0.398 |
+| collect (own lines) | 1 | 0.282 |
+| read_tmux | 1 | 0.266 |
+| read_claude_sessions | 1 | 0.223 |
+| codex_rollout | 1 | 0.207 |
+| proc_start | 1 | 0.205 |
+| _tail_lines | 1 | 0.198 |
+| read_party | 4 | 0.124 |
+| rollouts_since | 1 | 0.118 |
+
+Two changes (`python3 bench/idle.py`, offline, same machine, median of 30; the codex rollout is the 2.5 MB file of the
+disk fixture):
+
+| | before | after |
+|---|---:|---:|
+| `parse_panes, 18 panes` (8.7 KB of text) | 0.534 ms | 0.116 ms |
+| `codex tail, unchanged` | 0.167 ms | 0.003 ms |
+| `collect, files on disk, unchanged` | 0.764 ms | 0.570 ms |
+| `collect, files on disk, cold` | 1.710 ms | 1.750 ms |
+
+`printable` drops the Unicode `Cc` characters with one pre-compiled `[\x00-\x1f\x7f-\x9f]` substitution instead of a
+category lookup per character; the tests compare it with the per-character version over every code point. The rollout
+tail is read again only when the file's mtime, size or inode changed. `bench/bench.py` is not slower (in use 0.573 % ->
+0.554 %; render rows unchanged within noise). The command lines (`proc_args`, 0.74 ms in the live table) are still read
+every time: on Linux an `exec` of the same executable with other arguments changes neither `/proc/<pid>/exe`, the stat
+times of `/proc/<pid>` or `/proc/<pid>/cmdline`, nor `starttime`, and reading `/proc/<pid>/stat` (15 us) costs more than
+a short command line (10 us).
+
 ## Collection rate with many sidebars (`tests/party-tmux-test.sh`)
 
 The integration test opens 20+ windows on a private tmux server and checks that data is collected at most

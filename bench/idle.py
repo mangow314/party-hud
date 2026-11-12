@@ -573,6 +573,7 @@ def disk_world(collect):
         "live": live,
         "starts": starts,
         "screen": "the screen\n" * 20,
+        "rollout": rollout,
     }
 
 
@@ -655,11 +656,63 @@ def disk_collect(out):
     out.append("")
     out.append(f"collect, files on disk, cold: {cold:.3f} ms")
     out.append(f"collect, files on disk, unchanged: {med(unchanged):.3f} ms")
+    tail_cost(out, collect, w["rollout"])
     if not same:
         out.append("WARNING: two collects on unchanged files returned different towns")
     for name, fn in saved.items():
         setattr(collect, name, fn)
     return cold, med(unchanged)
+
+
+def parse_cost(out):
+    """parse_panes on 18 panes of tmux-like text (about 8.5 KB, CJK window names); median of 30 calls."""
+    from party_hud import collect
+
+    lines = []
+    for i in range(18):
+        vals = {
+            "session_name": f"squad{i % 3}",
+            "window_index": str(i),
+            "window_name": f"任務-{i}-修正登入流程的錯誤" if i % 2 else f"feature-{i}-refactor-collector",
+            "window_active": "1" if i == 0 else "0",
+            "session_attached": "1",
+            "pane_id": f"%{i + 1}",
+            "pane_active": "1",
+            "pane_current_command": "claude" if i % 3 else "zsh",
+            "pane_current_path": f"/home/user/projects/some-long-project-name/.worktrees/feature-{i}-refactor-collector/src"
+            + "/packages/nested-module" * 7,
+            "@workmux_pane_status": "",
+            "window_id": f"@{i + 1}",
+            "window_panes": "1",
+            "@party_sidebar": "",
+            "@party_report": "",
+            "pane_pid": str(20000 + i),
+            "pane_dead": "0",
+            "pane_tty": f"/dev/pts/{i + 3}",
+            "@party_lead": "",
+            "@xv": "",
+        }
+        lines.append(collect.FIELD_SEP.join(vals[f] for f in collect.TMUX_FIELDS))
+    text = "\n".join(lines) + "\n"
+    times, rows = [], []
+    for _ in range(30):
+        t0 = time.process_time_ns()
+        rows = collect.parse_panes(text)
+        times.append((time.process_time_ns() - t0) / 1e6)
+    if len(rows) != 18:
+        raise RuntimeError(f"parse_cost: {len(rows)} panes parsed, expected 18")
+    out.append(f"({len(text.encode())} bytes of list-panes text)")
+    out.append(f"parse_panes, 18 panes: {med(times):.3f} ms")
+
+
+def tail_cost(out, collect, rollout):
+    """_tail_lines on the disk world's 2.5 MB rollout, called 30 times with the file unchanged; median."""
+    times = []
+    for _ in range(30):
+        t0 = time.process_time_ns()
+        collect._tail_lines(rollout)
+        times.append((time.process_time_ns() - t0) / 1e6)
+    out.append(f"codex tail, unchanged: {med(times):.3f} ms")
 
 
 def offline():
@@ -677,6 +730,7 @@ def offline():
         ctotal, cspan, _, _ = report_run("control, no member working", calm, out)
         profile_table(run_child("profile", paths["working"]), out)
         disk_collect(out)
+        parse_cost(out)
         collect_ms, read_ms, full_ms = snapshot_paths(paths["working"], out)
         spawn = spawn_costs(out)
     per_s = total / 1e6 / span

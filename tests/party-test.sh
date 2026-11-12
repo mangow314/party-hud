@@ -2456,6 +2456,71 @@ good = sep.join(["a", "1", "w\\037x"] + ["0"] * (len(collect.TMUX_FIELDS) - 3))
 rows = collect.parse_panes(good + "\n" + "a\\0371\\037bash\n")
 ok(len(rows) == 1 and rows[0]["session_name"] == "a" and rows[0]["window_name"] == "w\\037x",
    "list-panes output: printable field separator; a line with the wrong field count is skipped, not a crash")
+import random, unicodedata as _ud
+from party_hud import common as _common
+def old_printable(s):
+    return "".join(ch for ch in s if _ud.category(ch) != "Cc")
+every = [chr(i) for i in range(sys.maxunicode + 1)]
+rnd = random.Random(7)
+pool = [chr(c) for c in (*range(0, 0xa1), 0xd7ff, 0xe000, 0x300, 0x301, 0x4e00, 0x9fff, 0xff21, 0x1f600, 0x10ffff)]
+mixed = ["".join(rnd.choice(pool) for _ in range(rnd.randint(0, 40))) for _ in range(2000)]
+mixed += ["\ud800", "a\udbffb\udc00\x00", "é\x07中\x9f\x7f"]
+ok(all(_common.printable(c) == old_printable(c) for c in every) and all(_common.printable(s) == old_printable(s) for s in mixed),
+   "printable gives the same text as dropping every Unicode Cc character, for each code point and for mixed strings")
+import builtins, os as _o, tempfile as _tf2
+tdir = _tf2.mkdtemp(prefix="tail-memo-")
+roll = _o.path.join(tdir, "r.jsonl")
+def put(path, text):
+    with open(path, "w") as fh:
+        fh.write(text)
+opened = []
+real_open = builtins.open
+def spy_open(file, *a, **k):
+    if file == roll:
+        opened.append(file)
+    return real_open(file, *a, **k)
+builtins.open = spy_open
+try:
+    collect._tail_memo.clear()
+    put(roll, "a\nb\n")
+    del opened[:]
+    first = collect._tail_lines(roll)
+    second = collect._tail_lines(roll)
+    ok(first == [b"a", b"b"] and second == first and len(opened) == 1 and second is not first,
+       "reads a codex rollout tail only when it changed: the second call on an unchanged file does not open it")
+    second.append(b"x")
+    ok(collect._tail_lines(roll) == [b"a", b"b"], "a caller changing the returned list does not change the remembered tail")
+    with real_open(roll, "a") as fh:
+        fh.write("c\n")
+    ok(collect._tail_lines(roll) == [b"a", b"b", b"c"], "reads a codex rollout tail only when it changed: an appended line is read")
+    st = _o.stat(roll)
+    put(roll, "a\nb\nZ\n")
+    _o.utime(roll, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+    ok(collect._tail_lines(roll) == [b"a", b"b", b"Z"], "reads a codex rollout tail only when it changed: same size, newer mtime is read")
+    _o.remove(roll)
+    ok(collect._tail_lines(roll) == [], "reads a codex rollout tail only when it changed: a deleted file gives no lines")
+    put(roll, "new\n")
+    ok(collect._tail_lines(roll) == [b"new"], "reads a codex rollout tail only when it changed: a recreated file is read")
+    put(roll, "n\n")
+    ok(collect._tail_lines(roll) == [b"n"], "reads a codex rollout tail only when it changed: a truncated file is read")
+    st = _o.stat(roll)
+    other = _o.path.join(tdir, "o.jsonl")
+    put(other, "m\n")
+    _o.utime(other, ns=(st.st_atime_ns, st.st_mtime_ns))
+    _o.replace(other, roll)
+    st2 = _o.stat(roll)
+    ok(st2.st_size == st.st_size and st2.st_mtime_ns == st.st_mtime_ns and st2.st_ino != st.st_ino and collect._tail_lines(roll) == [b"m"],
+       "reads a codex rollout tail only when it changed: a different file of the same size and mtime is read")
+    collect._tail_memo.clear()
+    for i in range(collect.TAIL_MEMO_MAX + 3):
+        collect._tail_lines(roll, 1000 + i)
+    ok(len(collect._tail_memo) == collect.TAIL_MEMO_MAX and (roll, 1000) not in collect._tail_memo,
+       "reads a codex rollout tail only when it changed: the memory is capped and drops the oldest")
+finally:
+    builtins.open = real_open
+    collect._tail_memo.clear()
+    import shutil as _sh
+    _sh.rmtree(tdir, ignore_errors=True)
 print("\n".join(fails), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
