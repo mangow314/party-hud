@@ -105,6 +105,10 @@ each key; profiling inflates every number, read the shares):
   member not seen yet (the Markdown layout is added). Before ticket 042 a working cursor redrew about 3 times a second even when idle
   (snapshot every second plus the clock tick), and about 60 KB a second was written; the snapshot is now read at the
   wake of a clock tick, so it is 2 times at most.
+  Ticket 006 puts the spinner on the phase of the running time (`select_phase`), so a working cursor wakes once a
+  second: `idle on working, 5 s` went from 10 frames, 17.6 ms (18.1 ms in the last run) to 5 frames, 9.1 ms
+  (`bench/frame.py`; the old count was 5 when the two phases happened to coincide), `idle on working` in `bench/bench.py`
+  from 17.2 ms and 302.5 KB to 8.5 ms and 151.3 KB, and the total from 0.645 % to 0.567 %.
 - Ticket 044 made `cw` fast: an all-ASCII string is `len(s)` (checked: no code point 0 to 127 is combining or W/F),
   anything else sums a per-character width from an `lru_cache` of 4096 entries (an entry is a one-char key and a small
   int, a few hundred KB at most; the cache is filled only by characters actually drawn). The numbers above are after it.

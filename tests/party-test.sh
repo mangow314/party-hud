@@ -794,6 +794,68 @@ for fr in (0.0, 0.3, 0.77):
     st, ch, wk = hour_changes(fr)
     hour_ok = hour_ok and wk <= 75 and all(0.0 <= (c - st + 0.5) % 60 < 0.3 for c in ch if c - st > 3599) and len([c for c in ch if c - st > 3599]) == 62
 ok(hour_ok, "time ticks: from 3600 s on the shown value (fmt_took, minutes only) is redrawn within 0.3 s after it turns and the wake comes once a minute, not once a second")
+def phase_run(spins, timed_of, t0, frac, span=30.0):
+    t, fetched, rows = t0, t0 - frac, []
+    while t < t0 + span:
+        if t - fetched >= ui.SNAP_AGE:
+            fetched = t
+        tick, anchors, _ = ui.select_phase(t, spins, timed_of(t))
+        rows.append((t, tick))
+        t += ui.select_wait(fetched, t, t + ui.tick_wait(t, anchors), t)
+    return rows
+def phase_ok(rows):
+    ticks = [k for _, k in rows]
+    gaps = [b[0] - a[0] for a, b in zip(rows[1:], rows[2:])]
+    return len(rows) <= 32 and all(b - a == 1 for a, b in zip(ticks, ticks[1:])) and all(0.99 <= g <= 1.01 for g in gaps)
+def one_wake_a_second():
+    if getattr(ui, "select_phase", None) is None:
+        return False
+    good = True
+    for fr in (0.0, 0.3, 0.7):
+        start = 5000.0 - 200.0 + fr
+        rows = phase_run(True, lambda t: ui.time_anchor(start, t), 5000.0, fr)
+        took = [render.fmt_took(t - start) for t, _ in rows]
+        good = good and phase_ok(rows) and all(a != b for a, b in zip(took, took[1:]))
+        hour = 5000.0 - 3700.0 + fr
+        rows = phase_run(True, lambda t: ui.time_anchor(hour, t), 5000.0, fr)
+        took = [render.fmt_took(t - hour) for t, _ in rows]
+        ticks = [k for _, k in rows]
+        good = good and len(rows) <= 32 and all(k == int(t) for t, k in rows) and all(b - a in (0, 1) for a, b in zip(ticks, ticks[1:])) and ticks[-1] - ticks[0] >= 29 and sum(a != b for a, b in zip(took, took[1:])) <= 1
+        rows = phase_run(True, lambda t: None, 5000.0, fr)
+        good = good and phase_ok(rows) and all(k == int(t) for t, k in rows)
+    return good
+ok(one_wake_a_second(), "select screen: one wake a second: the spinner turns at the instant the cursor member's RUNNING / WAITED turns (same frame, each step one cell); from 3600 s on, with no time shown, or with no one working it turns on the whole second as before")
+def phase_seq(segments, t0):
+    t, fetched, state, rows = t0, t0 - 0.35, None, []
+    for timed_of, dur in segments:
+        end = t + dur
+        while True:
+            if t - fetched >= ui.SNAP_AGE:
+                fetched = t
+            tick, anchors, state = ui.select_phase(t, True, timed_of(t), state)
+            rows.append((t, tick, state[0]))
+            nxt = t + ui.select_wait(fetched, t, t + ui.tick_wait(t, anchors), t)
+            if nxt >= end:
+                t = end
+                break
+            t = nxt
+    return rows
+def phase_switch_ok():
+    if getattr(ui, "select_phase", None) is None:
+        return False
+    good = True
+    for shift in (0.0, 0.21, 0.55, 0.9):
+        t0 = 5000.0 + shift
+        a, b, hr = t0 - 200.3, t0 - 100.8, t0 + 30.0 - 3600.0 - 3.4
+        segs = [(lambda t: ui.time_anchor(a, t), 8.0 + shift), (lambda t: ui.time_anchor(b, t), 8.37), (lambda t: None, 7.61),
+                (lambda t: ui.time_anchor(a, t), 8.83), (lambda t: ui.time_anchor(hr, t), 9.2)]
+        rows = phase_seq(segs, t0)
+        ticks = [k for _, k, _ in rows]
+        good = good and all(y - x in (0, 1) for x, y in zip(ticks, ticks[1:])) and ticks[-1] - ticks[0] >= 35
+        good = good and all(0.0 <= (t - ph) % 1 < 0.02 for (_, x, _), (t, y, ph) in zip(rows, rows[1:]) if y == x + 1)
+        good = good and len(rows) <= 42 + 12
+    return good
+ok(phase_switch_ok(), "select screen: one wake a second: when the cursor moves to a member with another phase, to none, back, or a time passes 3600 s, the spinner tick only ever stays or steps one (never back or jumps) and the next step falls on the new phase's boundary")
 real_gs, real_rf = ui.get_snapshot, ui.report_for
 ui.report_for = lambda a: {"status_seen": a["status"]}
 q = [("S", {"pane": "%1", "status": "working"})]

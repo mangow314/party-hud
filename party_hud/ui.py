@@ -276,6 +276,18 @@ def tick_wait(now, anchors):
     return min(p - (now - a) % p for a, p in anchors) + TICK_MARGIN if anchors else math.inf
 
 
+def select_phase(now, spins, timed, prev=None):
+    """(spinner tick, anchors, state) of a select frame. spins: a member works or has HP <= 10; timed: the cursor member's time_anchor or None; prev: the state of the last frame, or None. A time that turns every second also turns the spinner (and the HP blink), so one anchor wakes both; otherwise the spinner turns on the whole second. When the phase changes the tick holds its last value, so it never steps back or jumps, and the next step falls on the new phase's boundary."""
+    sync = timed if timed and timed[1] == 1.0 else None
+    anchors = [sync] if sync else [SECOND] if spins else []
+    if timed and not sync:
+        anchors.append(timed)
+    phase = sync[0] % 1.0 if sync else 0.0
+    raw = math.floor(now - phase)
+    offset = prev[1] if prev and prev[0] == phase else prev[2] - raw if prev else 0
+    return raw + offset, anchors, (phase, offset, raw + offset)
+
+
 def select_wait(fetched, mono, tick_at, wall):
     """Seconds until the select screen is next due: tick_at (wall-clock time a shown time value changes) when that wake still comes within SNAP_MAX of the last snapshot read (it reads then), else one second after the read."""
     tick_in = tick_at - wall
@@ -334,7 +346,7 @@ def run_select(sel=None, fixture=None, images=None):
     signal.signal(signal.SIGWINCH, lambda *_: None)
     signal.set_wakeup_fd(wake_w)
     last_frame, helping, cached = None, False, (None, None, [], 0.0)
-    towns, fetched = [], -1.0
+    towns, fetched, spin = [], -1.0, None
     try:
         tty.setcbreak(fd)
         while True:
@@ -348,7 +360,6 @@ def run_select(sel=None, fixture=None, images=None):
                 sel = panes[0] if panes else None
             size = os.get_terminal_size(sys.stdout.fileno())
             width, now = size.columns - 1, time.time()
-            set_tick(int(now))
             plan, title, report = [], None, None
             head_rows = 1
             banner = select_banner(width, size.lines, cell_ratio()) if art else None
@@ -366,6 +377,16 @@ def run_select(sel=None, fixture=None, images=None):
                     peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
                     cached = ((a["pane"], a["round"]), report, peek, time.monotonic())
                 report = cached[1]
+            timed = None
+            if sel and preview and report:
+                cur = next(m for _, m, _ in roster if m["pane"] == sel)
+                if cur["status"] == "waiting" and report.get("end"):
+                    timed = time_anchor(report["end"], now)
+                elif cur["status"] == "working" and report.get("live") and report.get("start"):
+                    timed = time_anchor(report["start"], now)
+            spins = any(m["status"] == "working" or (m["hp"] is not None and m["hp"] <= 10) for _, m, _ in roster)
+            tick, anchors, spin = select_phase(now, spins, timed, spin)
+            set_tick(tick)
             view = select_view(roster, sel, lw, body_h, art is not None)
             plan += select_image_plan(select_cards(roster, view), art)
             rows = render_select(
@@ -374,17 +395,6 @@ def run_select(sel=None, fixture=None, images=None):
             if helping:
                 rows = help_overlay(rows, "select", width, size.lines)
             frame = "\n".join(rows)
-            anchors = (
-                [SECOND]
-                if any(m["status"] == "working" or (m["hp"] is not None and m["hp"] <= 10) for _, m, _ in roster)
-                else []
-            )
-            if sel and preview and report:
-                cur = next(m for _, m, _ in roster if m["pane"] == sel)
-                if cur["status"] == "waiting" and report.get("end"):
-                    anchors.append(time_anchor(report["end"], now))
-                elif cur["status"] == "working" and report.get("live") and report.get("start"):
-                    anchors.append(time_anchor(report["start"], now))
             tick_at = now + tick_wait(now, anchors)
             if frame != last_frame:
                 sys.stdout.write("\033[H" + "\033[K\n".join(frame.split("\n")) + "\033[K\033[J")
