@@ -2143,6 +2143,29 @@ ok(plan_a == [(art.portrait_id(done), 6, 3), (art.portrait_id(other_), 6, 3)] an
 ok(ui.select_images_due(plan_a, {i: (c, r) for i, c, r in plan_a}) == [] and ui.select_images_due(plan_a, {plan_a[0][0]: (7, 3)})[0] == plan_a[0]
    and ui.select_images_due(plan_a, {}) == plan_a,
    "select images: same id at the same cells is not sent again, other cells are, an id never sent is")
+real_card, ncard, once_ok = render.card, [0], True
+def counted_card(*a, **k):
+    ncard[0] += 1
+    return real_card(*a, **k)
+render.card = counted_card
+for w_, h_, art_ in [(120, 40, False), (120, 40, True), (80, 12, False), (80, 10, False), (60, 40, False), (120, 8, False), (36, 40, False)]:
+    for cur_ in ("%1", "%4", "%6", "%9", "%12"):
+        lw_, _ = render.select_widths(w_ - 1)
+        ncard[0] = 0
+        view_ = render.select_view(srs, cur_, lw_, render.select_layout(h_, 1)[3], art_)
+        shown_ = ui.select_cards(srs, view_)
+        rows_ = render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_, (), view_)
+        frame_calls = ncard[0]
+        built = sum(c is not None for c in view_[4])
+        again = render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_)
+        text_ = "".join(strip(r) for r in rows_)
+        once_ok = (once_ok and frame_calls == built and built == (0 if view_[0] else sum(not c for _, _, c in srs)) and rows_ == again
+                   and all(a_["name"] in text_ for a_ in shown_) and len(shown_) <= built)
+        ncard[0] = 0
+        render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_)
+        once_ok = once_ok and ncard[0] == built
+render.card = real_card
+ok(once_ok, "select screen builds each card once a frame: card() runs once per card item for the layout and the draw together, and the output is the same with or without the shared view")
 same_ = {i: (c, r) for i, c, r in plan_a}
 out_new = ui.select_images_out(plan_a, sel_art, {}, set())
 ok(ui.select_images_out(plan_a, sel_art, same_, set()) == "" and out_new.index(f"a=d,d=I,i={plan_a[0][0]}") < out_new.index(f"a=T,U=1,f=100,i={plan_a[0][0]},c=6,r=3")

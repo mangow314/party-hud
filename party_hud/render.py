@@ -1101,29 +1101,25 @@ def select_widths(width):
     return min(width, SELECT_LIST), 0
 
 
-def select_card_rows(a, art):
-    """Rows of a's card: not every card has the same height (a card without art and without SP is shorter)."""
-    return len(card(a, SELECT_CARD, False, art))
-
-
 def select_view(roster, sel, lw, body_h, art=False):
-    """(compact, spans, top, shown) of the list: spans[i] is the (start, end) row of roster[i] in the whole list; rows from top on are on screen, whole items only, the cursor's included; shown = indexes of those items. Cards need SELECT_LIST columns and SELECT_CARD_ROWS rows of room, else every item is one row."""
+    """(compact, spans, top, shown, cards) of the list: spans[i] is the (start, end) row of roster[i] in the whole list; rows from top on are on screen, whole items only, the cursor's included; shown = indexes of those items; cards[i] = the rows of roster[i]'s card, built once here (None for a one-row item). Cards need SELECT_LIST columns and SELECT_CARD_ROWS rows of room, else every item is one row. Not every card has the same height (a card without art and without SP is shorter)."""
     compact = lw < SELECT_LIST or body_h < SELECT_CARD_ROWS
-    spans, n = [], 0
+    spans, cards, n = [], [], 0
     for _, a, is_crew in roster:
-        card = not compact and not is_crew
-        n += card and n > 0
-        spans.append((n, n + (select_card_rows(a, art) if card else 1)))
+        rows = None if compact or is_crew else card(a, SELECT_CARD, a["pane"] == sel, art)
+        cards.append(rows)
+        n += rows is not None and n > 0
+        spans.append((n, n + (len(rows) if rows is not None else 1)))
         n = spans[-1][1]
     at = next((i for i, (_, a, _) in enumerate(roster) if a["pane"] == sel), 0)
     top = min((s for s, _ in spans if s >= spans[at][1] - body_h), default=0)
     cut = max((e for _, e in spans if e <= top + body_h), default=top)
-    return compact, spans, top, [i for i, (s, e) in enumerate(spans) if s >= top and e <= cut]
+    return compact, spans, top, [i for i, (s, e) in enumerate(spans) if s >= top and e <= cut], cards
 
 
-def select_cards(roster, sel, lw, body_h, art=False):
-    """Members whose card is on screen."""
-    compact, _, _, shown = select_view(roster, sel, lw, body_h, art)
+def select_cards(roster, view):
+    """Members whose card is on screen, for the select_view of the same frame."""
+    compact, _, _, shown, _ = view
     return [] if compact else [roster[i][1] for i in shown if not roster[i][2]]
 
 
@@ -1161,10 +1157,9 @@ def select_row(n, a, is_crew, sel, width):
     return highlight(row) if a["pane"] == sel else row
 
 
-def select_card(n, a, sel, art):
-    """The member's side-bar card with its key in the column on the left of the first row."""
-    rows = card(a, SELECT_CARD, a["pane"] == sel, art)
-    return [(select_key_cell(n, a["pane"] == sel) if r == 0 else " " * SELECT_KEYS) + l for r, l in enumerate(rows)]
+def select_card(n, rows, cursor):
+    """A member's side-bar card rows with its key in the column on the left of the first row."""
+    return [(select_key_cell(n, cursor) if r == 0 else " " * SELECT_KEYS) + l for r, l in enumerate(rows)]
 
 
 def select_preview(roster, towns, at, width, height, report, now, peek=()):
@@ -1217,8 +1212,8 @@ def select_preview(roster, towns, at, width, height, report, now, peek=()):
     return [pad_to(r, width) for r in (rows + body)[:height]] + [" " * width] * (height - len(rows) - len(body))
 
 
-def render_select(roster, towns, sel, width, height, report=None, now=None, title=None, art=False, peek=()):
-    """Exactly height rows of width cells: title, summary, the member cards (crew as a row under their lead) with the preview of the member under the cursor beside them when the width allows, hint. Blocks that do not fit are left out; the list scrolls by whole items to keep the cursor in view."""
+def render_select(roster, towns, sel, width, height, report=None, now=None, title=None, art=False, peek=(), view=None):
+    """Exactly height rows of width cells: title, summary, the member cards (crew as a row under their lead) with the preview of the member under the cursor beside them when the width allows, hint. Blocks that do not fit are left out; the list scrolls by whole items to keep the cursor in view. view: the select_view of this frame when the caller has built it already."""
     if height <= 0:
         return []
     head = (
@@ -1228,12 +1223,16 @@ def render_select(roster, towns, sel, width, height, report=None, now=None, titl
     )
     show_hint, show_sum, show_title, body_h = select_layout(height, len(head))
     lw, rw = select_widths(width)
-    compact, spans, top, shown = select_view(roster, sel, lw, body_h, art)
+    _, spans, top, shown, cards = view or select_view(roster, sel, lw, body_h, art)
     whole = [" " * lw] * (spans[-1][1] if spans else 0)
     for i in shown:
         _, a, is_crew = roster[i]
         s, e = spans[i]
-        whole[s:e] = [select_row(i + 1, a, is_crew, sel, lw)] if compact or is_crew else select_card(i + 1, a, sel, art)
+        whole[s:e] = (
+            [select_row(i + 1, a, is_crew, sel, lw)]
+            if cards[i] is None
+            else select_card(i + 1, cards[i], a["pane"] == sel)
+        )
     left = whole[top : top + body_h]
     left += [" " * lw] * (body_h - len(left))
     if not roster:

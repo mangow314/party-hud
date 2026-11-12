@@ -123,6 +123,7 @@ each key; profiling inflates every number, read the shares):
   (`bench/frame.py`, median of 30; the first layout of a whole report 4.28 ms, of the part shown 2.73 ms), and in the key script
   (`bench/bench.py`, before -> after) open select 58.5 -> 49.4 ms, `k x4` 38.5 -> 27.9 ms, reopen 65.7 -> 60.9 ms, the other steps within
   1.1 ms, in use 0.847 -> 0.781 % of one core (medians of 3 runs). The report page still lays out the whole report.
+- Ticket 005: a select frame built each member's card three times (`select_cards`, `render_select`, then the drawing); `select_view` now builds each card once and returns the rows, `run_select` passes that view to both `select_cards` and `render_select`. `card()` calls per frame 15 -> 5 (5 members), `render_select` 1.30 -> 1.07 ms, the whole loop body 2.05 -> 1.57 ms, `idle on working, 5 s` 22.4 ms / 10 frames (2.24 ms a frame) -> 18.0 ms (1.80 ms) (`bench/frame.py`, same machine, before 005 on the commit before it), and in the key script (`bench/bench.py`, before -> after) in use 0.732 -> 0.658 % of one core, open select 49.1 -> 46.3 ms, `idle on working` 21.9 -> 17.3 ms, `k x4` 27.6 -> 22.9 ms, `j x3` 13.4 -> 10.1 ms, `h` 14.0 -> 10.3 ms.
 - Starting a process (open select, reopen): `import party_hud.ui` 14 ms, `load_art` 0.4 ms (56 PNGs opened, not read; each file is read when it is sent), the
   base64 encoding of the images 0.03 to 0.4 ms each; the rest is the select frames above. A process start is 65 to 80 ms
   of which frames are about half.

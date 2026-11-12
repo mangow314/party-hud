@@ -50,6 +50,7 @@ from .render import (
     select_cards,
     select_layout,
     select_roster,
+    select_view,
     select_widths,
     set_tick,
     side_labels,
@@ -365,8 +366,11 @@ def run_select(sel=None, fixture=None, images=None):
                     peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
                     cached = ((a["pane"], a["round"]), report, peek, time.monotonic())
                 report = cached[1]
-            plan += select_image_plan(select_cards(roster, sel, lw, body_h, art is not None), art)
-            rows = render_select(roster, towns, sel, width, size.lines, report, now, title, art is not None, cached[2])
+            view = select_view(roster, sel, lw, body_h, art is not None)
+            plan += select_image_plan(select_cards(roster, view), art)
+            rows = render_select(
+                roster, towns, sel, width, size.lines, report, now, title, art is not None, cached[2], view
+            )
             if helping:
                 rows = help_overlay(rows, "select", width, size.lines)
             frame = "\n".join(rows)

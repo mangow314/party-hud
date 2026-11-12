@@ -375,8 +375,9 @@ class Scene:
                 peek = ui.report_peek({}, a["pane"], report, None, lambda p: ui.capture(p, color=True))
                 cached = ((a["pane"], a["round"]), report, peek, time.monotonic())
             report = cached[1]
-        plan += ui.select_image_plan(ui.select_cards(roster, sel, lw, body_h, True), self.art)
-        rows = ui.render_select(roster, towns, sel, width, ROWS, report, now, title, True, cached[2])
+        view = ui.select_view(roster, sel, lw, body_h, True)
+        plan += ui.select_image_plan(ui.select_cards(roster, view), self.art)
+        rows = ui.render_select(roster, towns, sel, width, ROWS, report, now, title, True, cached[2], view)
         t = time.perf_counter()
         frame = "\n".join(rows)
         anchors = (
@@ -422,11 +423,11 @@ FRAME_UI = [
     ("select_roster", "roster"),
     ("select_banner", "title"),
     ("image_row", "title"),
+    ("select_view", "view"),
     ("select_cards", "plan"),
     ("render_select", "rs"),
 ]
 FRAME_RENDER = [
-    ("select_view", "view"),
     ("card", "card"),
     ("select_card", "cardwrap"),
     ("select_row", "cardwrap"),
