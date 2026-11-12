@@ -172,6 +172,101 @@ writing the images are 1 ms or less each. The 2 s seen in a real tmux is not in 
 outside the program (tmux round trips such as `fit_report_pane`, forwarding and terminal decoding), or from
 `RESIZE_SETTLE` (0.15 s) restarting after the pane resize signal, which this script does not produce.
 
+## Memory and start-up (`bench/mem.py`)
+
+`python3 bench/mem.py` (about 40 s, no tmux, stdlib only, Linux and macOS) prints four parts. RSS is always read from
+outside the process: `/proc/<pid>/status` `VmRSS` on Linux, `ps -o rss= -p <pid>` elsewhere.
+
+1. RSS of the three long-running processes in a pty (179 x 47): the sidebar (`run_ui`), the select screen (through
+   `run_menu`, as in use) and the report page (`run_report`). The child is `import party` plus the real `ui` functions
+   with the outside world replaced, as in `bench/use.py` (fixed snapshot and reports, no tmux, images forced on and
+   written to the pty, `load_art` real). Three points: after the first frame and its images, after 5 s idle, after a
+   round of keys (sidebar: `j k J K n` moves; select: `k` x4, every member seen; report: `n` x5 through the pages,
+   `j j j k k`). 3 runs, median; the three kinds of one run go at the same time.
+2. Import cost: a fresh `python3` per state (no accumulating in one process), RSS and the time the imports took
+   inside the child, median of 3. The standard library list is read from the import statements of `party.py` and
+   `party_hud/*.py`. Then one more `party_hud` module per process, then `load_art()`, then each standard library
+   module alone over an empty Python. The numbers of one module alone are not additive: `traceback` pulls in
+   `linecache`, `tokenize`, `re` and others that `shutil` or `argparse` also pull in.
+3. Which sub-command needs which module (table below, from the code).
+4. A fresh `run_menu` from spawn to the first frame and the first image byte, segments timed inside the child with
+   `time.perf_counter` (the Python start is the spawn to the child's first line, wall clock); 5 runs, median.
+
+Every child imports the built-in `time` first for its clock; the "empty Python" row includes it.
+
+AMD Ryzen 9 5900XT, Linux 7.2.11, Python 3.14.8, HEAD `e7bb50b`:
+
+| process | after first frame | after 5 s idle | after use |
+|---|---:|---:|---:|
+| sidebar (MB) | 18.8 | 18.8 | 18.9 |
+| select (MB) | 19.2 | 19.2 | 19.3 |
+| report (MB) | 18.8 | 18.8 | 19.4 |
+
+Runs agree within 0.1 MB (an earlier full run, with a cold start, had 21.0 to 21.2 MB for the first run of each kind and
+18.8 to 19.4 for the others). Nothing grows while idle; a round of keys adds 0.1 MB (sidebar, select) and 0.6 MB
+(report, the Markdown layout of five reports).
+
+| state (fresh process) | RSS (MB) | added (MB) | imports took (ms) | added (ms) |
+|---|---:|---:|---:|---:|
+| empty Python | 9.9 | | 0.0 | |
+| the 26 standard library modules the product imports | 17.0 | 7.1 | 29.0 | 29.0 |
+| + `party_hud.common` | 17.1 | 0.0 | 29.8 | 0.8 |
+| + `.art` | 17.1 | 0.1 | 29.4 | -0.4 |
+| + `.collect` | 17.4 | 0.3 | 30.8 | 1.4 |
+| + `.render` | 17.6 | 0.2 | 31.2 | 0.4 |
+| + `.sidebars` | 17.7 | 0.1 | 32.3 | 1.1 |
+| + `.ui` | 17.8 | 0.1 | 32.5 | 0.2 |
+| + `load_art()` (result kept) | 19.9 | 2.1 | 34.4 | 1.9 |
+
+(The 29 ms of the standard library import is with the `__pycache__` of the standard library present; the times of
+the `party_hud` rows are within the noise of one another, so read them as "about 3 ms in all".)
+
+Standard library modules alone over the empty Python, above 0.1 MB: `traceback` 3.6, `shutil` 2.6, `subprocess` 2.1,
+`argparse` 1.8, `json` 1.5, `glob` 1.4, `re` 1.3, `typing` 1.2, `contextlib` 0.7, `functools` 0.7, `signal` 0.4,
+`base64` 0.3, `zlib` 0.2, `unicodedata` 0.1, `datetime` 0.1 MB.
+
+Fresh `run_menu`, spawn to first frame and first image (median of 5, ms):
+
+| segment | ms |
+|---|---:|
+| Python start (spawn to the first line of the child) | 9.5 |
+| `import party` | 21.0 |
+| `load_images` (fake tmux, real `load_art`) | 1.5 |
+| first `get_snapshot` (fake) | 0.0 |
+| first `render_select` | 5.8 |
+| write and flush of the first frame | 0.2 |
+| the rest of `run_menu` until the frame | 0.9 |
+| first frame at | 38.8 |
+| first image written at | 40.8 |
+
+What the numbers say, ranked:
+
+- RSS of a running process is 18.8 to 19.4 MB. Of that, an empty Python is 9.9 MB, the standard library modules the
+  product imports add 7.1 MB, all `party_hud` modules together add 0.8 MB, and the images (`load_art`, 56 PNGs read and
+  base64-encoded) add 2.1 MB in the state process. The sum of those four, 19.9 MB, is above the 18.8 to 19.2 MB of the
+  real processes, which also hold their frame data; the state process and the real process were not made to agree.
+- Largest single standard library modules (overlapping): `traceback`, `shutil`, `subprocess`, `argparse`, `json`.
+- Start of a select process: `import party` 21.0 ms, then the Python start 9.5 ms, then the first `render_select`
+  5.8 ms. The standard library part of the import is 29 ms of the 32.5 ms (up to `.ui`) in the state table.
+- Not measured: macOS (the `ps` path is written but was not run), and the terminal or tmux side of the images.
+
+Which `party_hud` modules each sub-command calls into (read from the code; `party.py` imports all of them at the top
+whatever the sub-command is, so every process loads all five):
+
+| sub-command | `common` | `art` | `collect` | `render` | `sidebars` | big parts |
+|---|---|---|---|---|---|---|
+| sidebar (`run_ui`) | `tmux`, `load_cursor` | `load_art`, `kitty_image` | `get_snapshot`, `collect` | `render` | `mark_sidebar`, `install_hooks`, `open_report_pane` | images, tmux open pane (`r`); no Markdown, no `report_for` |
+| select (`run_menu`, `run_select`) | `tmux` | `load_art`, `kitty_image` | `get_snapshot`, `report_for` | `render_select` | `fit_report_pane`, `open_report_pane` | images, Markdown layout (`render_markdown` in `report_rows`), report parsing |
+| report (`run_report`) | `tmux` | `load_art`, `kitty_image` | `get_snapshot`, `report_for` | `report_parts` | `mark_seen`, `fit_report_pane` | images, Markdown layout, report parsing |
+| `--report-text` (`report_text`) | `tmux_run` | | `report_text`, `report_for` | | `crew_replied`, `mark_seen` | report parsing; no Markdown, no images |
+| `--ask` (`ask`) | `tmux_run` | | `get_snapshot` | | `crew_asked` | tmux `load-buffer`, `paste-buffer` |
+| `--summon` (`summon`) | `tmux_run`, `tmux` | | `get_snapshot` | | `summon`, `crew_summoned` | tmux open pane |
+| `--dismiss` (`dismiss`) | `tmux_run` | | `get_snapshot` | | `dismiss` | tmux close pane |
+| collector (`get_snapshot` taking `snapshot.lock`) | `tmux_run` | | `collect` | | | pane list, transcript tails, agent reports; no Markdown, no images |
+
+`ui` is needed by the sidebar, select and report only; `jump_next` (`--next`) and `open_select` (`--menu`) are in
+`ui` too but call only `get_snapshot`, `tmux`, `save_cursor` and `open_report_pane`.
+
 ## Live: your real tmux (`bench/live.sh`)
 
 Run inside tmux with the sidebars open:
