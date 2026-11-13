@@ -303,6 +303,23 @@ Do not leave another copy of `party.py` running while you measure (for example t
 checkout at once): copies do not share a snapshot, so collections come out too high. `bench/live.sh` prints a warning
 when it sees more than one `party.py` path.
 
+### After the footprint tickets (001 to 011)
+
+Measured 2026-11-12 and 2026-11-13 with `bash bench/live.sh 60 --no-offline` on the same machine, 18 sidebar panes,
+5 agents, nothing else touched during the minute. "Before" is v0.5.1 unless a commit is named.
+
+| measure | before | after |
+|---|---|---|
+| idle, CPU of all sidebar processes | 0.25 % of one core (`bae8d21`) | 0.23 % (`1ae7070`) |
+| idle, memory (RSS) of one sidebar process | about 21 MB (23.4 MB on average for 1.1 processes) | 16.3 MB (1.0 process) |
+| select screen open on a working member, CPU of the sidebars | 0.33 % | 0.25 % (`05068f2`) |
+| same, CPU of the select process | 0.90 % | 0.33 % (`05068f2`) |
+| same, memory (RSS) of the select process | 21.1 MB on average | 16.3 MB at its peak (`05068f2`) |
+
+The idle sidebar is the collector most of the time: `bench/idle.py --live` puts one real collection at 3 to 4.5 ms of
+the sidebar's own CPU every 2 s, of which the walk over the process tree (`proc_children`, `proc_args`) is the largest
+part and is read again every time (see "Cheaper collection" below for why a command line is not remembered).
+
 ### Now: only visible sidebars run
 
 Measured 2026-11-11 (`bash bench/live.sh 60`): AMD Ryzen 9 5900XT, Linux, tmux 3.8, Python 3.14, 18 sidebar panes,
