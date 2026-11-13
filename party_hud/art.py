@@ -3,7 +3,7 @@
 import base64
 import os
 
-from .common import RESET, ROOT, spread
+from .common import RESET, ROOT, log_error, spread
 
 ART_DIR = os.path.join(ROOT, "art")
 PORTRAIT_FILES = [
@@ -52,7 +52,7 @@ ART_MIN_WIDTH = 30
 
 
 def load_art():
-    """art/ -> {image id: (PNG bytes, cols, rows)}; banners have only (PNG bytes,), or None if any of the 56 images is missing."""
+    """art/ -> {image id: (PNG path, cols, rows)}; banners have only (PNG path,), or None if any of the 56 images is missing or unreadable. The files are opened, not read: send_image reads one when it sends it."""
     art = {}
     for base, prefix, names, cells in (
         (PORTRAIT_ID, "portrait", PORTRAIT_FILES, PORTRAIT_CELLS),
@@ -64,11 +64,13 @@ def load_art():
         (SELECT_BANNER_ID, "banner", ["select"] + [f"select-{k}x1" for k in BANNER_RATIOS[1:]], ()),
     ):
         for k, name in enumerate(names):
+            path = os.path.join(ART_DIR, f"{prefix}-{name}.png")
             try:
-                with open(os.path.join(ART_DIR, f"{prefix}-{name}.png"), "rb") as f:
-                    art[base + k] = (f.read(), *cells)
+                with open(path, "rb"):
+                    pass
             except OSError:
                 return None
+            art[base + k] = (path, *cells)
     return art
 
 
@@ -127,6 +129,17 @@ def kitty_image(img_id, data, cols, rows):
             seq = "\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\"
         out += seq
     return out
+
+
+def send_image(art, img_id, cols, rows):
+    """kitty_image of the file art holds for img_id, read now and not kept. A file that cannot be read is logged and sends nothing."""
+    try:
+        with open(art[img_id][0], "rb") as f:
+            data = f.read()
+    except OSError:
+        log_error()
+        return ""
+    return kitty_image(img_id, data, cols, rows)
 
 
 def kitty_delete(img_id):

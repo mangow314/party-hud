@@ -3,6 +3,7 @@
 import functools
 import json
 import os
+import re
 import subprocess
 import time
 import unicodedata
@@ -80,8 +81,11 @@ def cw(s):
     return sum(map(_char_width, s))
 
 
+CONTROL = re.compile("[\x00-\x1f\x7f-\x9f]")  # exactly Unicode category Cc, checked over every code point in the tests
+
+
 def printable(s):
-    return "".join(ch for ch in s if unicodedata.category(ch) != "Cc")
+    return CONTROL.sub("", s)
 
 
 def clip(s, width):

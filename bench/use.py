@@ -126,6 +126,7 @@ def child_main(data_path):
     run_select = ui.run_select
     ui.run_select = lambda sel=None, fixture=None, images=None: run_select(sel or data["working"], fixture, images)
     ui.run_menu()
+    ui.leave_without_teardown()
 
 
 def cpu_seconds(pid):

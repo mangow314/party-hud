@@ -88,6 +88,7 @@ def child_main(scenario, data_path):
         ui.run_menu()
     else:
         ui.run_report(pane)
+    ui.leave_without_teardown()
 
 
 class Capture:

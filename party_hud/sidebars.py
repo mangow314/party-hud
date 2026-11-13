@@ -6,7 +6,6 @@ import math
 import os
 import re
 import shlex
-import shutil
 import sys
 import time
 import zlib
@@ -345,6 +344,8 @@ def _crew_summoned(pane):
         for d in os.listdir(root):
             path = os.path.join(root, d)
             if os.path.isdir(path) and not os.path.islink(path) and os.path.getmtime(path) < cutoff:
+                import shutil
+
                 shutil.rmtree(path)
     _crew_new_session(pane, time.time())
 

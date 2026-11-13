@@ -448,7 +448,12 @@ ok(ui.banner_cells(99, 0.452) == (53, 6, 4) and ui.banner_cells(60, 0.452) == (5
    "report banner: narrow stays 4:1 with at most 6 rows, a capped height sets the width (rows x 4 / ratio)")
 ok(art.image_row(art.banner_id("done", True, False, 8), 0, 106) in render.render_report(done, "Studio", rep, [], 150, art=True, banner=(106, 6, 8), portrait=(14, 7)).splitlines()[1],
    "report: the banner row carries the image id of its k:1 ratio")
-fake_art = {art.banner_id("done", True, False): (b"B",), art.portrait_id(done): (b"P", 6, 3), art.big_portrait_id(done): (b"G",)}
+import tempfile
+png_dir = tempfile.mkdtemp()
+def png(name, data=b"x"):
+    open(os.path.join(png_dir, name), "wb").write(data)
+    return os.path.join(png_dir, name)
+fake_art = {art.banner_id("done", True, False): (png("B", b"B"),), art.portrait_id(done): (png("P", b"P"), 6, 3), art.big_portrait_id(done): (png("G", b"G"),)}
 bid_, pid_, big_ = art.banner_id("done", True, False), art.portrait_id(done), art.big_portrait_id(done)
 sp = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11))
 nr = ui.report_images(done, True, fake_art, 90, (80, 10), (20, 11))
@@ -456,7 +461,7 @@ ok(sp.index(f"a=d,d=I,i={bid_}") < sp.index(f"a=T,U=1,f=100,i={bid_},c=118,r=15"
    < sp.index(f"a=d,d=I,i={big_}") < sp.index(f"a=T,U=1,f=100,i={big_},c=20,r=11") and big_ != pid_ and f"i={pid_}," not in sp
    and f"a=d,d=I,i={pid_}," not in nr and f"a=d,d=I,i={big_}," not in nr and f"a=T,U=1,f=100,i={pid_},c=6,r=3" in nr and f"i={big_}," not in nr,
    "report images: split deletes then sends the banner and the big portrait (own id); narrow never deletes the sidebar portrait and sends its id")
-fake_art.update({art.label_id("took"): (b"L",), art.label_id("where"): (b"M",)})
+fake_art.update({art.label_id("took"): (png("L", b"L"),), art.label_id("where"): (png("M", b"M"),)})
 lb = ui.report_images(done, True, fake_art, 150, (118, 15), (20, 11), None, ["took", "where"])
 lb_n = ui.report_images(done, True, fake_art, 90, (80, 10), (20, 11), None, ["took"])
 tid, wid = art.label_id("took"), art.label_id("where")
@@ -610,11 +615,44 @@ ok("".join(art_out).count(PH) == 18 * sum(1 for r in art_out if "╭" in strip(r
 mo = [strip(r) for r in srows_of(100, 20, "%2")]
 last = max(i for i, l in enumerate(mo) if "to read" in l)
 rule_i = next(i for i, l in enumerate(mo) if "─" * 10 in l)
-ok("more lines" in mo[last] and mo[last].split("…")[1].split()[0] == str(len(render.report_rows(srep, [], [], 100 - 36 - 2, 100 - 36 - 2, 4000.0)) - (last - rule_i - 1)) and last == len(mo) - 2,
-   "select screen: a report that does not fit ends in a '… N more lines · ⏎ to read' row with N the rows left out")
+ok(mo[last][38:].rstrip() == "… more · ⏎ to read" and last == len(mo) - 2,
+   "select screen: a report that does not fit ends in a '… more · ⏎ to read' row")
 short = {"text": "short report", "start": 1.0, "end": 2.0, "task": {}}
-ok(not any("more line" in l for l in map(strip, srows_of(180, 40, "%2", short))) and any("no report yet" in strip(r) for r in srows_of(180, 40, "%2", None)),
-   "select screen: a report that fits has no more-lines row; no report shows no report yet")
+ok(not any("more ·" in l for l in map(strip, srows_of(180, 40, "%2", short))) and any("no report yet" in strip(r) for r in srows_of(180, 40, "%2", None)),
+   "select screen: a report that fits has no more row; no report shows no report yet")
+tbl = "| name | note | n |\n|---|---|---|\n" + "\n".join(f"| row{i} | {'長い説明 ' * (i % 4)}text {i} | {i * 7} |" for i in range(40))
+fence = "```python\n" + "\n".join(f"line_{i} = '" + "x" * (i % 40) + "'" for i in range(60)) + "\n```\n\nafter"
+nested = "\n".join(f"- item {i} " + "word " * (i % 9) + f"\n  - nested {i}\n    1. deep {i}" for i in range(30))
+quote = "\n".join(f"> quoted {i} " + "q " * (i % 12) + "\n>> inner" for i in range(30))
+cjk = "\n\n".join("你好，世界。" * (3 + i % 5) + "ABC def" for i in range(25))
+heads = "\n".join(f"## Head {i}\nparagraph {i} " + "text " * (i % 15) + "\n" for i in range(30))
+reports_ = [tbl, fence, nested, quote, cjk, heads, "intro\n\n" + tbl, "x\n\n" + fence.replace("after", tbl)]
+pv_ok, pv_n, pv_seen = True, 0, []
+mdcount = [0]
+real_rows, real_table = render.md_rows, render.md_table
+render.md_rows = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_rows(*a, **k))[1]
+render.md_table = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_table(*a, **k))[1]
+at_ = next(i for i, (_, a, _) in enumerate(srs) if a["pane"] == "%3")
+for text in reports_:
+    rp = dict(srep, text=text)
+    for w in (30, 44, 62):
+        render.clear_markdown_cache()
+        mdcount[0] = 0
+        full = [strip(r).rstrip() for r in render.report_rows(rp, [], [], w, w, 4000.0, False)]
+        n_full = mdcount[0]
+        for h in (12, 20, 30):
+            render.clear_markdown_cache()
+            mdcount[0] = 0
+            pv = [strip(r).rstrip() for r in render.select_preview(srs, sst, at_, w, h, rp, 4000.0)]
+            rule = next(i for i, r in enumerate(pv) if r.startswith("─" * w))
+            body = pv[rule + 1 :]
+            pv_seen.append(mdcount[0] < n_full if "| name |" not in text[:20] else mdcount[0] <= n_full)
+            pv_n += 1
+            pv_ok = pv_ok and body[-1] == "… more · ⏎ to read" and body[:-1] == full[: len(body) - 1] and len(pv) == h
+ok(pv_ok and pv_n == 72, "select preview: the report rows shown are the first rows of the full layout and the last row is '… more · ⏎ to read', for tables, code fences, nested lists, quotes, CJK and headings at several sizes")
+ok(all(pv_seen), "select preview: only part of the report is laid out (fewer layout calls than the full layout, a table counts as one block) at every size")
+render.md_rows, render.md_table = real_rows, real_table
+render.clear_markdown_cache()
 cxst = [{"name": "S", "agents": [{**sm(f"%{i}", f"m{i}", st_), **({"kind": "codex", "sp": None} if i % 2 else {})} for i, st_ in enumerate(["waiting", "done", "working", "idle", "waiting", "idle", "done", "sleep"], 20)]}]
 cxro = render.select_roster(cxst)
 ok({len(render.card(a, render.SELECT_CARD, False, False)) for _, a, _ in cxro} == {4, 5}, "select screen: fixture has both 4-row (codex) and 5-row (claude) cards without art")
@@ -622,8 +660,8 @@ cx_ok = True
 for w, h in [(179, 47), (100, 30), (100, 20), (100, 14), (179, 12)]:
     for _, a, _ in cxro:
         out = [strip(r) for r in srows_of(w, h, a["pane"], srep, False, cxro, cxst)]
-        cx_ok = cx_ok and len(out) == h and all(common.cw(r) == w for r in out) and "more lines" in out[-2]
-ok(cx_ok, "select screen: with 4-row and 5-row cards mixed the screen is exactly height rows of width cells and the preview still ends in the more-lines row, for every cursor position")
+        cx_ok = cx_ok and len(out) == h and all(common.cw(r) == w for r in out) and out[-2][38:].rstrip() == "… more · ⏎ to read"
+ok(cx_ok, "select screen: with 4-row and 5-row cards mixed the screen is exactly height rows of width cells and the preview still ends in the more row, for every cursor position")
 pk_rows = lambda rep, pk_: [strip(r) for r in render.render_select(srs, sst, "%2", 120, 30, rep, 4000.0, None, False, pk_)]
 ok(any("$ make test" in r for r in pk_rows(None, ["$ make test", "ok"])) and not any("no report yet" in r for r in pk_rows(None, ["$ make test"]))
    and any("no report yet" in r for r in pk_rows(None, [])) and not any("$ make test" in r for r in pk_rows(srep, ["$ make test"])),
@@ -670,9 +708,9 @@ ok("c3 waiting" in strip(render.select_crew_line(st[1]["agents"][0], st, 40)) an
    "select crew line: all crew of the lead with their status, None without crew, exact width")
 ok(not any("crew " in strip(r)[38:] for r in srows_of(180, 40, "%1")) and any(strip(r)[38:].startswith("crew") for r in srows_of(180, 40, "%2")),
    "select screen: no crew line in the preview of a member without crew, one for a lead with crew")
-ok(ui.select_image_plan([sst[1]["agents"][0]], {art.portrait_id(sst[1]["agents"][0]): (b"x", 6, 3)}) == [(art.portrait_id(sst[1]["agents"][0]), 6, 3)]
+ok(ui.select_image_plan([sst[1]["agents"][0]], {art.portrait_id(sst[1]["agents"][0]): (png("x"), 6, 3)}) == [(art.portrait_id(sst[1]["agents"][0]), 6, 3)]
    and ui.select_image_plan([sst[1]["agents"][0]], None) == []
-   and art.kitty_delete(7) not in ui.select_images_out([(7, 6, 3)], {7: (b"x", 6, 3)}, {}, {7}) and art.kitty_delete(8) in ui.select_images_out([(8, 6, 3)], {8: (b"x", 6, 3)}, {}, {7}),
+   and art.kitty_delete(7) not in ui.select_images_out([(7, 6, 3)], {7: (png("x"), 6, 3)}, {}, {7}) and art.kitty_delete(8) in ui.select_images_out([(8, 6, 3)], {8: (png("x"), 6, 3)}, {}, {7}),
    "select images: the plan is the small portrait of each card on screen; an id the sidebars share is not deleted before the send")
 cw_row = lambda name, w, sel="%9": render.select_row(2, sm("%20", name, "waiting", "%9"), True, sel, w)
 cw_ok = all(common.cw(strip(cw_row(n, w))) == w for n in ("c1", "建置-worker-with-a-very-long-name", "你好世界") for w in range(12, 60))
@@ -756,6 +794,85 @@ for fr in (0.0, 0.3, 0.77):
     st, ch, wk = hour_changes(fr)
     hour_ok = hour_ok and wk <= 75 and all(0.0 <= (c - st + 0.5) % 60 < 0.3 for c in ch if c - st > 3599) and len([c for c in ch if c - st > 3599]) == 62
 ok(hour_ok, "time ticks: from 3600 s on the shown value (fmt_took, minutes only) is redrawn within 0.3 s after it turns and the wake comes once a minute, not once a second")
+def phase_run(spins, timed_of, t0, frac, span=30.0):
+    t, fetched, rows = t0, t0 - frac, []
+    while t < t0 + span:
+        if t - fetched >= ui.SNAP_AGE:
+            fetched = t
+        tick, anchors, _ = ui.select_phase(t, spins, timed_of(t))
+        rows.append((t, tick))
+        t += ui.select_wait(fetched, t, t + ui.tick_wait(t, anchors), t)
+    return rows
+def phase_ok(rows):
+    ticks = [k for _, k in rows]
+    gaps = [b[0] - a[0] for a, b in zip(rows[1:], rows[2:])]
+    return len(rows) <= 32 and all(b - a == 1 for a, b in zip(ticks, ticks[1:])) and all(0.99 <= g <= 1.01 for g in gaps)
+def one_wake_a_second():
+    if getattr(ui, "select_phase", None) is None:
+        return False
+    good = True
+    for fr in (0.0, 0.3, 0.7):
+        start = 5000.0 - 200.0 + fr
+        rows = phase_run(True, lambda t: ui.time_anchor(start, t), 5000.0, fr)
+        took = [render.fmt_took(t - start) for t, _ in rows]
+        good = good and phase_ok(rows) and all(a != b for a, b in zip(took, took[1:]))
+        hour = 5000.0 - 3700.0 + fr
+        rows = phase_run(True, lambda t: ui.time_anchor(hour, t), 5000.0, fr)
+        took = [render.fmt_took(t - hour) for t, _ in rows]
+        ticks = [k for _, k in rows]
+        good = good and len(rows) <= 32 and all(k == int(t) for t, k in rows) and all(b - a in (0, 1) for a, b in zip(ticks, ticks[1:])) and ticks[-1] - ticks[0] >= 29 and sum(a != b for a, b in zip(took, took[1:])) <= 1
+        rows = phase_run(True, lambda t: None, 5000.0, fr)
+        good = good and phase_ok(rows) and all(k == int(t) for t, k in rows)
+    return good
+ok(one_wake_a_second(), "select screen: one wake a second: the spinner turns at the instant the cursor member's RUNNING / WAITED turns (same frame, each step one cell); from 3600 s on, with no time shown, or with no one working it turns on the whole second as before")
+def phase_seq(segments, t0):
+    t, fetched, state, rows = t0, t0 - 0.35, None, []
+    for timed_of, dur in segments:
+        end = t + dur
+        while True:
+            if t - fetched >= ui.SNAP_AGE:
+                fetched = t
+            tick, anchors, state = ui.select_phase(t, True, timed_of(t), state)
+            rows.append((t, tick, state))
+            nxt = t + ui.select_wait(fetched, t, t + ui.tick_wait(t, anchors), t)
+            if nxt >= end:
+                t = end
+                break
+            t = nxt
+    return rows
+def phase_switch_ok():
+    if getattr(ui, "select_phase", None) is None:
+        return False
+    good = True
+    for shift in (0.0, 0.21, 0.55, 0.9):
+        t0 = 5000.0 + shift
+        a, b, hr = t0 - 200.3, t0 - 100.8, t0 + 30.0 - 3600.0 - 3.4
+        segs = [(lambda t: ui.time_anchor(a, t), 8.0 + shift), (lambda t: ui.time_anchor(b, t), 8.37), (lambda t: None, 7.61),
+                (lambda t: ui.time_anchor(a, t), 8.83), (lambda t: ui.time_anchor(hr, t), 9.2)]
+        rows = phase_seq(segs, t0)
+        ticks = [k for _, k, _ in rows]
+        good = good and all(y - x in (0, 1) for x, y in zip(ticks, ticks[1:])) and ticks[-1] - ticks[0] >= 35
+        good = good and all(0.0 <= (t - st[0]) % 1 < 0.02 or (st[0] != old[0] and t - old[3] >= 1.0) for (_, x, old), (t, y, st) in zip(rows, rows[1:]) if y == x + 1)
+        good = good and len(rows) <= 42 + 12
+    return good
+ok(phase_switch_ok(), "select screen: one wake a second: when the cursor moves to a member with another phase, to none, back, or a time passes 3600 s, the spinner tick only ever stays or steps one (never back or jumps) and the next step falls on the new phase's boundary")
+def phase_moving_ok():
+    if getattr(ui, "select_phase", None) is None:
+        return False
+    good = True
+    for gap in (0.03, 0.2, 0.5):
+        state, steps, ticks = None, [], []
+        for i in range(int(60 / gap)):
+            t = 5000.0 + i * gap
+            start = 4800.0 + (0.3, 0.8, 0.55)[i % 3]
+            tick, _, state = ui.select_phase(t, True, ui.time_anchor(start, t), state)
+            ticks.append(tick)
+            if len(ticks) > 1 and tick != ticks[-2]:
+                steps.append(t)
+        good = good and all(y - x in (0, 1) for x, y in zip(ticks, ticks[1:])) and ticks[-1] - ticks[0] >= 60 / (1 + gap) - 2
+        good = good and all(b - a <= 1 + gap + 1e-6 for a, b in zip(steps, steps[1:]))
+    return good
+ok(phase_moving_ok(), "select screen: one wake a second: a cursor that moves to another phase every 0.03, 0.2 or 0.5 s and draws only then still steps the spinner at least once per 1 + gap seconds, one cell at a time, never back")
 real_gs, real_rf = ui.get_snapshot, ui.report_for
 ui.report_for = lambda a: {"status_seen": a["status"]}
 q = [("S", {"pane": "%1", "status": "working"})]
@@ -930,7 +1047,14 @@ def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), g
     for key, n in zip(keys, draws or range(1, len(keys) + 1)):
         if not resizes:
             read_until(b"\x1b[J", n)
-        time.sleep(hold)
+        # a pty holds little unread output (far less on macOS than on Linux); unread, the child blocks in its write
+        held = time.monotonic() + hold
+        while time.monotonic() < held:
+            if _sel.select([m], [], [], max(0.0, held - time.monotonic()))[0]:
+                try:
+                    out += os.read(m, 65536)
+                except OSError:
+                    break
         os.write(m, key)
     read_until(b"EXITED", 1)
     p.wait(timeout=5)
@@ -1004,11 +1128,12 @@ ok("EXITED" in nh and "Traceback" not in nh and f"TRACE_SELECT {nxt_expect}" in 
 sel_close = report_session([b"\r", b"q"], src=trace_child)
 ok("EXITED" in sel_close and "Traceback" not in sel_close and sel_close.count("TRACE_SELECT") == 1 and sel_close.count("TRACE_REPORT") == 1 and sel_close.count("PARTY SELECT") == 1,
    "select screen: q on the report page ends the program, it does not go back")
+REAL_PNG = os.path.join(os.path.dirname(sys.argv[1]), "art", "label-took.png")
 share_inject = """ui.report_queue = lambda towns, pane=None, window=None: [("A", {"pane": "%%1", "round": 0})]
 ui.art_supported = lambda *a: True
 def counting_load_art():
     print("LOAD_ART", flush=True)
-    return {11: (b"s", 6, 3), 7: (b"r", 10, 5)}
+    return {11: (PNGPATH, 6, 3), 7: (PNGPATH, 10, 5)}
 ui.load_art = counting_load_art
 ui.portrait_id = lambda a: -1
 ui.fit_report_pane = lambda *a: None
@@ -1016,7 +1141,7 @@ ui.select_banner = lambda *a: None
 ui.select_image_plan = lambda cards, art: [(11, 6, 3)]
 ui.report_image_plan = lambda *a: [(11, 6, 3), (7, 10, 5)]
 ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("L" + str(n)).ljust(width) for n in range(80)])
-ui.run_menu()"""
+ui.run_menu()""".replace("PNGPATH", repr(REAL_PNG))
 sh = report_session([b"\r", b"h", b"\r", b"q"], rows=60, src=select_child.replace("ui.run_menu()", share_inject, 1))
 sh_second = sh[[m.start() for m in re.finditer(re.escape("\x1b[?1049h"), sh)][3]:]
 ok("EXITED" in sh and "Traceback" not in sh and sh.count("\x1b[?1049h") == 4 and "a=T,U=1,f=100,i=7," in sh
@@ -1092,7 +1217,7 @@ live_inject = first_inject.replace("ui.report_image_plan = lambda *a: [(7, 10, 5
 lv = report_session([b"q"], draws=[2], src=child.replace("ui.run_report", live_inject, 1))
 ok("a=d,d=I,i=7" in lv and lv.index("a=d,d=I,i=7") > lv.index("\x1b[H") and lv.index("a=d,d=I,i=7") < lv.rindex("\x1b[H"),
    "report pane: when the in-progress page turns into the final report, the new banner id is deleted with the next frame, as for a new page")
-resend_inject = live_inject.replace("ui.load_art = lambda: {\"k\": 1}", "ui.load_art = lambda: {7: (b'x', 1, 1), 8: (b'x', 1, 1)}").replace("ui.report_images = lambda *a: \"\"\n", "").replace("ui.run_report", "ui.ART_SETTLE = 0.3\nui.run_report", 1)
+resend_inject = live_inject.replace("ui.load_art = lambda: {\"k\": 1}", "ui.load_art = lambda: {7: (%r, 1, 1), 8: (%r, 1, 1)}" % (REAL_PNG, REAL_PNG)).replace("ui.report_images = lambda *a: \"\"\n", "").replace("ui.run_report", "ui.ART_SETTLE = 0.3\nui.run_report", 1)
 T7 = "a=T,U=1,f=100,i=7"
 rl = report_session([b"q"], draws=[2], hold=1.2, src=child.replace("ui.run_report", resend_inject, 1))
 ok(rl.count(T7) == 2 and rl.index(T7) < rl.rindex(T7) and "a=d,d=I,i=7" not in rl[rl.index(T7) :] and "a=d,d=I,i=7" in rl and rl.index("a=d,d=I,i=7") < rl.index(T7),
@@ -1606,9 +1731,41 @@ for i, n in enumerate(art.PORTRAIT_FILES + art.CREST_FILES + art.BANNER_FILES + 
 for j, n in enumerate(["select"] + [f"select-{k}x1" for k in range(5, 9)]):
     open(os.path.join(art.ART_DIR, "banner-" + n + ".png"), "wb").write(b"PNG" + bytes([51 + j]))
 imgs = art.load_art()
-ok(imgs and len(imgs) == 56 and imgs[art.select_banner_id(7)] == (b"PNG" + bytes([51 + 3]),) and imgs[art.label_id("running")] == (b"PNG" + bytes([50]),) and imgs[art.banner_id("waiting", True, False, 7)] == (b"PNG" + bytes([28 + 2 * 4 + 1]),) and imgs[art.BIG_PORTRAIT_ID + 3] == (b"PNG\x17",) and imgs[art.PORTRAIT_ID + 2] == (b"PNG\x02", 6, 3) and imgs[art.CREST_ID + 7] == (b"PNG\x0f", 4, 2)
-   and imgs[art.BANNER_ID + 2] == (b"PNG\x12",),
+rd = lambda k: (open(imgs[k][0], "rb").read(), *imgs[k][1:])
+ok(imgs and len(imgs) == 56 and rd(art.select_banner_id(7)) == (b"PNG" + bytes([51 + 3]),) and rd(art.label_id("running")) == (b"PNG" + bytes([50]),) and rd(art.banner_id("waiting", True, False, 7)) == (b"PNG" + bytes([28 + 2 * 4 + 1]),) and rd(art.BIG_PORTRAIT_ID + 3) == (b"PNG\x17",) and rd(art.PORTRAIT_ID + 2) == (b"PNG\x02", 6, 3) and rd(art.CREST_ID + 7) == (b"PNG\x0f", 4, 2)
+   and rd(art.BANNER_ID + 2) == (b"PNG\x12",),
    "All 56 images present: portraits 6x3 cells, crests 4x2 cells, 4 banners and the select banner in 5 ratios, 8 big portraits and 7 heading labels (no cell size stored)")
+import builtins
+reads, real_open = [], builtins.open
+class Spy:
+    def __init__(self, f, path): self.f, self.path = f, path
+    def __enter__(self): return self
+    def __exit__(self, *e): self.f.close()
+    def read(self, *n): reads.append(self.path); return self.f.read(*n)
+builtins.open = lambda path, *a, **k: Spy(real_open(path, *a, **k), path) if str(path).startswith(art.ART_DIR) else real_open(path, *a, **k)
+try:
+    loaded = art.load_art()
+    n_load = len(reads)
+    sent_one = art.send_image(loaded, art.PORTRAIT_ID + 2, 6, 3)
+    n_one = len(reads)
+    lost = loaded[art.LABEL_ID][0]
+    lost_bytes = real_open(lost, "rb").read()
+    os.remove(lost)
+    real_err, real_pdir = common.ERROR_LOG, common.PARTY_DIR
+    common.PARTY_DIR = png_dir
+    common.ERROR_LOG = os.path.join(png_dir, "err.log")
+    try:
+        sent_lost, lost_err = art.send_image(loaded, art.LABEL_ID, 8, 1), None
+    except Exception as e:
+        sent_lost, lost_err = None, e
+    common.ERROR_LOG, common.PARTY_DIR = real_err, real_pdir
+    real_open(lost, "wb").write(lost_bytes)
+finally:
+    builtins.open = real_open
+ok(loaded and not any(isinstance(x, bytes) for v in loaded.values() for x in v) and n_load == 0
+   and sent_one == art.kitty_image(art.PORTRAIT_ID + 2, b"PNG\x02", 6, 3) and n_one == 1 and reads == [loaded[art.PORTRAIT_ID + 2][0]]
+   and lost_err is None and sent_lost == "" and "FileNotFoundError" in real_open(os.path.join(png_dir, "err.log")).read(),
+   "Images: a file is read when it is sent, not by load_art (no bytes kept, one file per image sent); an unreadable file sends nothing, raises nothing and is logged")
 old_ids = [art.BANNER_ID + 4 * j + i for j in range(5) for i in range(4)] + [art.BIG_PORTRAIT_ID + i for i in range(8)] + [art.LABEL_ID + i for i in range(7)]
 sel_ids = [art.select_banner_id(k) for k in range(4, 9)]
 ok(len(set(sel_ids)) == 5 and not set(sel_ids) & set(old_ids) and not set(sel_ids) & set(range(art.PORTRAIT_ID, art.PORTRAIT_ID + 8))
@@ -2058,13 +2215,36 @@ ok([ui.report_scroll(k, 5, 20, 10) for k in ["k", "j", "PgUp", "PgDn", "g", "G",
    "Report scroll keys -> offset: k / j one row, PgUp / PgDn a page (height - 1), g / G top / bottom; other keys keep it")
 sel_ros, sel_towns = [("Studio", done, False)], [{"name": "Studio", "agents": [done]}]
 other_ = dict(done, cls=(done["cls"] + 1) % 4)
-sel_art = {art.portrait_id(done): (b"G", 6, 3), art.portrait_id(other_): (b"H", 6, 3)}
+sel_art = {art.portrait_id(done): (png("G"), 6, 3), art.portrait_id(other_): (png("H"), 6, 3)}
 plan_a = ui.select_image_plan([done, other_], sel_art)
 ok(plan_a == [(art.portrait_id(done), 6, 3), (art.portrait_id(other_), 6, 3)] and ui.select_image_plan([done], None) == [],
    "select images: the plan holds the small portrait of each card on screen with its cells; no art -> empty")
 ok(ui.select_images_due(plan_a, {i: (c, r) for i, c, r in plan_a}) == [] and ui.select_images_due(plan_a, {plan_a[0][0]: (7, 3)})[0] == plan_a[0]
    and ui.select_images_due(plan_a, {}) == plan_a,
    "select images: same id at the same cells is not sent again, other cells are, an id never sent is")
+real_card, ncard, once_ok = render.card, [0], True
+def counted_card(*a, **k):
+    ncard[0] += 1
+    return real_card(*a, **k)
+render.card = counted_card
+for w_, h_, art_ in [(120, 40, False), (120, 40, True), (80, 12, False), (80, 10, False), (60, 40, False), (120, 8, False), (36, 40, False)]:
+    for cur_ in ("%1", "%4", "%6", "%9", "%12"):
+        lw_, _ = render.select_widths(w_ - 1)
+        ncard[0] = 0
+        view_ = render.select_view(srs, cur_, lw_, render.select_layout(h_, 1)[3], art_)
+        shown_ = ui.select_cards(srs, view_)
+        rows_ = render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_, (), view_)
+        frame_calls = ncard[0]
+        built = sum(c is not None for c in view_[4])
+        again = render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_)
+        text_ = "".join(strip(r) for r in rows_)
+        once_ok = (once_ok and frame_calls == built and built == (0 if view_[0] else sum(not c for _, _, c in srs)) and rows_ == again
+                   and all(a_["name"] in text_ for a_ in shown_) and len(shown_) <= built)
+        ncard[0] = 0
+        render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_)
+        once_ok = once_ok and ncard[0] == built
+render.card = real_card
+ok(once_ok, "select screen builds each card once a frame: card() runs once per card item for the layout and the draw together, and the output is the same with or without the shared view")
 same_ = {i: (c, r) for i, c, r in plan_a}
 out_new = ui.select_images_out(plan_a, sel_art, {}, set())
 ok(ui.select_images_out(plan_a, sel_art, same_, set()) == "" and out_new.index(f"a=d,d=I,i={plan_a[0][0]}") < out_new.index(f"a=T,U=1,f=100,i={plan_a[0][0]},c=6,r=3")
@@ -2276,6 +2456,71 @@ good = sep.join(["a", "1", "w\\037x"] + ["0"] * (len(collect.TMUX_FIELDS) - 3))
 rows = collect.parse_panes(good + "\n" + "a\\0371\\037bash\n")
 ok(len(rows) == 1 and rows[0]["session_name"] == "a" and rows[0]["window_name"] == "w\\037x",
    "list-panes output: printable field separator; a line with the wrong field count is skipped, not a crash")
+import random, unicodedata as _ud
+from party_hud import common as _common
+def old_printable(s):
+    return "".join(ch for ch in s if _ud.category(ch) != "Cc")
+every = [chr(i) for i in range(sys.maxunicode + 1)]
+rnd = random.Random(7)
+pool = [chr(c) for c in (*range(0, 0xa1), 0xd7ff, 0xe000, 0x300, 0x301, 0x4e00, 0x9fff, 0xff21, 0x1f600, 0x10ffff)]
+mixed = ["".join(rnd.choice(pool) for _ in range(rnd.randint(0, 40))) for _ in range(2000)]
+mixed += ["\ud800", "a\udbffb\udc00\x00", "é\x07中\x9f\x7f"]
+ok(all(_common.printable(c) == old_printable(c) for c in every) and all(_common.printable(s) == old_printable(s) for s in mixed),
+   "printable gives the same text as dropping every Unicode Cc character, for each code point and for mixed strings")
+import builtins, os as _o, tempfile as _tf2
+tdir = _tf2.mkdtemp(prefix="tail-memo-")
+roll = _o.path.join(tdir, "r.jsonl")
+def put(path, text):
+    with open(path, "w") as fh:
+        fh.write(text)
+opened = []
+real_open = builtins.open
+def spy_open(file, *a, **k):
+    if file == roll:
+        opened.append(file)
+    return real_open(file, *a, **k)
+builtins.open = spy_open
+try:
+    collect._tail_memo.clear()
+    put(roll, "a\nb\n")
+    del opened[:]
+    first = collect._tail_lines(roll)
+    second = collect._tail_lines(roll)
+    ok(first == [b"a", b"b"] and second == first and len(opened) == 1 and second is not first,
+       "reads a codex rollout tail only when it changed: the second call on an unchanged file does not open it")
+    second.append(b"x")
+    ok(collect._tail_lines(roll) == [b"a", b"b"], "a caller changing the returned list does not change the remembered tail")
+    with real_open(roll, "a") as fh:
+        fh.write("c\n")
+    ok(collect._tail_lines(roll) == [b"a", b"b", b"c"], "reads a codex rollout tail only when it changed: an appended line is read")
+    st = _o.stat(roll)
+    put(roll, "a\nb\nZ\n")
+    _o.utime(roll, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+    ok(collect._tail_lines(roll) == [b"a", b"b", b"Z"], "reads a codex rollout tail only when it changed: same size, newer mtime is read")
+    _o.remove(roll)
+    ok(collect._tail_lines(roll) == [], "reads a codex rollout tail only when it changed: a deleted file gives no lines")
+    put(roll, "new\n")
+    ok(collect._tail_lines(roll) == [b"new"], "reads a codex rollout tail only when it changed: a recreated file is read")
+    put(roll, "n\n")
+    ok(collect._tail_lines(roll) == [b"n"], "reads a codex rollout tail only when it changed: a truncated file is read")
+    st = _o.stat(roll)
+    other = _o.path.join(tdir, "o.jsonl")
+    put(other, "m\n")
+    _o.utime(other, ns=(st.st_atime_ns, st.st_mtime_ns))
+    _o.replace(other, roll)
+    st2 = _o.stat(roll)
+    ok(st2.st_size == st.st_size and st2.st_mtime_ns == st.st_mtime_ns and st2.st_ino != st.st_ino and collect._tail_lines(roll) == [b"m"],
+       "reads a codex rollout tail only when it changed: a different file of the same size and mtime is read")
+    collect._tail_memo.clear()
+    for i in range(collect.TAIL_MEMO_MAX + 3):
+        collect._tail_lines(roll, 1000 + i)
+    ok(len(collect._tail_memo) == collect.TAIL_MEMO_MAX and (roll, 1000) not in collect._tail_memo,
+       "reads a codex rollout tail only when it changed: the memory is capped and drops the oldest")
+finally:
+    builtins.open = real_open
+    collect._tail_memo.clear()
+    import shutil as _sh
+    _sh.rmtree(tdir, ignore_errors=True)
 print("\n".join(fails), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
@@ -2899,5 +3144,191 @@ sys.exit(1 if fails else 0)
 EOF
 }
 check "cw: matches the per-character width algorithm, repeated calls agree, the cache is bounded" cw_ok
+
+# party.py imports only what a sub-command needs: the long-running ones skip argparse, every short-lived one skips ui and render
+imports_only_ok() {
+  python3 - "$party" <<'EOF'
+import json, os, subprocess, sys
+root = os.path.dirname(sys.argv[1])
+CHILD = """
+import importlib, json, sys
+argv, targets = json.loads(sys.argv[1]), json.loads(sys.argv[2])
+sys.argv = ["party.py", *argv]
+sys.path.insert(0, %r)
+import party
+calls = []
+def fake(name):
+    return lambda *a, **k: calls.append([name, list(a)]) or (0, "", "")
+for t in targets:
+    mod, _, name = t.rpartition(".")
+    setattr(importlib.import_module(mod), name, fake(t))
+    if mod == "party_hud.ui":
+        importlib.import_module(mod).leave_without_teardown = lambda: None
+rc = 0
+try:
+    party.main()
+except SystemExit as e:
+    rc = e.code
+print(json.dumps({"calls": calls, "rc": rc, "loaded": [m for m in ("argparse", "shutil", "typing", "traceback", "party_hud.ui", "party_hud.render") if m in sys.modules]}))
+""" % root
+fails = []
+def run(argv, targets):
+    r = subprocess.run([sys.executable, "-c", CHILD, json.dumps(argv), json.dumps(targets)], capture_output=True, text=True, cwd=root)
+    if r.returncode != 0 or not r.stdout.strip():
+        fails.append("%s: rc %s %s" % (argv, r.returncode, r.stderr[-300:]))
+        return None
+    return json.loads(r.stdout)
+def case(argv, target, args, forbidden):
+    out = run(argv, [target])
+    if out is None:
+        return
+    if out["calls"] != [[target, args]]:
+        fails.append("%s: calls %s" % (argv, out["calls"]))
+    if out["rc"] not in (0, None, 5, 6, 7):
+        fails.append("%s: rc %s" % (argv, out["rc"]))
+    bad = [m for m in out["loaded"] if m in forbidden]
+    if bad:
+        fails.append("%s: loaded %s" % (argv, bad))
+long_run = ("argparse", "shutil", "typing", "traceback")
+short = ("party_hud.ui", "party_hud.render")
+case(["--sidebar"], "party_hud.ui.run_ui", [], long_run)
+case(["--select"], "party_hud.ui.run_menu", [], long_run)
+case(["--report"], "party_hud.ui.run_report", [None], long_run)
+case(["--report", "%5"], "party_hud.ui.run_report", ["%5"], long_run)
+for argv, target, args in (
+    (["--ensure", "@1"], "party.ensure", ["@1"]),
+    (["--reflow", "@1"], "party.reflow", ["@1"]),
+    (["--nudge"], "party.nudge", [""]),
+    (["--nudge", "@2"], "party.nudge", ["@2"]),
+    (["--tidy"], "party.tidy", []),
+    (["--remember-width"], "party.remember_width", []),
+    (["--toggle"], "party.toggle", []),
+    (["--ask", "%5", "hi"], "party.ask", ["%5", "hi"]),
+    (["--dismiss", "%5"], "party.dismiss", ["%5"]),
+    (["--summon", "codex"], "party.summon", ["codex", None, False, 60, False, False]),
+    (["--report-text", "%5"], "party.report_text", ["%5", False, 600, None, {}]),
+    (["--open-report", "%5"], "party.open_report_pane", ["", "%5"]),
+):
+    case(argv, target, args, short)
+# the argparse path: same dispatch as before
+case(["--sidebar", "--fixture", "F"], "party_hud.ui.run_ui", ["F"], ())
+case(["--select", "--fixture", "F"], "party_hud.ui.run_menu", ["F"], ())
+case(["--report", "%1", "--fixture", "F"], "party_hud.ui.run_report", ["%1", "F"], ())
+case(["--report", "--fixture", "F"], "party_hud.ui.run_report", [None, "F"], ())
+case(["--report", ""], "party_hud.ui.run_report", [None], long_run)
+out = run(["--report", "%1", "--fixture", "F"], ["party_hud.ui.run_report"])
+if out and "argparse" not in out["loaded"]:
+    fails.append("--fixture did not go through argparse")
+help_out = subprocess.run([sys.executable, sys.argv[1], "--help"], capture_output=True, text=True, cwd=root)
+flat = " ".join(help_out.stdout.split())
+if help_out.returncode != 0 or not flat.startswith("usage: party.py") or "tmux party sidebar: sessions as squads, agents as members" not in flat or "Exit code 6: the rules do not allow it (stderr says which one)." not in flat:
+    fails.append("--help: rc %s %r" % (help_out.returncode, help_out.stdout[:80]))
+typo = subprocess.run([sys.executable, sys.argv[1], "--sidbar"], capture_output=True, text=True, cwd=root)
+if typo.returncode != 2 or "unrecognized arguments: --sidbar" not in typo.stderr:
+    fails.append("typo flag: rc %s %r" % (typo.returncode, typo.stderr[-80:]))
+print("\n".join(fails[:8]), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF
+}
+check "party.py imports only what it needs: resident sub-commands skip argparse, short-lived ones skip ui and render" imports_only_ok
+
+# the resident sub-commands leave through ui.leave_without_teardown, and only when their screen returns
+leaves_ok() {
+  python3 - "$party" "$tmp/fixture.json" <<'EOF'
+import fcntl, io, os, pty, select, struct, subprocess, sys, termios, time
+root = os.path.dirname(sys.argv[1])
+sys.path.insert(0, root)
+import party
+from party_hud import ui
+fails = []
+def ok(cond, msg):
+    if not cond: fails.append(msg)
+events = []
+class Stream(io.StringIO):
+    def __init__(self, name):
+        super().__init__()
+        self.name = name
+    def flush(self):
+        events.append(self.name + " flush")
+real = (ui.run_ui, ui.run_menu, ui.run_report, os._exit, sys.stdout, sys.stderr, sys.argv)
+def main_with(argv, screen_error=None):
+    events.clear()
+    def screen(*a, **k):
+        events.append("screen")
+        sys.stdout.write("last bytes")
+        if screen_error:
+            raise screen_error
+    ui.run_ui = ui.run_menu = ui.run_report = screen
+    os._exit = lambda rc: events.append("exit %s" % rc)
+    sys.stdout, sys.stderr, sys.argv = Stream("out"), Stream("err"), ["party.py", *argv]
+    raised = None
+    try:
+        party.main()
+    except Exception as e:
+        raised = e
+    finally:
+        ui.run_ui, ui.run_menu, ui.run_report, os._exit, sys.stdout, sys.stderr, sys.argv = real
+    return list(events), raised
+for argv in (["--sidebar"], ["--select"], ["--report"], ["--report", "%5"]):
+    ev, raised = main_with(argv)
+    ok(raised is None and ev == ["screen", "out flush", "err flush", "exit 0"], "%s: flushes stdout and stderr, then exits with 0 after the screen returns (%s %s)" % (argv, ev, raised))
+    ev, raised = main_with(argv, RuntimeError("boom"))
+    ok(type(raised) is RuntimeError and ev == ["screen"], "%s: a screen that raises propagates and does not exit early (%s %r)" % (argv, ev, raised))
+for argv in (["--sidebar", "--fixture", "F"], ["--select", "--fixture", "F"], ["--report", "%1", "--fixture", "F"]):
+    ev, raised = main_with(argv)
+    ok(raised is None and ev == ["screen"], "%s: the argparse path does not exit early (%s %r)" % (argv, ev, raised))
+CHILD = """
+import sys
+sys.path.insert(0, %r)
+sys.argv = ["party.py", "--report", "%%1"]
+import party
+from party_hud import collect, ui
+ui.get_snapshot = lambda f=None: collect.collect(%r)
+ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(30)), "start": 1, "end": 2}
+ui.tmux = lambda *a: "off" if "@party_anim" in a else ""
+party.main()
+print("NOT REACHED", flush=True)
+""" % (root, sys.argv[2])
+m, sl = pty.openpty()
+fcntl.ioctl(sl, termios.TIOCSWINSZ, struct.pack("HHHH", 10, 60, 0, 0))
+before = termios.tcgetattr(sl)
+p = subprocess.Popen([sys.executable, "-c", CHILD], stdin=sl, stdout=sl, stderr=sl, env=dict(os.environ, TMUX_PANE="%99"), close_fds=True)
+out = b""
+def pump(until):
+    global out
+    while time.monotonic() < until:
+        if select.select([m], [], [], 0.1)[0]:
+            try:
+                out += os.read(m, 65536)
+            except OSError:
+                return
+        elif p.poll() is not None:
+            return
+t_end = time.monotonic() + 10
+while b"\x1b[J" not in out and time.monotonic() < t_end:
+    pump(time.monotonic() + 0.1)
+os.write(m, b"q")
+pump(time.monotonic() + 10)
+try:
+    rc = p.wait(timeout=5)
+except subprocess.TimeoutExpired:
+    p.kill()
+    rc = None
+while select.select([m], [], [], 0.2)[0]:
+    out += os.read(m, 65536)
+after = termios.tcgetattr(sl)
+text = out.decode(errors="ignore")
+tail = ui.MOUSE_OFF + "\x1b[?25h\x1b[?1049l"
+ok(rc == 0, "report pane through party.py: exit code 0 (%r)" % rc)
+ok(text.endswith(tail) and "NOT REACHED" not in text, "report pane through party.py: the last bytes written are mouse reporting off, cursor shown, alternate screen left (%r)" % text[-60:])
+# macOS sets PENDIN in the local flags when a terminal goes back to canonical mode
+settled = lambda t: [t[0], t[1], t[2], t[3] & ~termios.PENDIN, *t[4:]]
+diff = [(i, a, b) for i, (a, b) in enumerate(zip(settled(before), settled(after))) if a != b]
+ok(not diff, "report pane through party.py: the terminal settings are the ones it started with, PENDIN aside (%r)" % diff)
+print("\n".join(fails[:8]), file=sys.stderr)
+sys.exit(1 if fails else 0)
+EOF
+}
+check "party.py leaves without the interpreter's teardown: the resident sub-commands flush and os._exit(0) after their screen returns, with the terminal restored" leaves_ok
 
 exit "$fail"

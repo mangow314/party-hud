@@ -32,15 +32,12 @@ exit 5 means the action was done but the save failed (details on stderr).
 Design: docs/architecture.md. What is read for each agent: docs/integrations.md.
 """
 
-import argparse
-import shutil
 import subprocess
 import sys
 import time
 
 from party_hud.collect import FIELD_SEP, get_snapshot, report_text
 from party_hud.common import tmux_run
-from party_hud.render import render
 from party_hud.sidebars import (
     crew_asked,
     crew_replied,
@@ -56,7 +53,6 @@ from party_hud.sidebars import (
     tidy,
     toggle,
 )
-from party_hud.ui import jump_next, open_select, run_menu, run_report, run_ui
 
 
 def ask(pane, text):
@@ -86,6 +82,27 @@ def ask(pane, text):
 
 
 def main():
+    argv = sys.argv[1:]
+    if argv == ["--sidebar"]:
+        from party_hud.ui import leave_without_teardown, run_ui
+
+        run_ui()
+        leave_without_teardown()
+        return
+    if argv == ["--select"]:
+        from party_hud.ui import leave_without_teardown, run_menu
+
+        run_menu()
+        leave_without_teardown()
+        return
+    if argv == ["--report"] or (len(argv) == 2 and argv[0] == "--report" and not argv[1].startswith("-")):
+        from party_hud.ui import leave_without_teardown, run_report
+
+        run_report(argv[1] or None if len(argv) == 2 else None)
+        leave_without_teardown()
+        return
+    import argparse
+
     ap = argparse.ArgumentParser(
         description="tmux party sidebar: sessions as squads, agents as members",
         epilog="--ask, --report-text and --summon save each round under ${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/ "
@@ -138,14 +155,22 @@ def main():
     elif args.tidy:
         tidy()
     elif args.next:
+        from party_hud.ui import jump_next
+
         jump_next()
     elif args.menu:
+        from party_hud.ui import open_select
+
         open_select()
     elif args.select:
+        from party_hud.ui import run_menu
+
         run_menu(args.fixture)
     elif args.open_report is not None:
         open_report_pane("", args.open_report)
     elif args.report is not None:
+        from party_hud.ui import run_report
+
         run_report(args.report or None, args.fixture)
     elif args.report_text is not None:
         read = {}
@@ -187,8 +212,14 @@ def main():
         sys.stderr.write(err)
         sys.exit(rc)
     elif args.sidebar:
+        from party_hud.ui import run_ui
+
         run_ui(args.fixture)
     else:
+        import shutil
+
+        from party_hud.render import render
+
         towns = get_snapshot(args.fixture)["towns"]
         print(render(towns, args.width or shutil.get_terminal_size().columns - 1))
 

@@ -39,6 +39,7 @@ from party_hud.render import (
     select_cards,
     select_layout,
     select_roster,
+    select_view,
     select_widths,
     side_labels,
 )
@@ -157,7 +158,7 @@ class Canvas:
             cols, rows = self.sizes[img_id] if img_id in self.sizes else art[img_id][1:]
             self.defs[name] = (
                 f'<image id="{name}" width="{cols * CW}" height="{rows * CH}" preserveAspectRatio="none"'
-                f' href="{png_uri(Image.open(io.BytesIO(art[img_id][0])))}"/>'
+                f' href="{png_uri(Image.open(art[img_id][0]))}"/>'
             )
         return name
 
@@ -494,8 +495,9 @@ def select_page(fixture, data, entry, sel):
     title = [" " * banner[3] + image_row(select_banner_id(banner[2]), r, banner[0]) for r in range(banner[1])]
     layout = select_layout(REPORT_ROWS, banner[1])
     plan = select_title_plan(art, banner, layout[2])
-    plan += select_image_plan(select_cards(roster, sel, select_widths(width)[0], layout[3], True), art)
-    rows = render_select(roster, towns, sel, width, REPORT_ROWS, entry["report"], now, title, True)
+    view = select_view(roster, sel, select_widths(width)[0], layout[3], True)
+    plan += select_image_plan(select_cards(roster, view), art)
+    rows = render_select(roster, towns, sel, width, REPORT_ROWS, entry["report"], now, title, True, (), view)
     cv = Canvas(cols * CW, REPORT_ROWS * CH, {img: (c, r) for img, c, r in plan})
     cv.paint("\n".join(rows), 0, 0)
     return cv

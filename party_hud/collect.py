@@ -12,7 +12,6 @@ import unicodedata
 import zlib
 from datetime import datetime, timedelta
 from itertools import takewhile
-from typing import Any
 
 from .common import (
     CLASSES,
@@ -297,14 +296,29 @@ def _turn_done(lines):
     return False
 
 
+TAIL_MEMO_MAX = 16  # (path, size) entries; when full the entry stored longest ago goes
+_tail_memo = {}
+
+
 def _tail_lines(path, size=256 * 1024):
     try:
+        st = os.stat(path)
+        sig = (st.st_mtime_ns, st.st_size, st.st_ino)
+        memo = _tail_memo.get((path, size))
+        if memo and memo[0] == sig:
+            return list(memo[1])
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
             f.seek(max(0, f.tell() - size))
-            return f.read().splitlines()
+            lines = f.read().splitlines()
     except OSError:
+        _tail_memo.pop((path, size), None)
         return []
+    _tail_memo.pop((path, size), None)
+    if len(_tail_memo) >= TAIL_MEMO_MAX:
+        del _tail_memo[next(iter(_tail_memo))]
+    _tail_memo[path, size] = (sig, tuple(lines))
+    return lines
 
 
 def codex_report(path):
@@ -832,7 +846,7 @@ LONG_TURN_PREV = 2 * 1024 * 1024
 LONG_TURN_CACHE = 16
 HEAD_BYTES = 512
 USER_LINE = re.compile(rb'"type"\s*:\s*"user"')
-_long_turns: dict[str, tuple[int, int, int, int, bytes, Any]] = {}
+_long_turns: dict[str, tuple] = {}
 
 
 def _search_long_turn(f, lo):
@@ -1056,7 +1070,7 @@ def screen_report(pane):
     return {"text": "\n\n".join(paras), "start": None, "end": None} if paras else None
 
 
-def report_for(a) -> dict[str, Any] | None:
+def report_for(a) -> dict | None:
     """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Claude Code and Codex write one; agy and grok are read off the screen.
     Claude Code and Codex reports also carry "task": {"ask", "files" (list of paths; Codex has none), "cmds", "agents", "dir", "branch", "cwd"} for the left column.
     A Claude Code or Codex member whose status is "working" gets the turn in progress instead (claude_live shape, "live": True, "prev" = the report above or None), when its log shows one."""

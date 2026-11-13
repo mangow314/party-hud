@@ -6,7 +6,6 @@ import math
 import os
 import re
 import select
-import shutil
 import signal
 import struct
 import sys
@@ -30,11 +29,11 @@ from .art import (
     crest_ids,
     image_row,
     kitty_delete,
-    kitty_image,
     label_id,
     load_art,
     portrait_id,
     select_banner_id,
+    send_image,
 )
 from .collect import alerts, get_snapshot, report_for
 from .common import CURSOR_KEYS, ERROR_LOG, PARTY_DIR, capture, cursor_mtime, load_cursor, log_error, save_cursor, tmux
@@ -51,6 +50,7 @@ from .render import (
     select_cards,
     select_layout,
     select_roster,
+    select_view,
     select_widths,
     set_tick,
     side_labels,
@@ -276,6 +276,24 @@ def tick_wait(now, anchors):
     return min(p - (now - a) % p for a, p in anchors) + TICK_MARGIN if anchors else math.inf
 
 
+def select_phase(now, spins, timed, prev=None):
+    """(spinner tick, anchors, state) of a select frame. spins: a member works or has HP <= 10; timed: the cursor member's time_anchor or None; prev: the state of the last frame, or None. A time that turns every second also turns the spinner (and the HP blink), so one anchor wakes both; otherwise the spinner turns on the whole second.
+    When the phase changes the tick holds, so it never steps back or jumps, and the next step falls on the new phase's next boundary; but a change that finds the last step at least 1 s old makes that step at once, so a cursor that keeps moving cannot freeze the spinner. With frames at most g s apart a step is shown for less than 2 + g s, and for at most 1 + g s while every frame changes the phase. state = (phase, offset, tick, time of the last step)."""
+    sync = timed if timed and timed[1] == 1.0 else None
+    anchors = [sync] if sync else [SECOND] if spins else []
+    if timed and not sync:
+        anchors.append(timed)
+    phase = sync[0] % 1.0 if sync else 0.0
+    raw = math.floor(now - phase)
+    if prev is None:
+        return raw, anchors, (phase, 0, raw, now)
+    prev_phase, offset, prev_tick, stepped = prev
+    if prev_phase != phase:
+        offset = prev_tick - raw + (now - stepped >= 1.0)
+    tick = raw + offset
+    return tick, anchors, (phase, offset, tick, now if tick != prev_tick else stepped)
+
+
 def select_wait(fetched, mono, tick_at, wall):
     """Seconds until the select screen is next due: tick_at (wall-clock time a shown time value changes) when that wake still comes within SNAP_MAX of the last snapshot read (it reads then), else one second after the read."""
     tick_in = tick_at - wall
@@ -301,7 +319,7 @@ def select_images_out(plan, art, sent, shared):
     """Kitty sequences for the images of plan not sent yet; an id this pane never sent is deleted first so an older image under it is gone (not the shared ones, the sidebars show those)."""
     due = select_images_due(plan, sent)
     return "".join(kitty_delete(i) for i, _, _ in due if i not in sent and i not in shared) + "".join(
-        kitty_image(i, art[i][0], c, r) for i, c, r in due
+        send_image(art, i, c, r) for i, c, r in due
     )
 
 
@@ -334,7 +352,7 @@ def run_select(sel=None, fixture=None, images=None):
     signal.signal(signal.SIGWINCH, lambda *_: None)
     signal.set_wakeup_fd(wake_w)
     last_frame, helping, cached = None, False, (None, None, [], 0.0)
-    towns, fetched = [], -1.0
+    towns, fetched, spin = [], -1.0, None
     try:
         tty.setcbreak(fd)
         while True:
@@ -348,7 +366,6 @@ def run_select(sel=None, fixture=None, images=None):
                 sel = panes[0] if panes else None
             size = os.get_terminal_size(sys.stdout.fileno())
             width, now = size.columns - 1, time.time()
-            set_tick(int(now))
             plan, title, report = [], None, None
             head_rows = 1
             banner = select_banner(width, size.lines, cell_ratio()) if art else None
@@ -366,22 +383,24 @@ def run_select(sel=None, fixture=None, images=None):
                     peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
                     cached = ((a["pane"], a["round"]), report, peek, time.monotonic())
                 report = cached[1]
-            plan += select_image_plan(select_cards(roster, sel, lw, body_h, art is not None), art)
-            rows = render_select(roster, towns, sel, width, size.lines, report, now, title, art is not None, cached[2])
-            if helping:
-                rows = help_overlay(rows, "select", width, size.lines)
-            frame = "\n".join(rows)
-            anchors = (
-                [SECOND]
-                if any(m["status"] == "working" or (m["hp"] is not None and m["hp"] <= 10) for _, m, _ in roster)
-                else []
-            )
+            timed = None
             if sel and preview and report:
                 cur = next(m for _, m, _ in roster if m["pane"] == sel)
                 if cur["status"] == "waiting" and report.get("end"):
-                    anchors.append(time_anchor(report["end"], now))
+                    timed = time_anchor(report["end"], now)
                 elif cur["status"] == "working" and report.get("live") and report.get("start"):
-                    anchors.append(time_anchor(report["start"], now))
+                    timed = time_anchor(report["start"], now)
+            spins = any(m["status"] == "working" or (m["hp"] is not None and m["hp"] <= 10) for _, m, _ in roster)
+            tick, anchors, spin = select_phase(now, spins, timed, spin)
+            set_tick(tick)
+            view = select_view(roster, sel, lw, body_h, art is not None)
+            plan += select_image_plan(select_cards(roster, view), art)
+            rows = render_select(
+                roster, towns, sel, width, size.lines, report, now, title, art is not None, cached[2], view
+            )
+            if helping:
+                rows = help_overlay(rows, "select", width, size.lines)
+            frame = "\n".join(rows)
             tick_at = now + tick_wait(now, anchors)
             if frame != last_frame:
                 sys.stdout.write("\033[H" + "\033[K\n".join(frame.split("\n")) + "\033[K\033[J")
@@ -429,6 +448,12 @@ def run_select(sel=None, fixture=None, images=None):
         termios.tcsetattr(fd, termios.TCSADRAIN, old)
         sys.stdout.write(MOUSE_OFF + "\033[?25h\033[?1049l")
         sys.stdout.flush()
+
+
+def leave_without_teardown():
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)  # skips the interpreter's module and object teardown, about 5 ms of CPU per exit
 
 
 def run_menu(fixture=None):
@@ -528,7 +553,7 @@ def report_images(a, has_report, art, width, banner, big, drawn=None, labels=(),
             continue
         if drawn is None and img_id not in known and img_id != portrait_id(a):
             out += kitty_delete(img_id)
-        out += kitty_image(img_id, art[img_id][0], cols, rows)
+        out += send_image(art, img_id, cols, rows)
     return out
 
 
@@ -784,7 +809,7 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                 if art and resend and time.monotonic() >= resend[0]:
                     # tmux drops a pane's passthrough while it redraws a client, and nothing tells us
                     sys.stdout.write(
-                        "".join(kitty_image(k, art[k][0], c, r) for k, c, r in resend[1] if sent.get(k) == (c, r))
+                        "".join(send_image(art, k, c, r) for k, c, r in resend[1] if sent.get(k) == (c, r))
                     )
                     sys.stdout.flush()
                     resend = None
@@ -963,7 +988,7 @@ def run_ui(fixture=None):
                     sent.clear()
                 need = set(crest_ids(t["name"] for t in towns).values()) | {portrait_id(a) for a in agents}
                 for img in sorted(need - sent):
-                    sys.stdout.write(kitty_image(img, *art[img]))
+                    sys.stdout.write(send_image(art, img, *art[img][1:]))
                 if need - sent:
                     sys.stdout.flush()  # without this flush the last chunk stays buffered when the frame is unchanged
                 sent |= need
@@ -971,6 +996,8 @@ def run_ui(fixture=None):
             try:  # ask the terminal: shutil.get_terminal_size trusts COLUMNS, which goes stale after a resize
                 size = os.get_terminal_size(sys.stdout.fileno())
             except OSError:
+                import shutil
+
                 size = shutil.get_terminal_size()
             lines = (capture(st["sel"]) if not fixture else []) if st["peek"] and st["sel"] and visible else None
             busy = False

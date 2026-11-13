@@ -79,22 +79,25 @@ and `tmux` return nothing, `mark_seen` does nothing, images are forced on and re
 tmux passthrough wrapper), the opening animation is on. Not covered: a real tmux (`resize-pane`, hooks, `list-panes`),
 resizes, and what the terminal spends decoding and drawing the images.
 
-AMD Ryzen 9 5900XT, Linux, Python 3.14.8, `cpu_pct` 0.832 / 0.845 / 0.838 in the three runs of one `bench.py` after ticket 043 (median 0.838; after 044, before 043: 0.894 / 0.843 / 0.846, median 0.846; before 044, after 042: 1.138 / 1.094 / 1.117, median 1.117; before ticket 042, with a snapshot read of its own: 1.278 / 1.283 / 1.281, median 1.281):
+AMD Ryzen 9 5900XT, Linux, Python 3.14.8, `cpu_pct` 0.698 / 0.732 / 0.735 in the three runs of one `bench.py` after ticket 008 (median 0.732; before 008, same machine: 0.808 / 0.76 / 0.769, median 0.769; after 043: 0.832 / 0.845 / 0.838, median 0.838; after 044, before 043: 0.894 / 0.843 / 0.846, median 0.846; before 044, after 042: 1.138 / 1.094 / 1.117, median 1.117; before ticket 042, with a snapshot read of its own: 1.278 / 1.283 / 1.281, median 1.281):
 
 | step | CPU (ms) | written (KB) |
 |---|---:|---:|
-| open select | 54.0 | 493.9 |
-| idle on working (5 s) | 21.8 | 302.6 |
-| k x4, new members (4 s) | 37.1 | 270.3 |
-| j x3, seen members (3 s) | 13.2 | 180.2 |
-| Enter, open report | 8.6 | 334.0 |
-| scroll j j j k k (3 s) | 2.4 | 106.0 |
-| n, next member | 7.1 | 309.7 |
-| h, back to select | 15.8 | 523.2 |
-| q, close | 6.0 | 0.1 |
-| reopen, then q (3 s) | 63.5 | 554.5 |
+| open select | 49.9 | 493.9 |
+| idle on working (5 s) | 22.5 | 302.5 |
+| k x4, new members (4 s) | 27.1 | 270.3 |
+| j x3, seen members (3 s) | 13.1 | 180.2 |
+| Enter, open report | 8.0 | 335.2 |
+| scroll j j j k k (3 s) | 2.3 | 107.0 |
+| n, next member | 7.3 | 310.7 |
+| h, back to select | 13.5 | 180.2 |
+| q, close | 1.5 | 0.0 |
+| reopen, then q (3 s) | 54.9 | 554.4 |
 
-Total 0.84 % over 27.5 s (ticket 043, a 6-row report banner and a 14-column big portrait, changed the report steps only by the smaller placeholder text: written 357 -> 334 KB on Enter, 324 -> 310 KB on `n`, 166 -> 106 KB on scroll; CPU stays within the run-to-run noise; before ticket 043 0.85 %; before ticket 044: 1.12 %, 1.28 % before 042), peak RSS 20.6 MB (22.4 MB before 044, the bench process's own peak): below the target (the idle step 41.3 -> 27.9 -> 21.8 ms). Where the time goes (cProfile of the child, steps cut at
+Ticket 008: the three long-running sub-commands leave with `os._exit(0)` after their screen function returns, so the
+interpreter's own shutdown (module and object teardown) is skipped. `q, close` went from 6.6 ms (6.0 ms in the older table
+below, 5.4 to 7 ms in ticket 004) to 1.5 ms, and `bench/use.py`'s child, like the other bench children, now ends the
+same way, so the numbers include it; the rest of the saving is in the second process of `reopen, then q`. Total 0.73 % over 27.5 s (ticket 043, a 6-row report banner and a 14-column big portrait, changed the report steps only by the smaller placeholder text: written 357 -> 334 KB on Enter, 324 -> 310 KB on `n`, 166 -> 106 KB on scroll; CPU stays within the run-to-run noise; before ticket 043 0.85 %; before ticket 044: 1.12 %, 1.28 % before 042), peak RSS 20.6 MB (22.4 MB before 044, the bench process's own peak): below the target (the idle step 41.3 -> 27.9 -> 21.8 ms). Where the time goes (cProfile of the child, steps cut at
 each key; profiling inflates every number, read the shares):
 
 - A select frame is the cost. Measured without a profiler on the same data (`time.perf_counter`, median of 30):
@@ -102,6 +105,10 @@ each key; profiling inflates every number, read the shares):
   member not seen yet (the Markdown layout is added). Before ticket 042 a working cursor redrew about 3 times a second even when idle
   (snapshot every second plus the clock tick), and about 60 KB a second was written; the snapshot is now read at the
   wake of a clock tick, so it is 2 times at most.
+  Ticket 006 puts the spinner on the phase of the running time (`select_phase`), so a working cursor wakes once a
+  second: `idle on working, 5 s` went from 10 frames, 17.6 ms (18.1 ms in the last run) to 5 frames, 9.1 ms
+  (`bench/frame.py`; the old count was 5 when the two phases happened to coincide), `idle on working` in `bench/bench.py`
+  from 17.2 ms and 302.5 KB to 8.5 ms and 151.3 KB, and the total from 0.645 % to 0.567 %.
 - Ticket 044 made `cw` fast: an all-ASCII string is `len(s)` (checked: no code point 0 to 127 is combining or W/F),
   anything else sums a per-character width from an `lru_cache` of 4096 entries (an entry is a one-char key and a small
   int, a few hundred KB at most; the cache is filled only by characters actually drawn). The numbers above are after it.
@@ -115,14 +122,20 @@ each key; profiling inflates every number, read the shares):
   unseen one (the Markdown layout calls it per token).
 - A new member's preview (`k`) adds the Markdown layout of the report: `md_rows` 32 ms under the profiler (68 blocks,
   `md_tokens` half of it), 10 ms without. Seen members reuse the cache (`j x3` costs a third of `k x4`).
-- Starting a process (open select, reopen): `import party_hud.ui` 14 ms, `load_art` 1.6 ms (56 PNGs, 2.2 MB read), the
+  The preview now lays out only the part of the report it shows (`render_markdown(..., limit)`, stopping at the end of the block that
+  brings the rows past the preview height; a table is one block): `render_select` for a member not seen yet 5.61 -> 3.17 ms
+  (`bench/frame.py`, median of 30; the first layout of a whole report 4.28 ms, of the part shown 2.73 ms), and in the key script
+  (`bench/bench.py`, before -> after) open select 58.5 -> 49.4 ms, `k x4` 38.5 -> 27.9 ms, reopen 65.7 -> 60.9 ms, the other steps within
+  1.1 ms, in use 0.847 -> 0.781 % of one core (medians of 3 runs). The report page still lays out the whole report.
+- Ticket 005: a select frame built each member's card three times (`select_cards`, `render_select`, then the drawing); `select_view` now builds each card once and returns the rows, `run_select` passes that view to both `select_cards` and `render_select`. `card()` calls per frame 15 -> 5 (5 members), `render_select` 1.30 -> 1.07 ms, the whole loop body 2.05 -> 1.57 ms, `idle on working, 5 s` 22.4 ms / 10 frames (2.24 ms a frame) -> 18.0 ms (1.80 ms) (`bench/frame.py`, same machine, before 005 on the commit before it), and in the key script (`bench/bench.py`, before -> after) in use 0.732 -> 0.658 % of one core, open select 49.1 -> 46.3 ms, `idle on working` 21.9 -> 17.3 ms, `k x4` 27.6 -> 22.9 ms, `j x3` 13.4 -> 10.1 ms, `h` 14.0 -> 10.3 ms.
+- Starting a process (open select, reopen): `import party_hud.ui` 14 ms, `load_art` 0.4 ms (56 PNGs opened, not read; each file is read when it is sent), the
   base64 encoding of the images 0.03 to 0.4 ms each; the rest is the select frames above. A process start is 65 to 80 ms
   of which frames are about half.
 - The report page is cheap once drawn: scrolling costs 3 ms for 5 keys; Enter and `n` cost 13 to 15 ms, mostly one
   Markdown layout.
 
 Do the banner and the portraits get cheaper when they take fewer cells? No. The PNGs have a fixed size and the cell
-count only sets the placement (`c=`, `r=` in `kitty_image`, `art.py:117`): the small portrait is 192 x 216
+count only sets the placement (`c=`, `r=` in `kitty_image`, `art.py:119`): the small portrait is 192 x 216
 (`PORTRAIT_PX`, 46 KB), the big one 384 x 432 (136 KB), banners are 960 px wide and 240 to 120 px tall for the 4:1
 to 8:1 shapes (`BANNER_RATIOS`, `art.py:43`), picked by the shape of the cells, not by their number. Halving
 the banner row limit from 10 to 5 (patched in the child, 3 runs each): Enter 14.3 -> 14.7 ms CPU and
@@ -164,13 +177,111 @@ AMD Ryzen 9 5900XT, Linux, Python 3.14.8, HEAD 7a96a3b plus the change that send
 
 Before, a fixed 0.3 s wait came first and the images followed the last animation frame (401 / 300 / 401 ms).
 
-On their own: `load_art()` 1.1 ms (56 PNGs, warm cache), `python3` + `import party_hud.ui` 31.6 ms.
+On their own: `load_art()` 0.3 ms (56 PNGs, warm cache), `python3` + `import party_hud.ui` 31.6 ms.
 
 The images are written right after the first frame, so the animation no longer delays them: the first image comes
-1 ms or less after the first frame, and the other animation frames follow. Reading the files (`load_art`), encoding and
+1 ms or less after the first frame, and the other animation frames follow. Opening the files (`load_art`), reading one when it is sent, encoding and
 writing the images are 1 ms or less each. The 2 s seen in a real tmux is not in these numbers; it has to come from
 outside the program (tmux round trips such as `fit_report_pane`, forwarding and terminal decoding), or from
 `RESIZE_SETTLE` (0.15 s) restarting after the pane resize signal, which this script does not produce.
+
+## Memory and start-up (`bench/mem.py`)
+
+`python3 bench/mem.py` (about 40 s, no tmux, stdlib only, Linux and macOS) prints four parts. RSS is always read from
+outside the process: `/proc/<pid>/status` `VmRSS` on Linux, `ps -o rss= -p <pid>` elsewhere.
+
+1. RSS of the three long-running processes in a pty (179 x 47): the sidebar (`run_ui`), the select screen (through
+   `run_menu`, as in use) and the report page (`run_report`). The child is `import party` plus the real `ui` functions
+   with the outside world replaced, as in `bench/use.py` (fixed snapshot and reports, no tmux, images forced on and
+   written to the pty, `load_art` real). Three points: after the first frame and its images, after 5 s idle, after a
+   round of keys (sidebar: `j k J K n` moves; select: `k` x4, every member seen; report: `n` x5 through the pages,
+   `j j j k k`). 3 runs, median; the three kinds of one run go at the same time.
+2. Import cost: a fresh `python3` per state (no accumulating in one process), RSS and the time the imports took
+   inside the child, median of 3. The standard library list is read from the module-level import statements of `party.py`
+   and `party_hud/*.py` (an import inside a function is not start-up cost). Then one more `party_hud` module per process, then `load_art()`, then each standard library
+   module alone over an empty Python. The numbers of one module alone are not additive: `json` and `re` share
+   what each pulls in.
+3. Which sub-command needs which module (table below, from the code).
+4. A fresh `run_menu` from spawn to the first frame and the first image byte, segments timed inside the child with
+   `time.perf_counter` (the Python start is the spawn to the child's first line, wall clock); 5 runs, median.
+
+Every child imports the built-in `time` first for its clock; the "empty Python" row includes it.
+
+AMD Ryzen 9 5900XT, Linux 7.2.11, Python 3.14.8, with the image files read when they are sent (before: HEAD `f6a0f5e`,
+which kept all 56 PNGs in memory: 17.1 / 17.4 / 17.3 MB after the first frame; before the lazy imports 18.8 / 19.1 / 18.8 MB):
+
+| process | after first frame | after 5 s idle | after use |
+|---|---:|---:|---:|
+| sidebar (MB) | 15.1 | 15.1 | 15.1 |
+| select (MB) | 15.3 | 15.3 | 15.4 |
+| report (MB) | 14.9 | 14.9 | 15.1 |
+
+Two of the three runs agree within 0.3 MB; the first run of a `bench/mem.py` call is 3.5 MB higher (18.5 to
+18.8 MB here), so the median of 3 hides a cold start.
+
+| state (fresh process) | RSS (MB) | added (MB) | imports took (ms) | added (ms) |
+|---|---:|---:|---:|---:|
+| empty Python | 9.9 | | 0.0 | |
+| the 22 standard library modules the product imports at module level | 13.2 | 3.4 | 12.2 | 12.2 |
+| + `party_hud.common` | 13.3 | 0.1 | 12.4 | 0.2 |
+| + `.art` | 13.4 | 0.1 | 13.2 | 0.8 |
+| + `.collect` | 13.6 | 0.3 | 13.8 | 0.6 |
+| + `.render` | 13.9 | 0.2 | 15.0 | 1.2 |
+| + `.sidebars` | 13.9 | 0.0 | 15.4 | 0.4 |
+| + `.ui` | 14.0 | 0.1 | 15.1 | -0.4 |
+| + `load_art()` (result kept) | 14.0 | 0.0 | 16.0 | 0.9 |
+
+(Before: `load_art()` kept the 56 PNGs, 16.1 MB, +2.1 MB, +2.0 ms.)
+
+(Before, the list had 26 modules, counting the ones imported inside functions: `traceback`, `shutil`, `argparse`,
+`typing`; the row was 17.0 MB and 29.0 ms.)
+
+Standard library modules alone over the empty Python, above 0.1 MB: `subprocess` 2.1, `json` 1.6, `glob` 1.5, `re` 1.3,
+`contextlib` 0.7, `functools` 0.7, `signal` 0.4, `base64` 0.3, `unicodedata` 0.1, `zlib` 0.1 MB. `glob`, `datetime`,
+`shlex` and `contextlib` on top of the others add 0.09 MB or less and 0.2 ms or less each (9 runs, median), so they stay
+imported at the top.
+
+Fresh `run_menu`, spawn to first frame and first image (median of 5, ms):
+
+| segment | ms |
+|---|---:|
+| Python start (spawn to the first line of the child) | 9.6 |
+| `import party` and `party_hud.ui` | 15.4 |
+| `load_images` (fake tmux, real `load_art`) | 0.4 |
+| first `get_snapshot` (fake) | 0.0 |
+| first `render_select` | 5.8 |
+| write and flush of the first frame | 0.2 |
+| the rest of `run_menu` until the frame | 0.8 |
+| first frame at | 32.3 |
+| first image written at | 34.2 |
+
+What the numbers say, ranked:
+
+- RSS of a running process is 14.9 to 15.4 MB. Of that, an empty Python is 9.9 MB, the standard library modules the
+  product imports add 3.4 MB and all `party_hud` modules together add 0.8 MB. The images add nothing: `load_art` only
+  opens the 56 files, and `send_image` reads one when it sends it (they were 2.1 MB when all 56 stayed in memory).
+- Largest single standard library modules (overlapping): `subprocess`, `json`, `glob`, `re`.
+- Start of a select process: Python start 9.6 ms, `import party` and `party_hud.ui` 15.4 ms, then the first
+  `render_select` 5.8 ms.
+- Not measured: macOS (the `ps` path is written but was not run), and the terminal or tmux side of the images.
+
+Which `party_hud` modules each sub-command calls into (read from the code; `party.py` imports `collect`, `common` and
+`sidebars` at the top and `render` and `ui` inside the branch that needs them, so `--ensure`, `--tidy`, `--ask` and the
+other short-lived sub-commands never load those two):
+
+| sub-command | `common` | `art` | `collect` | `render` | `sidebars` | big parts |
+|---|---|---|---|---|---|---|
+| sidebar (`run_ui`) | `tmux`, `load_cursor` | `load_art`, `send_image` | `get_snapshot`, `collect` | `render` | `mark_sidebar`, `install_hooks`, `open_report_pane` | images, tmux open pane (`r`); no Markdown, no `report_for` |
+| select (`run_menu`, `run_select`) | `tmux` | `load_art`, `send_image` | `get_snapshot`, `report_for` | `render_select` | `fit_report_pane`, `open_report_pane` | images, Markdown layout (`render_markdown` in `report_rows`), report parsing |
+| report (`run_report`) | `tmux` | `load_art`, `send_image` | `get_snapshot`, `report_for` | `report_parts` | `mark_seen`, `fit_report_pane` | images, Markdown layout, report parsing |
+| `--report-text` (`report_text`) | `tmux_run` | | `report_text`, `report_for` | | `crew_replied`, `mark_seen` | report parsing; no Markdown, no images |
+| `--ask` (`ask`) | `tmux_run` | | `get_snapshot` | | `crew_asked` | tmux `load-buffer`, `paste-buffer` |
+| `--summon` (`summon`) | `tmux_run`, `tmux` | | `get_snapshot` | | `summon`, `crew_summoned` | tmux open pane |
+| `--dismiss` (`dismiss`) | `tmux_run` | | `get_snapshot` | | `dismiss` | tmux close pane |
+| collector (`get_snapshot` taking `snapshot.lock`) | `tmux_run` | | `collect` | | | pane list, transcript tails, agent reports; no Markdown, no images |
+
+`ui` is needed by the sidebar, select and report only; `jump_next` (`--next`) and `open_select` (`--menu`) are in
+`ui` too but call only `get_snapshot`, `tmux`, `save_cursor` and `open_report_pane`.
 
 ## Live: your real tmux (`bench/live.sh`)
 
@@ -191,6 +302,23 @@ time, CPU 0.20 %, RSS average 13.3 MB. There are no earlier numbers.
 Do not leave another copy of `party.py` running while you measure (for example the plugin directory and a development
 checkout at once): copies do not share a snapshot, so collections come out too high. `bench/live.sh` prints a warning
 when it sees more than one `party.py` path.
+
+### After the footprint tickets (001 to 011)
+
+Measured 2026-11-12 and 2026-11-13 with `bash bench/live.sh 60 --no-offline` on the same machine, 18 sidebar panes,
+5 agents, nothing else touched during the minute. "Before" is v0.5.1 unless a commit is named.
+
+| measure | before | after |
+|---|---|---|
+| idle, CPU of all sidebar processes | 0.25 % of one core (`bae8d21`) | 0.23 % (`1ae7070`) |
+| idle, memory (RSS) of one sidebar process | about 21 MB (23.4 MB on average for 1.1 processes) | 16.3 MB (1.0 process) |
+| select screen open on a working member, CPU of the sidebars | 0.33 % | 0.25 % (`05068f2`) |
+| same, CPU of the select process | 0.90 % | 0.33 % (`05068f2`) |
+| same, memory (RSS) of the select process | 21.1 MB on average | 16.3 MB at its peak (`05068f2`) |
+
+The idle sidebar is the collector most of the time: `bench/idle.py --live` puts one real collection at 3 to 4.5 ms of
+the sidebar's own CPU every 2 s, of which the walk over the process tree (`proc_children`, `proc_args`) is the largest
+part and is read again every time (see "Cheaper collection" below for why a command line is not remembered).
 
 ### Now: only visible sidebars run
 
@@ -261,6 +389,46 @@ time within 1 %), AMD Ryzen 9 5900XT, Linux, Python 3.14. "Before" is about 2 ms
 `party.py --report-text` is a new process for each call, so it pays the first-call number every time (the search reads
 the log back to the prompt). The lookback stops at 32 MB before the last 1 MB; a log whose prompt is further back
 costs that search once per process (the miss is remembered too).
+
+## Cheaper collection (ticket 011)
+
+Starting point (ticket 010, `python3 bench/idle.py --live 30` in a real tmux, 5 agents, Linux, 2026-11-13): one
+`collect()` costs 4.49 ms of this process's CPU. Exclusive CPU per function per collection (wrapping included, so
+the sum is 5.13 ms):
+
+| function | calls | ms |
+|---|---:|---:|
+| proc_children | 34 | 0.933 |
+| proc_args | 21 | 0.740 |
+| parse_panes | 1 | 0.491 |
+| summons_for | 4 | 0.475 |
+| screen_changed | 1 | 0.398 |
+| collect (own lines) | 1 | 0.282 |
+| read_tmux | 1 | 0.266 |
+| read_claude_sessions | 1 | 0.223 |
+| codex_rollout | 1 | 0.207 |
+| proc_start | 1 | 0.205 |
+| _tail_lines | 1 | 0.198 |
+| read_party | 4 | 0.124 |
+| rollouts_since | 1 | 0.118 |
+
+Two changes (`python3 bench/idle.py`, offline, same machine, median of 30; the codex rollout is the 2.5 MB file of the
+disk fixture):
+
+| | before | after |
+|---|---:|---:|
+| `parse_panes, 18 panes` (8.7 KB of text) | 0.534 ms | 0.116 ms |
+| `codex tail, unchanged` | 0.167 ms | 0.003 ms |
+| `collect, files on disk, unchanged` | 0.764 ms | 0.570 ms |
+| `collect, files on disk, cold` | 1.710 ms | 1.750 ms |
+
+`printable` drops the Unicode `Cc` characters with one pre-compiled `[\x00-\x1f\x7f-\x9f]` substitution instead of a
+category lookup per character; the tests compare it with the per-character version over every code point. The rollout
+tail is read again only when the file's mtime, size or inode changed. `bench/bench.py` is not slower (in use 0.573 % ->
+0.554 %; render rows unchanged within noise). The command lines (`proc_args`, 0.74 ms in the live table) are still read
+every time: on Linux an `exec` of the same executable with other arguments changes neither `/proc/<pid>/exe`, the stat
+times of `/proc/<pid>` or `/proc/<pid>/cmdline`, nor `starttime`, and reading `/proc/<pid>/stat` (15 us) costs more than
+a short command line (10 us).
 
 ## Collection rate with many sidebars (`tests/party-tmux-test.sh`)
 
