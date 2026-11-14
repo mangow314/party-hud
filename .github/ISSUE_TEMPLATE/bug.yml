@@ -1,0 +1,70 @@
+name: Bug report
+description: Something is drawn wrong, missing, slow or broken
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you saw and what you expected. A screenshot of the sidebar helps a lot.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Start codex in a tmux pane
+        2. Press prefix C-t
+        3. ...
+    validations:
+      required: true
+  - type: dropdown
+    id: os
+    attributes:
+      label: OS
+      options: [Linux, macOS]
+    validations:
+      required: true
+  - type: input
+    id: tmux
+    attributes:
+      label: tmux version
+      description: Output of `tmux -V`
+    validations:
+      required: true
+  - type: input
+    id: python
+    attributes:
+      label: Python version
+      description: Output of `python3 --version` from tmux's PATH (`tmux run 'python3 --version'`)
+    validations:
+      required: true
+  - type: input
+    id: terminal
+    attributes:
+      label: Terminal and font
+      placeholder: Ghostty 1.3, JetBrainsMono Nerd Font
+    validations:
+      required: true
+  - type: dropdown
+    id: agents
+    attributes:
+      label: Agents involved
+      multiple: true
+      options: [claude, codex, agy, grok, none / not agent-specific]
+    validations:
+      required: true
+  - type: input
+    id: commit
+    attributes:
+      label: party-hud commit
+      description: Output of `git -C ~/.tmux/plugins/party-hud rev-parse --short HEAD`, or the release you installed
+  - type: textarea
+    id: fixture
+    attributes:
+      label: Fixture (optional)
+      description: |
+        A JSON fixture that reproduces it with `python3 party.py --fixture F` (see `tests/fixtures/`).
+        Remove anything private from paths and session names.
+      render: json
