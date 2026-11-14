@@ -22,11 +22,11 @@ The HUD itself only reads. These subcommands open or close a pane or send keys o
 - Default: a new window in your own detached session `crew-<your pane number>` (created at your window's size if it does not exist yet). That session gets no sidebar; the sidebar lists the member under you. `--window`: a new window in your session. `--here`: a split beside your pane. `--window` and `--here` together exit 2.
 - Working dir `--cwd` (default: current).
 - `--summon` only opens a pane running the agent. Whether it asks permission and what it allows is the user's setting in that agent; you neither set nor bypass it.
-- `--read-only`: starts the agent read-only. Only `codex` is enforced by the system (`codex -s read-only`). `claude`, `grok` and `agy` start in their own plan mode: the agent refuses edits itself, nothing enforces it. Plan mode can stop a member midway: `agy` still asks permission for each shell command (the HUD shows it as waiting), and `claude` may stop at a plan approval prompt.
-- Review: pass `--read-only` to `codex` (no extra permission prompts); to have it change code, do not. For `claude`, `agy` and `grok` you may omit it and write "do not edit files" in the question; then only the user's permission settings in that agent stop an edit.
+- `--read-only`: starts the agent read-only. Only `codex` is enforced by the system (`codex -s read-only`). `claude`, `grok` and `agy` start in their own plan mode: the agent refuses edits itself, nothing enforces it. Plan mode can stop a member midway: `agy` still asks permission for each shell command (the HUD shows it as waiting), and `claude` may stop at a plan approval prompt. `codex` can stop too, when it asks the user to approve a command its read-only sandbox blocks (also shown as waiting).
+- Review: pass `--read-only` to `codex`; to have it change code, do not. For `claude`, `agy` and `grok` you may omit it and write "do not edit files" in the question; then only the user's permission settings in that agent stop an edit.
 - stdout: the new pane id, e.g. `%12`. `--timeout` default 60.
 - A member that was itself summoned (its pane has a lead that still exists) gets exit 6 and no pane is opened: stderr `PANE is crew of LEAD: report to your lead instead of summoning`. If the lead's pane is gone, it works as usual.
-- Exit: 0 ready, 2 bad arguments, unknown agent, not in tmux, or tmux failure, 3 timeout, 6 the rules do not allow it (stderr says which one).
+- Exit: 0 ready, 2 bad arguments, unknown agent, not in tmux, tmux failure, or the new pane closed before it was ready (stderr `no such pane: PANE`), 3 timeout, 6 the rules do not allow it (stderr says which one).
 
 `party.py --ask PANE TEXT`
 - Pastes TEXT into the agent's pane as one paste (several lines included) and presses Enter.
@@ -82,4 +82,4 @@ Claude Code's Bash sandbox blocks the tmux socket (`Error connecting to /tmp/tmu
 
 Every round is saved under `${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/<start time UTC>-<pane id>/round-NNN/` (`question.md`, `reply.md`, `meta.json`); `--summon` deletes sessions older than 14 days. Exit 5 from `--summon`, `--ask` or `--report-text` means the action was done but saving the round failed (see stderr).
 
-Check the exit code of each step: 3 from `--summon` or `--report-text` means it timed out and the pane may still be alive; 4 means the pane is not an agent; 6 means a rule refused it, read stderr.
+Check the exit code of each step: 2 with stderr `no such pane: PANE` means the member's pane is gone (its agent exited or the pane was closed): tell the user and summon again; 3 from `--summon` or `--report-text` means it timed out and the pane may still be alive; 4 means the pane is not an agent; 6 means a rule refused it, read stderr.

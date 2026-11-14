@@ -207,7 +207,7 @@ Set these in `~/.tmux.conf` before the plugin loads.
 | Agent | Status | HP | SP |
 |---|---|---|---|
 | Claude Code | `~/.claude/sessions/*.json` | statusline integration, or estimated from the transcript | prompt cache TTL from the transcript |
-| Codex | screen changes | rollout file in `~/.codex/sessions` | not shown |
+| Codex | screen changes; waiting while its approval prompt is on the screen | rollout file in `~/.codex/sessions` | not shown |
 | agy, Grok | screen changes | `--` | not shown |
 
 A pane counts when an agent is its command or runs among its child processes. [workmux](https://github.com/raine/workmux)

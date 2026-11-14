@@ -1,0 +1,14 @@
+
+
+  Would you like to run the following command?
+
+  Reason: 唯讀核對遭沙箱阻擋，可否允許讀取現有 tmux 的 session 狀態？
+
+  $ tmux list-sessions -F '#{session_name}'
+
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `tmux list-sessions` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel

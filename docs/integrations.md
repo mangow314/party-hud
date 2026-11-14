@@ -47,6 +47,7 @@ Without the file, HP is estimated from the transcript: the tokens sent in the la
 |---|---|
 | Which pane runs Codex | the pane's command is `codex`, or a child process (up to 3 levels down) is `codex` or an interpreter (`node`, `bun`, `deno`, `python*`) running a `codex` script |
 | Working / idle | the pane's screen changed in the last 4 seconds (only a CRC32 hash of the screen is stored, in `activity.json`); ignored while the newest turn event in the rollout file's tail is `task_complete` (codex redraws the screen after finishing) |
+| Waiting | `Press enter to confirm or esc to cancel` (the last line of codex's approval prompt) in the last 15 non-empty lines of the screen, unless the newest turn event in the rollout file's tail is `task_complete` (a finished answer can quote that line). The rollout file itself does not record a pending approval |
 | HP | last `token_count` event in the rollout file: `last_token_usage.total_tokens` of `model_context_window` |
 | Quest report (opened from the select screen with `prefix R`, or with `r`; read only when opened) | last `task_complete` event in the rollout file: `last_agent_message`, `started_at`, `completed_at` |
 | Report left column (read only when the report opens) | the first `item_completed` event with item `UserMessage` of the finished turn (`turn_id`) for `ASKED` (its `text` parts); `CommandExecution` items of that turn for cmds. Edits go through commands, so files and agents are not shown |
@@ -66,7 +67,7 @@ SP is not shown: OpenAI does not publish a fixed cache lifetime we could count d
 
 ## agy, Grok
 
-Detected by the pane's command name, or among its child processes as for Codex. Working / idle comes from screen changes, as for Codex; for agy only, a `Requesting permission for:` line in the last 15 non-empty lines of the screen makes the status waiting (Grok has only working / idle). They write no report: the
+Detected by the pane's command name, or among its child processes as for Codex. Working / idle comes from screen changes, as for Codex; for agy, a `Requesting permission for:` line in the last 15 non-empty lines of the screen makes the status waiting (Grok has only working / idle). They write no report: the
 report pane reads their last reply off the screen (the text after the last prompt line, without the input box below it), and its left column has no prompt, work counts, directory or wait.
 
 ## Directory and git branch

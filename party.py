@@ -15,7 +15,7 @@ Modes (started by tmux; see party.tmux):
   party.py --summon AGENT [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]  open a pane running AGENT, wait until it takes input, print the pane id (exit 6 if you are crew yourself: report to your lead);
                               default: a window in your detached session crew-<your pane number> (no sidebar);
                               --window: a new window in your session; --here: a split beside you;
-                              --read-only: codex runs in a read-only sandbox; claude, grok and agy start in their own plan mode (agy still asks permission to run shell commands; the HUD then shows it as waiting)
+                              --read-only: codex runs in a read-only sandbox; claude, grok and agy start in their own plan mode (agy still asks permission to run shell commands, codex to run one outside its sandbox; the HUD then shows it as waiting)
   party.py --dismiss PANE     close a member you summoned, once it is not working or waiting and its report was read (exit 6 otherwise)
   party.py --ensure WID       add a sidebar to a window (hook)
   party.py --reflow WID       put the sidebar width back (hook)
@@ -36,7 +36,7 @@ import subprocess
 import sys
 import time
 
-from party_hud.collect import FIELD_SEP, get_snapshot, report_text
+from party_hud.collect import get_snapshot, pane_values, report_text
 from party_hud.common import tmux_run
 from party_hud.sidebars import (
     crew_asked,
@@ -60,10 +60,10 @@ def ask(pane, text):
     The text goes in as one bracketed paste, then Enter: codex takes an Enter right after typed keys as a newline."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
-    rc, out, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}" + FIELD_SEP + "#{pane_current_path}"])
-    if rc != 0:
-        return 2, "", err or f"no such pane: {pane}\n"
-    cwd = out.rstrip("\n").partition(FIELD_SEP)[2]
+    found, err = pane_values(pane, "#{pane_current_path}")
+    if found is None:
+        return 2, "", err
+    cwd = found[0]
     agent = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
     if agent is None:
         return 4, "", f"not a known agent: {pane}\n"
@@ -135,7 +135,7 @@ def main():
     ap.add_argument(
         "--read-only",
         action="store_true",
-        help="with --summon: codex runs in an enforced read-only sandbox; claude, grok and agy start in their own plan mode (the agent refuses edits itself, the system does not enforce it; agy still asks permission to run shell commands, and the HUD then shows it as waiting)",
+        help="with --summon: codex runs in an enforced read-only sandbox; claude, grok and agy start in their own plan mode (the agent refuses edits itself, the system does not enforce it; agy still asks permission to run shell commands, codex to run one outside its sandbox, and the HUD then shows it as waiting)",
     )
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--timeout", type=float)
