@@ -1,0 +1,5 @@
+# pytest 9.2.0, pinned in CI like ruff; run it with `uvx pytest@9.2.0`
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["."]
+addopts = ["-p", "no:cacheprovider"]

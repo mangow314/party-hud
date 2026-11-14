@@ -195,14 +195,6 @@ lf = strip(render.render_report(dict(done, status="working"), "Studio", lv, [], 
 ok("Working · 12m 03s" in lf and "Now" in lf and "last words" in " ".join(lf) and "Previous report" in lf and "舊報告" in " ".join(lf),
    "live report: status row with the time so far, Now block, then the previous round's report")
 ok(all(common.cw(l) <= 60 for l in lf), "live report: no row is wider than the width")
-colored = "\x1b[31mred\x1b[0m plain"
-ok(markdown.wrap_sgr(colored, 40) == ["\x1b[31mred\x1b[0m plain\x1b[0m"], "Last output: SGR escapes stay as they are")
-ok(markdown.wrap_sgr("a\x1b[2Jb\x1b[1;1Hc\x1b]0;title\x07d\x1b[?25l\x1b[38;5;1me", 40) == ["abcd\x1b[38;5;1me\x1b[0m"],
-   "Last output: non-SGR escapes (cursor, clear, OSC) are dropped")
-wr = markdown.wrap_sgr("\x1b[1;32m" + "你好ab" * 5 + "\x1b[0m tail", 9)
-ok(len(wr) > 2 and all(common.cw(strip(r)) <= 9 for r in wr) and all(r.endswith("\x1b[0m") for r in wr[:-1])
-   and all(r.startswith("\x1b[1;32m") for r in wr[:3]) and wr[-1].endswith(" tail\x1b[0m"),
-   "Last output: a long line wraps with the colour carried to every row, every row within the width (CJK = 2)")
 pr = [strip(r) for r in render.report_rows(None, ["  │ " + "ab " * 20], [], 30)]
 ok(len(pr) > 1 and all(r.startswith("  │ ") for r in pr) and all(common.cw(r) <= 30 for r in pr)
    and "".join(r[4:] for r in pr) == ("ab " * 20).rstrip(),
@@ -361,27 +353,6 @@ ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > s
 nr = strip(render.render_no_report(40, 10)).splitlines()
 ok(len(nr) == 10 and "No party members." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
    "report pane with no party members: says so and waits (a pane that exits at once only flashes)")
-ok(markdown.wrap("一二三四五", 4) == ["一二", "三四", "五"] and markdown.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
-   "report: wrap by display width; tabs expanded, control characters dropped")
-md = markdown.render_markdown
-B, I, R, fgc = "\033[1m", "\033[3m", common.RESET, common.fg
-ok(md("# T\n###### s", 20) == [fgc("gold", True) + "T" + R, fgc("gold", True) + "s" + R], "markdown: # to ###### headings in gold bold, marker dropped")
-ok(md("a **b** c", 20) == ["a " + B + "b" + R + " c"], "markdown: **bold**")
-ok(md("*x* _y_ snake_case_name", 30) == [I + "x" + R + " " + I + "y" + R + " snake_case_name"], "markdown: *italic* and _italic_, not the underscores inside a word")
-ok(md("a `**x**` b", 20) == ["a " + fgc("code") + "**x**" + R + " b"], "markdown: `inline code` is literal, in the cool code color")
-ok([strip(r) for r in md("- a\n* b\n1. c", 20)] == ["• a", "• b", "1. c"] and [strip(r) for r in md("- 一二三四五", 6)] == ["• 一二", "  三四", "  五"],
-   "markdown: -, * and 1. lists; wrapped items hang under the text")
-ok(md("```py\n**x**\n```\nabcdef", 20) == [fgc("green") + "**x**" + R, "abcdef"] and [strip(r) for r in md("```\nabcdef", 4)] == ["abcd", "ef"],
-   "markdown: fenced code block is literal, fences dropped, long lines wrap")
-ok(md("see [doc](http://u/x) ok", 40) == ["see " + fgc("blue") + "\033[4m" + "doc" + R + fgc("dim") + " (http://u/x)" + R + " ok"], "markdown: [text](url) shows the text and the url")
-ok(md("---", 10) == [fgc("dim") + "─" * 10 + R], "markdown: --- is a rule as wide as the pane")
-ok([strip(r) for r in md("a\nb\n\nc", 5)] == ["a", "b", "", "c"], "markdown: every source line stays a line, blank lines stay")
-ok([strip(r) for r in md("一二三e\u0301f", 5)] == ["一二", "三e\u0301f"] and all(common.cw(strip(r)) <= 5 for r in md("一二三e\u0301f", 5)),
-   "markdown: CJK = 2 columns, combining marks = 0")
-ok([strip(r) for r in md("1. abcdefgh", 6)] == ["1. abc", "   def", "   gh"], "markdown: 1. lists keep the number and hang wrapped rows under the text")
-ok([strip(r) for r in md("e\u0301" * 5, 5)] == ["e\u0301" * 5], "markdown: combining marks take no column, five e+accent fit in width 5")
-wr = md("**aaa bbb ccc**", 5)
-ok(len(wr) == 3 and all(r.startswith(B) and r.endswith(R) and common.cw(strip(r)) <= 5 for r in wr), "markdown: styled text wraps, every row carries its own style and reset")
 mdt = "# T\n\n- a **b** `c`\n\n| h | i |\n|---|---|\n| 1 | 2 |\n\n```\ncode line that is long\n```\nlast line of text"
 mdcases = {
     "done": {"live": False, "start": 1, "end": 2, "text": mdt},
@@ -394,49 +365,6 @@ for name, rep in mdcases.items():
     warm = render.report_rows(rep, [], [], 30, 40, 10.0)
     markdown.clear_markdown_cache()
     ok(cold1 == warm == render.report_rows(rep, [], [], 30, 40, 10.0), f"markdown cache: {name} report gives the same rows reused and recomputed")
-markdown.clear_markdown_cache()
-a1 = md(mdt, 30, 40)
-ok(md(mdt + "x", 30, 40) != a1 and md(mdt, 12, 40) != a1 and md(mdt, 30, 20) != a1 and md(mdt, 30, 40) == a1, "markdown cache: another text, width or code_width never gets the earlier rows")
-ok(md(mdt, 30) == md(mdt, 30, 30), "markdown cache: no code_width means width")
-a1.append("junk"); a1[0] = "junk"
-ok(md(mdt, 30, 40) == [r for r in md(mdt, 30, 40)] and "junk" not in md(mdt, 30, 40), "markdown cache: editing the returned rows leaves the next call unchanged")
-markdown.clear_markdown_cache()
-md(mdt, 30, 40); h0 = markdown._markdown_rows.cache_info().hits; md(mdt, 30, 40)
-ok(markdown._markdown_rows.cache_info().hits == h0 + 1, "markdown cache: the same input a second time is a hit, not laid out again")
-raw = ["  - **x**", "  - nested", "| a | b |", "![img](u.png)", "<b>x</b>"]
-ok(md("\n".join(raw), 30) == raw, "markdown: nested lists, tables, images and HTML are shown as written")
-tb = "| 名稱 | `k` |\n|:--|--:|\n| 一二 | **x** |\n| ab | yy |"
-tr = md(tb, 20)
-ok([strip(r) for r in tr] == ["名稱 │ k", "─────┼───", "一二 │ x", "ab   │ yy"] and tr[1] == fgc("dim") + "─────┼───" + R and "│" in tr[0] and tr[0].startswith(B + "名稱"),
-   "markdown: a table that fits is aligned columns (CJK = 2), bold header, rule under it, no |---| row")
-tn = md(tb, 8)
-ok([strip(r) for r in tn] == ["名稱：一", "  二", "k：x", "", "名稱：ab", "k：yy"] and tn[0].startswith(fgc("dim") + "名稱："),
-   "markdown: a table too wide becomes name: value groups, a blank row between rows")
-ok([strip(r) for r in md("| 名稱 | v |\n|--|--|\n| 一二三四五六 | `ab cd` |", 12)] == ["名稱：一二三", "  四五六", "v：ab cd"]
-   and all(common.cw(strip(r)) <= w for w in (1, 2, 3, 5, 12) for r in md(tb, w)),
-   "markdown: long table cells wrap with an indent and no table row is wider than width")
-ok([strip(r) for r in md("| a | b |\n|--|--|\n| 1 |", 20)] == ["a │ b", "──┼──", "1 │ "],
-   "markdown: a short table row is padded with empty cells")
-ok(md("| a | b |\nplain", 30) == ["| a | b |", "plain"], "markdown: a | line without a separator row is plain text")
-ok([strip(r) for r in md("Haven't seen the report yet", 12)] == ["Haven't seen", "the report", "yet"], "markdown: English wraps at the last space that fits, words stay whole")
-ok([strip(r) for r in md("ab abcdefghij", 6)] == ["ab", "abcdef", "ghij"], "markdown: a word wider than the row is cut hard")
-ok([strip(r) for r in md("一二三，四五。六", 6)] == ["一二", "三，四", "五。六"] and all(common.cw(strip(r)) <= 6 for r in md("一二三，四五。六", 6)),
-   "markdown: closing punctuation never starts a row, the previous character comes along")
-qr = md("> a **b**\n> > c", 20)
-ok([strip(r) for r in qr] == ["▎ a b", "▎▎ c"] and all(r.startswith(fgc("dim") + "▎") for r in qr) and md("> x", 20)[0].endswith(fgc("dim") + "x" + R),
-   "markdown: a quote line gets a dim ▎ edge (one per level) and dim text")
-ok([strip(r) for r in md("> aaa bbb ccc", 7)] == ["▎ aaa", "▎ bbb", "▎ ccc"], "markdown: every wrapped row of a quote keeps the ▎ edge")
-wide_cases = [("a。。。", 5), ("a" + "，" * 9 + "。", 21), ("- 一" + "）" * 8 + "。", 20), ("> > > > > x", 4), ("> abc", 1)]
-ok(all(common.cw(strip(r)) <= w and "".join(strip(x) for x in md(t, w)).replace("▎", "").replace("•", "").replace(" ", "") == t.replace("> ", "").replace("- ", "").replace(" ", "")
-       for t, w in wide_cases for r in md(t, w)), "markdown: no row is wider than width and no text is lost, even when punctuation carrying has no room")
-ok([strip(r) for r in md("see README.md 」", 14)] == ["see README.md", "」"] and [strip(r) for r in md("abcd   ef", 4)] == ["abcd", "ef"] and [strip(r) for r in md("word 。。。", 6)] == ["word", "。。。"] and [strip(r) for r in md("   abcdef", 3)] == ["abc", "def"],
-   "markdown: wrapping never leaves a leading space or an empty row")
-ok([strip(r) for r in md("aa bcd，", 6)] == ["aa", "bcd，"] and [strip(r) for r in md("- aa bcd，", 8)] == ["• aa", "  bcd，"],
-   "markdown: closing punctuation carries the whole English word to the next row, in lists too")
-ok([strip(r) for r in md("see README.md」", 14)] == ["see", "README.md」"] and [strip(r) for r in md("> see README.md」", 16)] == ["▎ see", "▎ README.md」"],
-   "markdown: the carried word keeps its own trailing punctuation, in quotes too")
-ok("".join(strip(r) for r in md("> 中文", 3)) == "中文" and all(common.cw(strip(r)) <= 3 for r in md("> 中文", 3)),
-   "markdown: a quote too narrow for the edge drops the edge, not the text")
 mk = lambda pane, status: {"pane": pane, "status": status}
 qt = [{"name": "A", "agents": [mk("%1", "done"), mk("%2", "working"), mk("%3", "waiting")]},
       {"name": "B", "agents": [mk("%4", "done")]}]
