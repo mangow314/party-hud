@@ -35,14 +35,15 @@ the last batch lands.
 - An autouse fixture in `conftest.py` clears the module-level memos between tests: `claude_log._long_turns`,
   `_cache_memo`, `_transcript_memo`, `codex_log._tail_memo`, `_rollout_meta`, `processes._ps_memo`. In bash they
   carried over from one assert to the next; a test that checks a memo builds it up inside that one test.
-- `tests/records.py`: plain helpers that write Claude transcripts and Codex rollouts to `tmp_path` (`rec`, `text`,
-  `transcript`, `bulk`, rollout event lines). `pytest.ini_options.pythonpath` gets `"tests"` so test files import it.
+- `tests/records.py`: plain helpers that write Claude transcripts to `tmp_path` (`rec`, `text`, `transcript`, `bulk`,
+  `turn()`, `live_turn()`). `pytest.ini_options.pythonpath` gets `"tests"` so test files import it. Codex rollout
+  event helpers live in `test_codex_log.py`, their only user.
 
 ## Batches
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
-text before the first `:`), not by line number. Counts for batches 2-10 are `ok(` / `check` calls in the range and get
-recounted by prefix when the batch starts.
+text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
+removed 441 lines (from about line 1237 on), so they are only a guide; each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
 |---|---|---|---|---|
