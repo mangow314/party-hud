@@ -467,11 +467,20 @@ WATCHED = (
 )
 
 
+def owner(name):
+    """The collector module whose global `name` its callers look up, so a fake or timer set there reaches all of them."""
+    from party_hud import claude_log, codex_log, collect, processes
+
+    return next(m for m in (processes, claude_log, codex_log, collect) if hasattr(m, name))
+
+
 def disk_world(collect):
     """5 agents whose files sit on disk under the private HOME: 3 Claude (sessions, 2-3 MB transcripts, one with
     subagents), 1 codex (a 2.5 MB rollout), 1 judged by its screen. tmux and /proc are fakes; the files are real."""
+    from party_hud import codex_log, common
+
     home = os.path.expanduser("~")
-    for root in (collect.CLAUDE_SESSIONS, collect.CLAUDE_PROJECTS, collect.CODEX_SESSIONS, collect.PARTY_DIR):
+    for root in (common.CLAUDE_SESSIONS, common.CLAUDE_PROJECTS, codex_log.CODEX_SESSIONS, collect.PARTY_DIR):
         if "party-idle-xdg-" not in os.path.abspath(root) or "party-idle-xdg-" not in os.path.abspath(home):
             raise RuntimeError(f"idle bench: {root} is outside the private home made by isolate() ({home})")
     now = time.time()
@@ -505,9 +514,9 @@ def disk_world(collect):
     args["3004"] = ["node", "/usr/lib/codex"]
     for k in (1, 2, 3):
         args[str(3000 + k)] = ["claude"]
-    os.makedirs(collect.CLAUDE_SESSIONS)
+    os.makedirs(common.CLAUDE_SESSIONS)
     os.makedirs(collect.PARTY_DIR, exist_ok=True)
-    proj = os.path.join(collect.CLAUDE_PROJECTS, "-work")
+    proj = os.path.join(common.CLAUDE_PROJECTS, "-work")
     os.makedirs(proj)
     live = {"3001", "3002", "3003"}
     for k in range(1, 9):
@@ -522,7 +531,7 @@ def disk_world(collect):
             "tmux": where,
         }
         rec.update(cwd=f"/work/{k}", startedAt=1_700_000_000_000, kind="interactive", version="2.1.0", entrypoint="cli")
-        with open(os.path.join(collect.CLAUDE_SESSIONS, f"{pid}.json"), "w") as f:
+        with open(os.path.join(common.CLAUDE_SESSIONS, f"{pid}.json"), "w") as f:
             json.dump(rec, f)
     line = json.dumps(
         {
@@ -555,7 +564,7 @@ def disk_world(collect):
             f.write(line + "\n")
         os.utime(log, (now - age, now - age))
     day = datetime.date.today()
-    rdir = os.path.join(collect.CODEX_SESSIONS, f"{day:%Y}", f"{day:%m}", f"{day:%d}")
+    rdir = os.path.join(codex_log.CODEX_SESSIONS, f"{day:%Y}", f"{day:%m}", f"{day:%d}")
     os.makedirs(rdir)
     rollout = os.path.join(rdir, "rollout-bench.jsonl")
     filler = json.dumps({"type": "event_msg", "payload": {"type": "agent_message", "message": "y" * 1000}})
@@ -578,20 +587,22 @@ def disk_world(collect):
 
 
 def install_fakes(collect, w):
+    from party_hud import processes
+
     collect.read_tmux = lambda: w["panes"]
     collect.tmux = lambda *a: w["screen"]
-    collect.proc_children = lambda pid: list(w["children"].get(str(pid), []))
-    collect.proc_args = lambda pid: w["args"].get(str(pid), ["zsh"])
-    collect.proc_start = lambda pid: w["starts"].get(str(pid))
-    collect.proc_alive = lambda pid: str(pid) in w["live"]
-    collect.proc_table = dict
+    processes.proc_children = lambda pid: list(w["children"].get(str(pid), []))
+    processes.proc_args = lambda pid: w["args"].get(str(pid), ["zsh"])
+    processes.proc_start = lambda pid: w["starts"].get(str(pid))
+    processes.proc_alive = lambda pid: str(pid) in w["live"]
+    processes.proc_table = dict
 
 
 def disk_collect(out):
     """collect() on files in a private HOME: cold, unchanged, per function, cProfile."""
     from party_hud import collect
 
-    saved = {n: getattr(collect, n) for n in (*WATCHED, "tmux", "collect")}
+    saved = {(owner(n), n): getattr(owner(n), n) for n in (*WATCHED, "tmux", "collect")}
     w = disk_world(collect)
     install_fakes(collect, w)
     real_collect = collect.collect
@@ -613,8 +624,7 @@ def disk_collect(out):
         return f
 
     for name in WATCHED:
-        if hasattr(collect, name):
-            tm.wrap(collect, name, name)
+        tm.wrap(owner(name), name, name)
     tm.wrap(collect, "collect", "collect (own lines)")
     builtins.open = attributing_open
     runs = 30
@@ -642,8 +652,8 @@ def disk_collect(out):
     out.append(
         f"| total (wrapped timing overhead included) | | {sum(tm.acc.values()) / runs / 1e6:.3f} | {total_files[0] / runs:.1f} | {total_files[1] / runs:.0f} |"
     )
-    for name, fn in saved.items():
-        setattr(collect, name, fn)
+    for (mod, name), fn in saved.items():
+        setattr(mod, name, fn)
     install_fakes(collect, w)
     pr = cProfile.Profile(time.process_time)
     pr.enable()
@@ -659,8 +669,8 @@ def disk_collect(out):
     tail_cost(out, collect, w["rollout"])
     if not same:
         out.append("WARNING: two collects on unchanged files returned different towns")
-    for name, fn in saved.items():
-        setattr(collect, name, fn)
+    for (mod, name), fn in saved.items():
+        setattr(mod, name, fn)
     return cold, med(unchanged)
 
 
@@ -707,10 +717,12 @@ def parse_cost(out):
 
 def tail_cost(out, collect, rollout):
     """_tail_lines on the disk world's 2.5 MB rollout, called 30 times with the file unchanged; median."""
+    from party_hud import codex_log
+
     times = []
     for _ in range(30):
         t0 = time.process_time_ns()
-        collect._tail_lines(rollout)
+        codex_log._tail_lines(rollout)
         times.append((time.process_time_ns() - t0) / 1e6)
     out.append(f"codex tail, unchanged: {med(times):.3f} ms")
 
@@ -945,13 +957,15 @@ LIVE_WATCHED = (
 def live_breakdown(collect, cn, out, runs=10):
     """Where one real collect() goes: exclusive CPU per function, spawn CPU, /proc reads, the biggest files, cProfile.
     Two more batches of collects: one with the functions wrapped, one under cProfile."""
-    roots = (collect.CLAUDE_SESSIONS, collect.CLAUDE_PROJECTS, collect.CODEX_SESSIONS, collect.PARTY_DIR)
+    from party_hud import codex_log, common
+
+    roots = (common.CLAUDE_SESSIONS, common.CLAUDE_PROJECTS, codex_log.CODEX_SESSIONS, collect.PARTY_DIR)
     home = os.path.expanduser("~").rstrip("/")
     tm = Timers()
-    saved = {n: getattr(collect, n) for n in (*LIVE_WATCHED, "collect") if hasattr(collect, n)}
+    saved = {(owner(n), n): getattr(owner(n), n) for n in (*LIVE_WATCHED, "collect")}
     real_collect = collect.collect
-    for name in saved:
-        tm.wrap(collect, name, "collect (own lines)" if name == "collect" else name)
+    for mod, name in saved:
+        tm.wrap(mod, name, "collect (own lines)" if name == "collect" else name)
     cn.reset()
     per_run, owns = [], []
     try:
@@ -961,8 +975,8 @@ def live_breakdown(collect, cn, out, runs=10):
             owns.append(own)
             per_run.append({k: v - before.get(k, 0) for k, v in tm.acc.items()})
     finally:
-        for name, fn in saved.items():
-            setattr(collect, name, fn)
+        for (mod, name), fn in saved.items():
+            setattr(mod, name, fn)
     counts = dict(tm.count)
     names = sorted({k for r in per_run for k in r}, key=lambda n: -med(r.get(n, 0) for r in per_run))
     out.append(

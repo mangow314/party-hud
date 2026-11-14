@@ -164,7 +164,9 @@ class Rec:
     """One record per wake: CPU between two `select.select` calls and the exclusive CPU of the wrapped functions in it."""
 
     def __init__(self, tm, render):
-        self.tm, self.render = tm, render
+        from party_hud import markdown
+
+        self.tm, self.render, self.markdown = tm, render, markdown
         self.iters: list[dict] = []
         self.events: list[list] = []
         self.cur: dict | None = None
@@ -183,7 +185,7 @@ class Rec:
             "acc0": dict(self.tm.acc),
             "n0": dict(self.tm.count),
             "frames0": self.frames,
-            "miss0": self.render._markdown_rows.cache_info().misses,
+            "miss0": self.markdown._markdown_rows.cache_info().misses,
             "cpu0": time.process_time_ns(),
         }
 
@@ -202,7 +204,7 @@ class Rec:
                 "c": {k: v for k, v in acc.items() if v},
                 "frames": self.frames - cur["frames0"],
                 "snaps": self.tm.count.get("snap", 0) - cur["n0"].get("snap", 0),
-                "miss": self.render._markdown_rows.cache_info().misses - cur["miss0"],
+                "miss": self.markdown._markdown_rows.cache_info().misses - cur["miss0"],
                 "screen": screen or self.screen,
             }
         )
@@ -456,6 +458,8 @@ PIECES = [
 
 def part1(sc, sink, emit):
     render = sc.render
+    from party_hud.markdown import clear_markdown_cache
+
     seen, working, unseen = sc.panes[1], sc.data["working"], sc.panes[2]
     cases = [
         ("seen member", seen, False),
@@ -463,7 +467,7 @@ def part1(sc, sink, emit):
         ("unseen member, first layout", unseen, True),
     ]
     now = time.time()
-    clear = render.clear_markdown_cache
+    clear = clear_markdown_cache
     r_ms = {}
     for name, sel, fresh in cases:
         r_ms[name] = sample_ms(lambda sel=sel: sc.select(sel, now), clear if fresh else None)
@@ -606,12 +610,13 @@ def part7(sc, sink, emit):
     import pstats
 
     now = time.time()
-    render = sc.render
+    from party_hud.markdown import clear_markdown_cache
+
     seen, working, unseen = sc.panes[1], sc.data["working"], sc.panes[2]
     state = {"cached": (None, None, [], 0.0)}
 
     def k_press():
-        render.clear_markdown_cache()
+        clear_markdown_cache()
         state["cached"] = sc.loop_frame(unseen, now, (None, None, [], 0.0), sink, {})
 
     cases = [
@@ -620,7 +625,7 @@ def part7(sc, sink, emit):
         (
             "render_select, unseen member (cleared Markdown cache)",
             lambda: sc.select(unseen, now),
-            render.clear_markdown_cache,
+            clear_markdown_cache,
         ),
         ("one k: whole loop frame on an unseen member", k_press, None),
     ]
