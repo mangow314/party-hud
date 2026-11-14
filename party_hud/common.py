@@ -8,6 +8,7 @@ import subprocess
 import time
 import unicodedata
 import zlib
+from datetime import datetime
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
@@ -193,3 +194,11 @@ def log_error():
             f.write(f"--- {time.strftime('%F %T')} pane={os.environ.get('TMUX_PANE', '')}\n{traceback.format_exc()}")
     except OSError:
         pass
+
+
+def iso_epoch(ts):
+    # Python 3.10 fromisoformat does not accept a trailing Z
+    return datetime.fromisoformat(ts.replace("Z", "+00:00")).timestamp() if ts else None
+
+
+LIVE_TAIL = 1024 * 1024  # a working turn can be long: look further back than the 256 KB of a finished one

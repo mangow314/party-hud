@@ -91,7 +91,7 @@ check "HP threshold color: 88% teal (bar = colored underline)" grep -qE "4m.\[58
 
 # Selecting a member of another squad: the viewed squad and the cards follow
 python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
 print(render.render(collect.collect(sys.argv[2])["towns"], 33, "%4"))' "$party" "$tmp/fixture.json" >"$tmp/sel.ansi"
 sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' "$tmp/sel.ansi" >"$tmp/sel.txt"
 bar_only_server() { grep -qE "^│▌ .* Server" "$1" && ! grep -qE "^│▌ .* Studio" "$1"; }
@@ -105,7 +105,7 @@ check "Viewed squad with nothing to flag: gold name; unviewed squad with someone
   across "38;2;240;160;80m!.*Studio.*38;2;226;178;74mServer" "$tmp/sel.ansi"
 check "Select %4 -> every box line is 33 wide" widths_ok "$tmp/sel.txt"
 python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
 t=collect.collect(sys.argv[2])["towns"]; e=t+[dict(t[1],name="Empty",agents=[])]
 print(render.render(e,33,"%1",focus="squad",squad=2))' "$party" "$tmp/fixture.json" \
   | sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' >"$tmp/squad.txt"
@@ -115,7 +115,7 @@ check "Empty squad selected -> every box line is 33 wide" widths_ok "$tmp/squad.
 ui_ok() {
   python3 - "$party" "$tmp/fixture.json" <<'EOF'
 import os, re, sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
 snap = collect.collect(sys.argv[2]); towns = snap["towns"]
 agents = [a for t in towns for a in t["agents"]]
 strip = lambda x: re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", x)
@@ -1011,7 +1011,7 @@ import fcntl, pty, select as _sel, signal, struct, subprocess, termios as _tm, t
 child = """
 import sys
 sys.path.insert(0, %r)
-from party_hud import collect, ui
+from party_hud import claude_log, codex_log, collect, processes, ui
 ui.get_snapshot = lambda f=None: collect.collect(%r)
 ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(%d)), "start": 1, "end": 2}
 ui.tmux = lambda *a: print("TMUX", a, flush=True) or ("off" if "@party_anim" in a else "")
@@ -1312,7 +1312,7 @@ with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write('{"type":"event_msg","payload":{"type":"token_count","info":{"last_token_usage":{"total_tokens":18981},'
             '"model_context_window":258400}}}\n')
     f.write('{"type":"event_msg","payload":{"type":"token_count","info":null}}\n')
-ok(collect.codex_usage(f.name) == (18981, 258400) and collect.codex_usage("/nope") is None,
+ok(codex_log.codex_usage(f.name) == (18981, 258400) and codex_log.codex_usage("/nope") is None,
    "codex rollout: use the last token_count with usage (skip info: null)")
 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":"old","started_at":1,"completed_at":2}}\n')
@@ -1321,9 +1321,9 @@ with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write('{"type":"event_msg","payload":{"type":"token_count","info":null}}\n')
 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as g:
     g.write('{"type":"event_msg","payload":{"type":"task_complete","last_agent_message":null}}\n')
-ok(collect.codex_report(f.name) == {"text": "## 結果\n完成", "start": 100, "end": 160},
+ok(codex_log.codex_report(f.name) == {"text": "## 結果\n完成", "start": 100, "end": 160},
    "codex report: last task_complete's message and start / end time")
-ok(collect.codex_report(g.name) is None and collect.codex_report("/nope") is None,
+ok(codex_log.codex_report(g.name) is None and codex_log.codex_report("/nope") is None,
    "codex report: no message or no file -> None")
 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     um = lambda tid, t: json.dumps({"type": "event_msg", "payload": {"type": "item_completed", "turn_id": tid, "item": {"type": "UserMessage", "content": [{"type": "text", "text": t}]}}}) + "\n"
@@ -1331,12 +1331,12 @@ with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     ts = lambda tid: json.dumps({"type": "event_msg", "payload": {"type": "task_started", "turn_id": tid}}) + "\n"
     f.write(ts("t1") + um("t1", "old ask") + ce("t1") + ts("t2") + um("t2", " new ask ") + ce("t2") + ce("t2"))
     f.write('{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t2","last_agent_message":"x","started_at":1,"completed_at":2}}\n')
-ok(collect.codex_task(f.name) == {"ask": "new ask", "files": 0, "cmds": 2, "agents": 0} and collect.codex_task("/nope") is None,
+ok(codex_log.codex_task(f.name) == {"ask": "new ask", "files": 0, "cmds": 2, "agents": 0} and codex_log.codex_task("/nope") is None,
    "codex task: the finished turn's UserMessage text and its CommandExecution count (item_completed events)")
 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write(ts("t9") + um("t9", "long turn") + ce("t9") + ("x" * 1000 + "\n") * 300 + ce("t9") + ce("t9"))
     f.write('{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t9","last_agent_message":"x","started_at":1,"completed_at":2}}\n')
-ok(collect.codex_task(f.name) is None, "codex task: turn started before the tail that is read -> None, not a short count")
+ok(codex_log.codex_task(f.name) is None, "codex task: turn started before the tail that is read -> None, not a short count")
 
 with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     fc = lambda tid, name, inp: json.dumps({"type": "response_item", "payload": {"type": "custom_tool_call", "name": name, "input": inp}}) + "\n"
@@ -1344,11 +1344,11 @@ with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
     f.write(ts("t1") + um("t1", "old ask") + '{"type":"event_msg","payload":{"type":"task_complete","turn_id":"t1","last_agent_message":"earlier answer","started_at":10,"completed_at":20}}\n')
     f.write('{"type":"event_msg","payload":{"type":"task_started","turn_id":"t2","started_at":500}}\n')
     f.write(um("t2", "now ask") + fc("t2", "exec", "\nrg -n foo src\nmore") + ce("t2") + am("t2", "a\nb\nc") + fc("t2", "exec", "ls -la"))
-cl = collect.codex_live(f.name)
+cl = codex_log.codex_live(f.name)
 ok(cl == {"live": True, "task": {"ask": "now ask", "files": 0, "cmds": 1, "agents": 0}, "start": 500, "end": None,
           "tool": "exec: ls -la", "said": "a\nb\nc", "prev": {"text": "earlier answer", "start": 10, "end": 20}},
    "codex live: turn without task_complete -> ask, start, newest tool row, newest message, previous turn's report")
-ok(collect.codex_live(g.name) is None and collect.codex_live("/nope") is None, "codex live: newest turn event is task_complete (or no file) -> None")
+ok(codex_log.codex_live(g.name) is None and codex_log.codex_live("/nope") is None, "codex live: newest turn event is task_complete (or no file) -> None")
 
 def transcript(*recs):
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as f:
@@ -1365,17 +1365,17 @@ turn = [rec("user", 0, "earlier"), rec("assistant", 1, [text("old answer")]),
         rec("assistant", 6, [text("## 結果\nDone")]), rec("assistant", 7, [text("One more line")]),
         rec("assistant", 8, [text("subagent noise")], isSidechain=True), rec("user", 9, "caveat", isMeta=True)]
 t0 = datetime.fromisoformat("2026-11-07T10:00:00+00:00").timestamp()
-r = collect.claude_report(transcript(*turn))
+r = claude_log.claude_report(transcript(*turn))
 ok(r == {"text": "## 結果\nDone\n\nOne more line", "start": t0 + 120, "end": t0 + 420},
    "claude report: text after the last tool call, from the prompt's time to the last text (subagent and meta skipped)")
-r = collect.claude_report(transcript(*turn, rec("user", 10, "<bash-input>ls</bash-input>"), rec("user", 10, "<bash-stdout>a</bash-stdout>")))
+r = claude_log.claude_report(transcript(*turn, rec("user", 10, "<bash-input>ls</bash-input>"), rec("user", 10, "<bash-stdout>a</bash-stdout>")))
 ok(r is not None and r["text"].startswith("## 結果") and r["start"] == t0 + 120,
    "claude report: a ! command after the answer (no reply) does not hide the report")
-ok(collect.claude_report(transcript(*turn[:6])) is None and collect.claude_report(transcript(*turn[:7])) is None
-   and collect.claude_report("/nope") is None,
+ok(claude_log.claude_report(transcript(*turn[:6])) is None and claude_log.claude_report(transcript(*turn[:7])) is None
+   and claude_log.claude_report("/nope") is None,
    "claude report: turn still in a tool call, or no file -> None")
-ok(collect.claude_report(transcript(*turn[:4])) is None, "claude report: turn with only thinking so far -> None")
-ok(collect.claude_report(transcript(*turn[:2])) == {"text": "old answer", "start": t0, "end": t0 + 60},
+ok(claude_log.claude_report(transcript(*turn[:4])) is None, "claude report: turn with only thinking so far -> None")
+ok(claude_log.claude_report(transcript(*turn[:2])) == {"text": "old answer", "start": t0, "end": t0 + 60},
    "claude report: answer without tool calls")
 edit = lambda t, name, **inp: rec("assistant", t, [{"type": "tool_use", "id": f"u{t}", "name": name, "input": inp}])
 task_log = transcript(rec("user", 0, "old"), rec("assistant", 1, [text("ok")]),
@@ -1385,8 +1385,8 @@ task_log = transcript(rec("user", 0, "old"), rec("assistant", 1, [text("ok")]),
     edit(6, "Edit", file_path="/side.py", ), rec("assistant", 7, [text("done")]),
     rec("user", 8, "<bash-input>ls</bash-input>"))
 task_log2 = transcript(*[({**r_, "isSidechain": True} if r_["message"]["content"][0].get("input", {}).get("file_path") == "/side.py" else r_) if isinstance(r_["message"]["content"], list) else r_ for r_ in map(json.loads, open(task_log))])
-ok(collect.claude_task(task_log2) == {"ask": "fix\nthe thing", "files": ["/a.py", "/b.py"], "cmds": 2, "agents": 2}
-   and collect.claude_task("/nope")["ask"] is None,
+ok(claude_log.claude_task(task_log2) == {"ask": "fix\nthe thing", "files": ["/a.py", "/b.py"], "cmds": 2, "agents": 2}
+   and claude_log.claude_task("/nope")["ask"] is None,
    "claude task: prompt of the answered turn, distinct edited files, Bash, Agent and Task counts (sidechain and older turns skipped)")
 inj = lambda t, text_, **kw: rec("user", t, text_, **kw)
 noisy = transcript(rec("user", 0, "real ask"), edit(1, "Edit", file_path="/a.py"), rec("assistant", 2, [text("ok")]),
@@ -1395,7 +1395,7 @@ noisy = transcript(rec("user", 0, "real ask"), edit(1, "Edit", file_path="/a.py"
     inj(5, "<system-reminder>\nnote\n</system-reminder>"), inj(5, "<local-command-stdout>x</local-command-stdout>"),
     inj(5, "<task-notification>y"), inj(5, "peer msg", origin={"kind": "peer"}),
     rec("assistant", 6, [text("done")]))
-ok(collect.claude_task(noisy) == {"ask": "real ask", "files": ["/a.py", "/b.py"], "cmds": 1, "agents": 0},
+ok(claude_log.claude_task(noisy) == {"ask": "real ask", "files": ["/a.py", "/b.py"], "cmds": 1, "agents": 0},
    "claude task: injected user records (origin not human, task-notification, local-command, system-reminder only) are not the prompt; their tool calls still count")
 slash = transcript(rec("user", 0, "before"), rec("assistant", 1, [text("a")]),
     rec("user", 2, "<command-message>sdlc-run</command-message>\n<command-name>/sdlc-run</command-name>\n<command-args>game-feel 025</command-args>", origin={"kind": "human"}),
@@ -1403,30 +1403,30 @@ slash = transcript(rec("user", 0, "before"), rec("assistant", 1, [text("a")]),
     rec("user", 3, "<system-reminder>\ninjected\n</system-reminder>\n/real typed words"),
     edit(4, "Edit", file_path="/c.py"), rec("assistant", 5, [text("done")]))
 slash2 = transcript(*list(map(json.loads, open(slash)))[:-3], rec("assistant", 5, [text("done")]))
-ok(collect.claude_task(slash)["ask"] == "/real typed words" and collect.claude_task(slash2)["ask"] == "/sdlc-run game-feel 025"
-   and collect.claude_typed({}, "<system-reminder>only</system-reminder>") is None,
+ok(claude_log.claude_task(slash)["ask"] == "/real typed words" and claude_log.claude_task(slash2)["ask"] == "/sdlc-run game-feel 025"
+   and claude_log.claude_typed({}, "<system-reminder>only</system-reminder>") is None,
    "claude task: a slash command shows as /name args (no skill text); system-reminder blocks are cut and an empty remainder is skipped")
 pb = lambda body, i="cd54": f'<pasted_content id="{i}">\n{body}\n</pasted_content id="{i}">'
-ok(collect.claude_typed({}, "[Image #1] it broke\n\n\n" + pb("❯❯ bash x\nok")) == "[Image #1] it broke"
-   and collect.claude_typed({}, "\n\n" + pb("❯❯ printf\n57") + "\n\n\nnew window is fine") == "new window is fine",
+ok(claude_log.claude_typed({}, "[Image #1] it broke\n\n\n" + pb("❯❯ bash x\nok")) == "[Image #1] it broke"
+   and claude_log.claude_typed({}, "\n\n" + pb("❯❯ printf\n57") + "\n\n\nnew window is fine") == "new window is fine",
    "claude typed: text typed outside a pasted_content block is the ask; the block is dropped")
-ok(collect.claude_typed({}, pb("❯❯ printf\n57")) == "❯❯ printf\n57",
+ok(claude_log.claude_typed({}, pb("❯❯ printf\n57")) == "❯❯ printf\n57",
    "claude typed: only a paste -> the pasted text without the pasted_content markers")
-ok(collect.claude_typed({}, pb("one", "a") + "\nmiddle\n" + pb("two", "b")) == "middle",
+ok(claude_log.claude_typed({}, pb("one", "a") + "\nmiddle\n" + pb("two", "b")) == "middle",
    "claude typed: two pastes with typed words between -> only the words")
-ok(collect.claude_typed({}, 'hi\n<pasted_content id="z">\nbody') == "hi\nbody"
-   and "pasted_content" not in collect.claude_typed({}, '<pasted_content id="z">\nbody'),
+ok(claude_log.claude_typed({}, 'hi\n<pasted_content id="z">\nbody') == "hi\nbody"
+   and "pasted_content" not in claude_log.claude_typed({}, '<pasted_content id="z">\nbody'),
    "claude typed: an unclosed pasted_content block loses only its opening marker")
-ok(collect.claude_typed({}, pb('see </pasted_content id="q"> inside') + "\ntyped") == "typed"
-   and collect.claude_typed({}, pb('a </pasted_content id="q"> b')) == 'a </pasted_content id="q"> b'
-   and "pasted_content" not in collect.claude_typed({}, pb("x") + '\ntyped\n<pasted_content id="z">\nrest'),
+ok(claude_log.claude_typed({}, pb('see </pasted_content id="q"> inside') + "\ntyped") == "typed"
+   and claude_log.claude_typed({}, pb('a </pasted_content id="q"> b')) == 'a </pasted_content id="q"> b'
+   and "pasted_content" not in claude_log.claude_typed({}, pb("x") + '\ntyped\n<pasted_content id="z">\nrest'),
    "claude typed: a closing-marker lookalike inside a paste does not end it; a stray opening marker beside a full block is dropped")
 edit_ = lambda t, name, **inp: rec("assistant", t, [{"type": "tool_use", "id": "z", "name": name, "input": inp}])
 liveq = transcript(rec("user", 0, "before"), rec("assistant", 1, [text("previous answer")]),
     rec("user", 2, "fix the thing"), rec("assistant", 3, [text("working on it\nline2")]),
     edit_(4, "Edit", file_path="/a.py"), rec("user", 5, [{"type": "tool_result", "tool_use_id": "z"}]),
     edit_(6, "Bash", command="rg -n foo\nsecond line", description="search"))
-cl = collect.claude_live(liveq)
+cl = claude_log.claude_live(liveq)
 ok(cl == {"live": True, "task": {"ask": "fix the thing", "files": ["/a.py"], "cmds": 1, "agents": 0},
           "start": t0 + 120, "end": None, "tool": "Bash: rg -n foo", "said": "working on it\nline2",
           "prev": {"text": "previous answer", "start": t0, "end": t0 + 60}},
@@ -1440,73 +1440,73 @@ def append(path, *recs):
         for r_ in recs:
             f.write(json.dumps(r_) + "\n")
 searches = []
-search_orig = collect._search_long_turn
-collect._search_long_turn = lambda f, lo: (searches.append(lo), search_orig(f, lo))[1]
+search_orig = claude_log._search_long_turn
+claude_log._search_long_turn = lambda f, lo: (searches.append(lo), search_orig(f, lo))[1]
 longlog = transcript(rec("user", 0, "before"), rec("assistant", 1, [text("previous answer")]),
     rec("user", 2, "long ask"), *bulk(3, 1.3))
-ll = collect.claude_live(longlog)
+ll = claude_log.claude_live(longlog)
 ok(ll["start"] == t0 + 120 and ll["task"]["ask"] == "long ask" and ll["task"]["files"] == [] and ll["tool"] == "Bash: ls"
    and ll["prev"] == {"text": "previous answer", "start": t0, "end": t0 + 60},
    "claude live: a turn that began before LIVE_TAIL still has ask, start and prev (files, cmds and agents count the tail only)")
 append(longlog, rec("assistant", 20, [text("more")]), *bulk(21, 0.1))
-ll2 = collect.claude_live(longlog)
+ll2 = claude_log.claude_live(longlog)
 ok(len(searches) == 1 and (ll2["start"], ll2["task"]["ask"], ll2["prev"]) == (ll["start"], ll["task"]["ask"], ll["prev"]) and ll2["said"] == "more",
    "claude live: the same log read again as the same turn is not searched again")
 append(longlog, rec("user", 30, "second ask"), rec("assistant", 31, [text("on it")]))
-ll3 = collect.claude_live(longlog)
+ll3 = claude_log.claude_live(longlog)
 n_ = len(searches)
 append(longlog, rec("user", 40, "third ask"), *bulk(41, 1.3))
-ll4 = collect.claude_live(longlog)
+ll4 = claude_log.claude_live(longlog)
 ok(ll3["start"] == t0 + 1800 and ll3["task"]["ask"] == "second ask" and n_ == 1 and len(searches) == 2
    and ll4["start"] == t0 + 2400 and ll4["task"]["ask"] == "third ask" and ll4["prev"]["text"] == "on it",
    "claude live: a new prompt in the tail replaces the remembered turn; a new turn longer than the tail since the last read is searched again")
 other = transcript(rec("user", 0, "other ask"), *bulk(1, 1.3))
 os.replace(other, longlog)
-ok(collect.claude_live(longlog)["task"]["ask"] == "other ask",
+ok(claude_log.claude_live(longlog)["task"]["ask"] == "other ask",
    "claude live: a log replaced by another file is not read as the remembered turn")
 n_ = len(searches)
 with open(longlog, "w") as f:
     for r_ in [rec("user", 0, "rewritten ask"), *bulk(1, 1.4)]:
         f.write(json.dumps(r_) + "\n")
-ok(collect.claude_live(longlog)["task"]["ask"] == "rewritten ask" and len(searches) == n_ + 1,
+ok(claude_log.claude_live(longlog)["task"]["ask"] == "rewritten ask" and len(searches) == n_ + 1,
    "claude live: a log rewritten in place (same inode, other content) is searched again")
 cut = transcript(rec("user", 0, "cut ask"), *bulk(1, 1.3))
-collect.claude_live(cut)
+claude_log.claude_live(cut)
 with open(cut, "r+") as f:
     f.truncate(os.path.getsize(cut) - 100000)
 n_ = len(searches)
-ok(collect.claude_live(cut)["task"]["ask"] == "cut ask" and len(searches) == n_ + 1,
+ok(claude_log.claude_live(cut)["task"]["ask"] == "cut ask" and len(searches) == n_ + 1,
    "claude live: a log cut shorter is searched again")
 edge = []
 for d in (-1, 0, 1):
     el = transcript(rec("user", 0, "OLD"), *bulk(1, 1.3))
-    collect.claude_live(el)
+    claude_log.claude_live(el)
     prompt = json.dumps(rec("user", 50, "EDGE new")) + "\n"
     pad = lambda n: json.dumps(rec("user", 51, [{"type": "tool_result", "tool_use_id": "z", "content": "o" * n}])) + "\n"
-    room = collect.LIVE_TAIL + d - len(prompt) - len(pad(0))
+    room = common.LIVE_TAIL + d - len(prompt) - len(pad(0))
     with open(el, "a") as f:
         f.write(prompt + pad(room))
-    edge.append(collect.claude_live(el)["task"].get("ask"))
+    edge.append(claude_log.claude_live(el)["task"].get("ask"))
     for _ in range(2):
         append(el, *bulk(52, 0.1))
-        edge.append(collect.claude_live(el)["task"].get("ask"))
+        edge.append(claude_log.claude_live(el)["task"].get("ask"))
 ok(edge == ["EDGE new"] * 9,
    f"claude live: a new prompt first in what the file grew by LIVE_TAIL - 1, LIVE_TAIL and LIVE_TAIL + 1 bytes is the turn, not the remembered one, also on later reads ({edge})")
 mid = transcript(rec("user", 0, "earlier"), rec("assistant", 1, [text("a")]),
     rec("user", 2, "ask with a lookalike", meta={"type": "tool_result"}), *bulk(3, 1.3))
-ok(collect.claude_live(mid)["task"]["ask"] == "ask with a lookalike",
+ok(claude_log.claude_live(mid)["task"]["ask"] == "ask with a lookalike",
    "claude live: a prompt record that has a tool_result lookalike in another field is still the prompt")
-lookback = collect.LONG_TURN_LOOKBACK
-collect.LONG_TURN_LOOKBACK = 64 * 1024
+lookback = claude_log.LONG_TURN_LOOKBACK
+claude_log.LONG_TURN_LOOKBACK = 64 * 1024
 far = transcript(rec("user", 0, "far ask"), *bulk(1, 1.3))
-fl = collect.claude_live(far)
-collect.LONG_TURN_LOOKBACK = lookback
+fl = claude_log.claude_live(far)
+claude_log.LONG_TURN_LOOKBACK = lookback
 ok(fl["start"] is None and fl["task"] == {} and fl["prev"] is None and fl["tool"] == "Bash: ls",
    "claude live: a prompt further back than LONG_TURN_LOOKBACK is not found, the result is the tail-only one")
 n_ = len(searches)
-ok(collect.claude_live(liveq) == cl and len(searches) == n_,
+ok(claude_log.claude_live(liveq) == cl and len(searches) == n_,
    "claude live: a turn that begins inside the tail gives the same result and never searches")
-collect._search_long_turn = search_orig
+claude_log._search_long_turn = search_orig
 ok(collect.report_for({"kind": "claude", "transcript": liveq, "status": "working"})["live"] is True
    and collect.report_for({"kind": "claude", "transcript": liveq}) is None
    and collect.report_for({"kind": "claude", "transcript": transcript(*turn), "status": "idle"})["text"].startswith("## 結果"),
@@ -1554,10 +1554,10 @@ agent("b", {"agentType": "executor", "description": "Still running"}, rec("user"
 agent("c", "not json {", rec("user", 0, "go", isSidechain=True))
 agent("e", "[1]", rec("user", 0, "go", isSidechain=True))
 agent("d", {"agentType": "executor", "description": "No log text", "finished": True}, rec("user", 0, "go", isSidechain=True))
-ok(collect.claude_report(os.path.join(sdir, "agent-a.jsonl")) is None
-   and collect.claude_report(os.path.join(sdir, "agent-a.jsonl"), sidechain=True)["text"] == "sub final",
+ok(claude_log.claude_report(os.path.join(sdir, "agent-a.jsonl")) is None
+   and claude_log.claude_report(os.path.join(sdir, "agent-a.jsonl"), sidechain=True)["text"] == "sub final",
    "subagent report: its log is all sidechain records, read only on request")
-fin = collect.finished_subagents(sess)
+fin = claude_log.finished_subagents(sess)
 ok(fin == [{"type": "executor", "desc": "Fin one", "text": "sub final"}, {"type": "executor", "desc": "No log text", "text": ""}],
    "subagents: only finished: true metas, with their final text (unfinished, broken or non-object metas skipped)")
 ok(collect.report_for({"kind": "claude", "transcript": sess})["subagents"] == [s for s in fin if s["desc"] == "No log text"]
@@ -1569,13 +1569,13 @@ handback = [rec("user", 0, "go", isSidechain=True), rec("assistant", 1, [text("w
             rec("user", 3, [{"type": "tool_result", "tool_use_id": "h", "content": [text('{"success":true}')]}], isSidechain=True)]
 agent("h", {"agentType": "general-purpose", "description": "Handback", "finished": True}, *handback)
 hb_log = os.path.join(sdir, "agent-h.jsonl")
-ok(collect.claude_report(hb_log, sidechain=True) == {"text": "## 報告\nall good", "start": t0, "end": t0 + 120}
-   and [s for s in collect.finished_subagents(sess) if s["desc"] == "Handback"][0]["text"] == "## 報告\nall good"
-   and collect.claude_report(hb_log) is None
-   and collect.claude_report(transcript(*[{**r_, "isSidechain": False} for r_ in handback])) is None,
+ok(claude_log.claude_report(hb_log, sidechain=True) == {"text": "## 報告\nall good", "start": t0, "end": t0 + 120}
+   and [s for s in claude_log.finished_subagents(sess) if s["desc"] == "Handback"][0]["text"] == "## 報告\nall good"
+   and claude_log.claude_report(hb_log) is None
+   and claude_log.claude_report(transcript(*[{**r_, "isSidechain": False} for r_ in handback])) is None,
    "subagent report: SubagentHandback message (stripped), main conversation unaffected")
 os.utime(os.path.join(sdir, "agent-d.jsonl"), (t0, t0))
-ok([s["desc"] for s in collect.finished_subagents(sess, t0 + 120)] == ["Handback"]
+ok([s["desc"] for s in claude_log.finished_subagents(sess, t0 + 120)] == ["Handback"]
    and [s["desc"] for s in collect.report_for({"kind": "claude", "transcript": sess})["subagents"]] == ["Handback"],
    "subagents: only those that ended in the report's turn (report end, else log mtime, at or after the prompt)")
 common_tmux = collect.tmux
@@ -1661,53 +1661,53 @@ agy_menu = open(os.path.join(os.path.dirname(sys.argv[1]), "tests", "fixtures", 
 agy_done = agy_menu[:agy_menu.index("Command\n")]
 menu_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id=f"%{i}", pane_pid=str(i), pane_current_command=cmd, session_name="s", session_attached="1",
                    window_active="1", window_id="@1", window_panes="2") for i, cmd in ((1, "agy"), (2, "grok"))]
-real4 = (collect.read_tmux, collect.read_claude_sessions, collect.tmux)
-collect.read_tmux, collect.read_claude_sessions = (lambda: menu_panes), (lambda: {})
+real4 = (collect.read_tmux, claude_log.read_claude_sessions, collect.tmux)
+collect.read_tmux, claude_log.read_claude_sessions = (lambda: menu_panes), (lambda: {})
 status_of = {}
 for label, screen in (("menu", agy_menu), ("no menu", agy_done)):
     collect.tmux, collect.PARTY_DIR = (lambda *args, s=screen: s), tempfile.mkdtemp()
     status_of[label] = {a["kind"]: a["status"] for t in collect.collect()["towns"] for a in t["agents"]}
-collect.read_tmux, collect.read_claude_sessions, collect.tmux = real4
+collect.read_tmux, claude_log.read_claude_sessions, collect.tmux = real4
 ok(status_of["menu"]["agy"] == "waiting", "agy permission menu on screen -> waiting")
 ok(status_of["no menu"]["agy"] == "idle", "agy screen without the permission menu -> not waiting")
 ok(status_of["menu"]["grok"] == "idle", "grok pane showing the agy permission menu -> unaffected")
 busy_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id=f"%{i}", pane_pid=str(i), pane_current_command=cmd, session_name="s", session_attached="1",
                    window_active="1", window_id="@1", window_panes="3") for i, cmd in ((1, "agy"), (2, "grok"), (3, "codex"))]
-collect.read_tmux, collect.read_claude_sessions = (lambda: busy_panes), (lambda: {})
+collect.read_tmux, claude_log.read_claude_sessions = (lambda: busy_panes), (lambda: {})
 collect.PARTY_DIR = tempfile.mkdtemp()
 for n in (100, 101):
     collect.tmux = lambda *args, n=n: agy_menu + f"tick {n}"
     busy = {a["kind"]: a["status"] for t in collect.collect(now=n)["towns"] for a in t["agents"]}
-collect.read_tmux, collect.read_claude_sessions, collect.tmux = real4
+collect.read_tmux, claude_log.read_claude_sessions, collect.tmux = real4
 ok(busy == {"agy": "waiting", "grok": "working", "codex": "working"}, "changing screen with the menu text: agy waiting, others still working")
 def rollout(*events):
     with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as rf:
         rf.writelines('{"type":"event_msg","payload":{"type":"%s"}}\n' % e for e in events)
     return rf.name
 done_f, started_f, empty_f = rollout("task_started", "task_complete"), rollout("task_complete", "task_started"), rollout("token_count")
-ok(collect.codex_turn_done(done_f) and not collect.codex_turn_done(started_f) and not collect.codex_turn_done(empty_f)
-   and not collect.codex_turn_done("/nope"), "codex turn done: only when the newest turn event is task_complete")
+ok(codex_log.codex_turn_done(done_f) and not codex_log.codex_turn_done(started_f) and not codex_log.codex_turn_done(empty_f)
+   and not codex_log.codex_turn_done("/nope"), "codex turn done: only when the newest turn event is task_complete")
 cx_ask = open(os.path.join(os.path.dirname(sys.argv[1]), "tests", "fixtures", "codex-approval.txt"), encoding="utf-8").read()
 ask_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id=f"%{i}", pane_pid=str(i), pane_current_command=cmd, session_name="s", session_attached="1",
                   window_active="1", window_id="@1", window_panes="2") for i, cmd in ((1, "codex"), (2, "agy"))]
-real_roll = collect.codex_rollout
-collect.read_tmux, collect.read_claude_sessions = (lambda: ask_panes), (lambda: {})
+real_roll = codex_log.codex_rollout
+collect.read_tmux, claude_log.read_claude_sessions = (lambda: ask_panes), (lambda: {})
 asked = {}
 for label, path, screen in (("open", started_f, cx_ask), ("done", done_f, cx_ask), ("no prompt", started_f, cx_ask[:cx_ask.index("› 1.")])):
-    collect.codex_rollout, collect.tmux, collect.PARTY_DIR = (lambda *a, p=path: p), (lambda *args, s=screen: s), tempfile.mkdtemp()
+    codex_log.codex_rollout, collect.tmux, collect.PARTY_DIR = (lambda *a, p=path: p), (lambda *args, s=screen: s), tempfile.mkdtemp()
     asked[label] = {a["kind"]: a["status"] for t in collect.collect()["towns"] for a in t["agents"]}
-collect.read_tmux, collect.read_claude_sessions, collect.tmux = real4
-collect.codex_rollout = real_roll
+collect.read_tmux, claude_log.read_claude_sessions, collect.tmux = real4
+codex_log.codex_rollout = real_roll
 ok(asked["open"]["codex"] == "waiting", "codex approval prompt on screen during a turn -> waiting")
 ok(asked["open"]["agy"] == "idle", "agy pane showing the codex approval prompt -> unaffected")
 ok(asked["done"]["codex"] == "idle", "codex: the prompt line still on screen after task_complete (quoted in the answer) -> not waiting")
 ok(asked["no prompt"]["codex"] == "idle", "codex screen without the approval prompt -> not waiting")
 cx_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id="%1", pane_pid="1", pane_current_command="codex", session_name="s",
                  session_attached="1", window_active="1", window_id="@1", window_panes="1")]
-real5 = (collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed)
-collect.read_tmux, collect.read_claude_sessions = (lambda: cx_panes), (lambda: {})
+real5 = (collect.read_tmux, claude_log.read_claude_sessions, codex_log.codex_rollout, collect.screen_changed)
+collect.read_tmux, claude_log.read_claude_sessions = (lambda: cx_panes), (lambda: {})
 def cx_status(path, changed=True):
-    collect.codex_rollout, collect.screen_changed = (lambda *a: path), (lambda ps, now: {p: changed for p in ps})
+    codex_log.codex_rollout, collect.screen_changed = (lambda *a: path), (lambda ps, now: {p: changed for p in ps})
     return [a for t in collect.collect()["towns"] for a in t["agents"]][0]["status"]
 cx = (cx_status(done_f), cx_status(started_f), cx_status(None), cx_status(empty_f), cx_status(done_f, False))
 ok(cx[0] != "working", "codex: newest event task_complete and screen changed -> not working")
@@ -1718,7 +1718,7 @@ towns_cx = []
 for changed in (True, False):
     cx_status(done_f, changed)
     towns_cx.append([{"agents": [dict(a, focus=False) for t in collect.collect()["towns"] for a in t["agents"]]}])
-collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed = real5
+collect.read_tmux, claude_log.read_claude_sessions, codex_log.codex_rollout, collect.screen_changed = real5
 st_cx = {"%1": {"status": "idle", "unseen": False, "round": 2}}
 for ts in towns_cx:
     st_cx = collect.mark_unseen(ts, st_cx)
@@ -1944,61 +1944,61 @@ def roll(name, cwd, age, ts=None):
     os.utime(p, (now_ - age, now_ - age))
     return p
 roll("old", "/w/a", 600); new_a = roll("new", "/w/a", 5); roll("other", "/w/b", 1)
-ok(collect.newest_rollout("/w/a", now_ - 60, root) == new_a and collect.newest_rollout("/w/a", now_ - 3, root) is None
-   and collect.newest_rollout("/w/c", now_ - 60, root) is None,
+ok(codex_log.newest_rollout("/w/a", now_ - 60, root) == new_a and codex_log.newest_rollout("/w/a", now_ - 3, root) is None
+   and codex_log.newest_rollout("/w/c", now_ - 60, root) is None,
    "codex rollout: newest file written after codex started, same cwd; older files and other dirs don't count")
 roll("bad-ts", "/w/e", 5, "not a time"); num_ts = roll("num-ts", "/w/e", 4, 12345); no_ts = roll("no-ts", "/w/e", 3)
-first = collect.newest_rollout("/w/e", now_ - 60, root)
+first = codex_log.newest_rollout("/w/e", now_ - 60, root)
 os.utime(no_ts, (now_ - 30, now_ - 30))
-ok(first == no_ts and collect.newest_rollout("/w/e", now_ - 60, root) == num_ts
-   and collect.paired_rollout("/w/e", now_ - 60, [now_ - 50], root) is None,
+ok(first == no_ts and codex_log.newest_rollout("/w/e", now_ - 60, root) == num_ts
+   and codex_log.paired_rollout("/w/e", now_ - 60, [now_ - 50], root) is None,
    "codex rollout: a broken or missing session_meta.timestamp still counts for the newest rollout, only pairing skips it")
 ra = roll("pair-a", "/w/p", 20, now_ - 50.0); rb = roll("pair-b", "/w/p", 5, now_ - 40.0)
-ok(collect.paired_rollout("/w/p", now_ - 110, [now_ - 60], root) == ra and collect.paired_rollout("/w/p", now_ - 60, [now_ - 110], root) == rb
-   and collect.paired_rollout("/w/p", now_ - 110, [now_ - 60, now_ - 10], root) == ra
-   and collect.paired_rollout("/w/p", now_ - 10, [now_ - 110, now_ - 60], root) is None,
+ok(codex_log.paired_rollout("/w/p", now_ - 110, [now_ - 60], root) == ra and codex_log.paired_rollout("/w/p", now_ - 60, [now_ - 110], root) == rb
+   and codex_log.paired_rollout("/w/p", now_ - 110, [now_ - 60, now_ - 10], root) == ra
+   and codex_log.paired_rollout("/w/p", now_ - 10, [now_ - 110, now_ - 60], root) is None,
    "codex rollout: same-cwd codex processes take rollouts one to one by start time; none is reused")
 procs = {"10": ["codex"], "20": ["codex"]}; starts = {"10": now_ - 110, "20": now_ - 60}
-real = (collect.proc_args, collect.proc_children, collect.proc_start, collect.rollouts_since, collect.glob.glob)
-collect.proc_args, collect.proc_children = (lambda pid: procs.get(str(pid))), (lambda pid: [])
-collect.proc_start, collect.rollouts_since = (lambda pid: starts.get(str(pid))), (lambda c, s, r=None: real[3](c, s, root))
+real = (processes.proc_args, processes.proc_children, processes.proc_start, codex_log.rollouts_since, collect.glob.glob)
+processes.proc_args, processes.proc_children = (lambda pid: procs.get(str(pid))), (lambda pid: [])
+processes.proc_start, codex_log.rollouts_since = (lambda pid: starts.get(str(pid))), (lambda c, s, r=None: real[3](c, s, root))
 collect.glob.glob = lambda pat, _g=real[4]: [] if pat.startswith("/proc/") else _g(pat)
 both = [{"pane_pid": "10", "pane_current_path": "/w/p"}, {"pane_pid": "20", "pane_current_path": "/w/p"}]
-got = [collect.codex_rollout(pp, "/w/p", both) for pp in ("10", "20")]
-solo = collect.codex_rollout("10", "/w/p", both[:1])
+got = [codex_log.codex_rollout(pp, "/w/p", both) for pp in ("10", "20")]
+solo = codex_log.codex_rollout("10", "/w/p", both[:1])
 ok(got == [ra, rb] and solo == rb, "codex_rollout: two same-cwd panes get their own rollouts; a lone codex still gets the newest")
 cprocs = {"30": ["bash", "/tmp/codex-notes.sh"], "31": ["vim", "codex.md"], "32": ["/x/bin/codex"], "33": ["node", "/x/bin/codex.js"]}
 procs.update(cprocs)
-ok([bool(collect.is_codex_proc(cprocs[k])) for k in ("30", "31", "32", "33")] == [False, False, True, True]
-   and collect.find_codex("30") is None and collect.find_codex("33") == "33",
+ok([bool(codex_log.is_codex_proc(cprocs[k])) for k in ("30", "31", "32", "33")] == [False, False, True, True]
+   and codex_log.find_codex("30") is None and codex_log.find_codex("33") == "33",
    "codex process: matched by program name, not by an argument containing codex")
 fields = {f: "" for f in collect.TMUX_FIELDS}
 tpanes = [dict(fields, pane_id=f"%{i}", pane_pid=pp, pane_current_path="/w/p", pane_current_command="codex",
                session_name="s", session_attached="1", window_active="1", window_id="@1", window_panes="2")
           for i, pp in ((1, "10"), (2, "20"))]
-real2 = (collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed)
+real2 = (collect.read_tmux, claude_log.read_claude_sessions, codex_log.codex_rollout, collect.screen_changed)
 seen = []
-collect.read_tmux, collect.read_claude_sessions = (lambda: tpanes), (lambda: {})
+collect.read_tmux, claude_log.read_claude_sessions = (lambda: tpanes), (lambda: {})
 collect.screen_changed = lambda ps, now: {}
-collect.codex_rollout = lambda *a: seen.append(real2[2](*a)) or seen[-1]
+codex_log.codex_rollout = lambda *a: seen.append(real2[2](*a)) or seen[-1]
 collect.collect()
 from_collect, seen[:] = list(seen), []
 for i in (1, 2):
     collect.report_for({"kind": "codex", "pane": f"%{i}"})
-collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed = real2
-collect.proc_args, collect.proc_children, collect.proc_start, collect.rollouts_since, collect.glob.glob = real
+collect.read_tmux, claude_log.read_claude_sessions, codex_log.codex_rollout, collect.screen_changed = real2
+processes.proc_args, processes.proc_children, processes.proc_start, codex_log.rollouts_since, collect.glob.glob = real
 ok(from_collect == [ra, rb] and seen == [ra, rb], "codex rollout: the collect path and the report path pair the same rollouts")
 kids = {"50": ["51"], "51": ["52"]}
 cpanes = [dict(fields, pane_id="%7", pane_pid="50", pane_current_command="sleep", session_name="s",
                session_attached="1", window_active="1", window_id="@1", window_panes="1")]
-real3 = (collect.read_tmux, collect.read_claude_sessions, collect.proc_children, collect.screen_changed)
-collect.read_tmux, collect.proc_children = (lambda: cpanes), (lambda pid: kids.get(str(pid), []))
+real3 = (collect.read_tmux, claude_log.read_claude_sessions, processes.proc_children, collect.screen_changed)
+collect.read_tmux, processes.proc_children = (lambda: cpanes), (lambda pid: kids.get(str(pid), []))
 collect.screen_changed = lambda ps, now: {}
 kinds = []
 for spid in ("52", "99"):
-    collect.read_claude_sessions = lambda spid=spid: {"%7": {"pid": spid, "sid": "", "name": "", "status": "idle"}}
+    claude_log.read_claude_sessions = lambda spid=spid: {"%7": {"pid": spid, "sid": "", "name": "", "status": "idle"}}
     kinds.append([a["kind"] for t in collect.collect()["towns"] for a in t["agents"]])
-collect.read_tmux, collect.read_claude_sessions, collect.proc_children, collect.screen_changed = real3
+collect.read_tmux, claude_log.read_claude_sessions, processes.proc_children, collect.screen_changed = real3
 ok(kinds == [["claude"], []], "claude session: only a pane whose process tree holds its pid")
 nw = [{"pane": p, "status": s} for p, s in (("%1", "idle"), ("%2", "done"), ("%3", "waiting"), ("%4", "done"))]
 ok(ui.next_waiting(nw, "%1") == "%3" and ui.next_waiting(nw, "%3") == "%3"
@@ -2163,19 +2163,19 @@ ps_out = ("  100     1 Wed Nov  4 11:46:42 2026 -zsh\n"
           "  200   100 Wed Nov  4 11:50:00 2026 node /opt/homebrew/bin/codex --yolo\n"
           "  300   200 Wed Nov  4 11:50:01 2026 /opt/codex/codex-aarch64\n"
           "garbage line\n")
-tbl = collect.parse_ps(ps_out)
+tbl = processes.parse_ps(ps_out)
 import time as _t
 ok(set(tbl) == {"100", "200", "300"} and tbl["200"][0] == "100" and tbl["200"][1][:2] == ["node", "/opt/homebrew/bin/codex"]
    and tbl["300"][2] == _t.mktime((2026, 11, 4, 11, 50, 1, 0, 0, -1)),
    "ps parsing: pid, parent, arguments and start time (lstart); bad lines skipped")
-saved = collect.HAVE_PROC, list(collect._ps_memo)
-collect.HAVE_PROC, collect._ps_memo[:] = False, [_t.time() + 3600, tbl]
-ok(collect.agent_kind("node", "100") == "codex" and collect.proc_start("200") == tbl["200"][2] and collect.proc_start("999") is None
-   and collect.proc_children("100") == ["200"],
+saved = processes.HAVE_PROC, list(processes._ps_memo)
+processes.HAVE_PROC, processes._ps_memo[:] = False, [_t.time() + 3600, tbl]
+ok(collect.agent_kind("node", "100") == "codex" and processes.proc_start("200") == tbl["200"][2] and processes.proc_start("999") is None
+   and processes.proc_children("100") == ["200"],
    "Without /proc: codex under node is recognized and its start time read from ps")
-collect.HAVE_PROC, collect._ps_memo[:] = saved[0], saved[1]
+processes.HAVE_PROC, processes._ps_memo[:] = saved[0], saved[1]
 import os as _os
-ok(collect.proc_alive(_os.getpid()) and not collect.proc_alive(2 ** 22 + 12345) and not collect.proc_alive("x"),
+ok(processes.proc_alive(_os.getpid()) and not processes.proc_alive(2 ** 22 + 12345) and not processes.proc_alive("x"),
    "Process alive check works without /proc (os.kill(pid, 0))")
 rm = []
 lines = strip(render.render(towns, 33, "%1", row_map=rm)).splitlines()
@@ -2528,44 +2528,44 @@ def spy_open(file, *a, **k):
     return real_open(file, *a, **k)
 builtins.open = spy_open
 try:
-    collect._tail_memo.clear()
+    codex_log._tail_memo.clear()
     put(roll, "a\nb\n")
     del opened[:]
-    first = collect._tail_lines(roll)
-    second = collect._tail_lines(roll)
+    first = codex_log._tail_lines(roll)
+    second = codex_log._tail_lines(roll)
     ok(first == [b"a", b"b"] and second == first and len(opened) == 1 and second is not first,
        "reads a codex rollout tail only when it changed: the second call on an unchanged file does not open it")
     second.append(b"x")
-    ok(collect._tail_lines(roll) == [b"a", b"b"], "a caller changing the returned list does not change the remembered tail")
+    ok(codex_log._tail_lines(roll) == [b"a", b"b"], "a caller changing the returned list does not change the remembered tail")
     with real_open(roll, "a") as fh:
         fh.write("c\n")
-    ok(collect._tail_lines(roll) == [b"a", b"b", b"c"], "reads a codex rollout tail only when it changed: an appended line is read")
+    ok(codex_log._tail_lines(roll) == [b"a", b"b", b"c"], "reads a codex rollout tail only when it changed: an appended line is read")
     st = _o.stat(roll)
     put(roll, "a\nb\nZ\n")
     _o.utime(roll, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
-    ok(collect._tail_lines(roll) == [b"a", b"b", b"Z"], "reads a codex rollout tail only when it changed: same size, newer mtime is read")
+    ok(codex_log._tail_lines(roll) == [b"a", b"b", b"Z"], "reads a codex rollout tail only when it changed: same size, newer mtime is read")
     _o.remove(roll)
-    ok(collect._tail_lines(roll) == [], "reads a codex rollout tail only when it changed: a deleted file gives no lines")
+    ok(codex_log._tail_lines(roll) == [], "reads a codex rollout tail only when it changed: a deleted file gives no lines")
     put(roll, "new\n")
-    ok(collect._tail_lines(roll) == [b"new"], "reads a codex rollout tail only when it changed: a recreated file is read")
+    ok(codex_log._tail_lines(roll) == [b"new"], "reads a codex rollout tail only when it changed: a recreated file is read")
     put(roll, "n\n")
-    ok(collect._tail_lines(roll) == [b"n"], "reads a codex rollout tail only when it changed: a truncated file is read")
+    ok(codex_log._tail_lines(roll) == [b"n"], "reads a codex rollout tail only when it changed: a truncated file is read")
     st = _o.stat(roll)
     other = _o.path.join(tdir, "o.jsonl")
     put(other, "m\n")
     _o.utime(other, ns=(st.st_atime_ns, st.st_mtime_ns))
     _o.replace(other, roll)
     st2 = _o.stat(roll)
-    ok(st2.st_size == st.st_size and st2.st_mtime_ns == st.st_mtime_ns and st2.st_ino != st.st_ino and collect._tail_lines(roll) == [b"m"],
+    ok(st2.st_size == st.st_size and st2.st_mtime_ns == st.st_mtime_ns and st2.st_ino != st.st_ino and codex_log._tail_lines(roll) == [b"m"],
        "reads a codex rollout tail only when it changed: a different file of the same size and mtime is read")
-    collect._tail_memo.clear()
-    for i in range(collect.TAIL_MEMO_MAX + 3):
-        collect._tail_lines(roll, 1000 + i)
-    ok(len(collect._tail_memo) == collect.TAIL_MEMO_MAX and (roll, 1000) not in collect._tail_memo,
+    codex_log._tail_memo.clear()
+    for i in range(codex_log.TAIL_MEMO_MAX + 3):
+        codex_log._tail_lines(roll, 1000 + i)
+    ok(len(codex_log._tail_memo) == codex_log.TAIL_MEMO_MAX and (roll, 1000) not in codex_log._tail_memo,
        "reads a codex rollout tail only when it changed: the memory is capped and drops the oldest")
 finally:
     builtins.open = real_open
-    collect._tail_memo.clear()
+    codex_log._tail_memo.clear()
     import shutil as _sh
     _sh.rmtree(tdir, ignore_errors=True)
 print("\n".join(fails), file=sys.stderr)
@@ -2578,7 +2578,7 @@ check "Sidebar: peek, hint bar, highlight, key handling" ui_ok
 report_text_ok() {
   python3 - "$party" "$tmp" <<'EOF'
 import os, stat, subprocess, sys, time
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, common
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import claude_log, codex_log, collect, common, processes
 import party, tempfile, json
 fails = []
 def ok(cond, msg):
@@ -2649,15 +2649,15 @@ tx = os.path.join(sys.argv[2], "main.jsonl")
 sub = os.path.join(sys.argv[2], "main", "subagents"); os.makedirs(sub)
 open(os.path.join(sub, "agent-x.meta.json"), "w").write('{"finished": true}')
 open(os.path.join(sub, "agent-x.jsonl"), "w").close()
-real_cr = collect.claude_report
-collect.claude_report = lambda t, sidechain=False: {"text": "mid", "start": None, "end": 100}
+real_cr = claude_log.claude_report
+claude_log.claude_report = lambda t, sidechain=False: {"text": "mid", "start": None, "end": 100}
 os.utime(os.path.join(sub, "agent-x.jsonl"), (200, 200))
 run([snap("idle", transcript=tx), snap("idle", transcript=tx)], "%5", True, 0.3)
 ok(len(waits()) > 0, "report-text --wait: keeps waiting while subagents run (finished subagent log newer than the main report)")
 os.utime(os.path.join(sub, "agent-x.jsonl"), (50, 50))
 ok(run([snap("idle", transcript=tx)], "%5", True, 30)[0] == 0 and not waits(),
    "report-text --wait: returns when the finished subagent is older than the main report")
-collect.claude_report = real_cr
+claude_log.claude_report = real_cr
 A = 1000.0
 def run_after(t, end, kind="claude"):
     calls.clear()
@@ -2791,7 +2791,7 @@ check "report-text --wait: exit codes, wait-for wake-up, 2 s re-read, timeout" r
 summon_ok() {
   python3 - "$party" "$tmp" <<'EOF2'
 import os, re, sys, time
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, render, sidebars
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import claude_log, codex_log, collect, processes, render, sidebars
 fails = []
 def ok(cond, msg):
     if not cond: fails.append(msg)
@@ -2936,7 +2936,7 @@ check "summon: tmux arguments, exit codes, timeout; @party_lead / @xv grouping" 
 dismiss_ok() {
   python3 - "$party" <<'EOF2'
 import json, os, sys, tempfile
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, sidebars
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import claude_log, codex_log, collect, processes, sidebars
 fails = []
 def ok(cond, msg):
     if not cond: fails.append(msg)
@@ -3011,7 +3011,7 @@ check "dismiss: four rules before kill-pane; exit codes 2, 4, 6" dismiss_ok
 crew_ok() {
   python3 - "$party" "$tmp" <<'EOF3'
 import json, os, subprocess, sys, time
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, sidebars
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import claude_log, codex_log, collect, processes, sidebars
 import party
 fails = []
 def ok(cond, msg):
@@ -3125,9 +3125,9 @@ cat >"$tmp/t.jsonl" <<'EOF'
 {"type":"assistant","isSidechain":true,"timestamp":"2026-11-03T04:07:00.000Z","message":{"usage":{"input_tokens":999999}}}
 EOF
 ci=$(python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
 from datetime import datetime
-last, ttl, used = collect.cache_info(sys.argv[2])
+last, ttl, used = claude_log.cache_info(sys.argv[2])
 print(int(last - datetime.fromisoformat("2026-11-03T04:06:00+00:00").timestamp()), ttl, used)' "$party" "$tmp/t.jsonl")
 check "transcript: last usage 04:06, TTL 3600, context 40100 tokens (subagent usage excluded)" test "$ci" = "0 3600 40100"
 
@@ -3135,8 +3135,8 @@ check "transcript: last usage 04:06, TTL 3600, context 40100 tokens (subagent us
 pad=$(printf 'x%.0s' $(seq 1000))
 for _ in $(seq 300); do echo "{\"type\":\"attachment\",\"content\":\"$pad\"}"; done >>"$tmp/t.jsonl"
 ci=$(python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
-print(collect.cache_info(sys.argv[2])[1:])' "$party" "$tmp/t.jsonl")
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
+print(claude_log.cache_info(sys.argv[2])[1:])' "$party" "$tmp/t.jsonl")
 check "transcript: last usage found behind 300 KB of attachments, not taken for a new session" test "$ci" = "(3600, 40100)"
 
 # statusline integration: Claude Code statusline JSON -> party-hud/<pane>.json; party.py reads HP max and model
@@ -3144,7 +3144,7 @@ sl="$root/integrations/claude-statusline.sh"
 echo '{"session_id":"abc-1","context_window":{"used_percentage":12.4,"context_window_size":1000000},"transcript_path":"/p/abc-1.jsonl","model":{"display_name":"Opus 5.5 (1M context)"}}' |
   XDG_RUNTIME_DIR="$tmp/xdg" TMUX_PANE=%7 "$sl"
 got=$(XDG_RUNTIME_DIR="$tmp/xdg" python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
 d=collect.read_party("%7"); print(d["session_id"], d["ctx_left"], d["ctx_size"], d["transcript"], d["model"])' "$party")
 check "statusline integration: writes session, 88% left, max 1M, transcript, model base name" test "$got" = "abc-1 88 1000000 /p/abc-1.jsonl Opus 5.5"
 check "statusline integration: broken JSON or outside tmux -> no error, no output" \
@@ -3349,7 +3349,7 @@ import sys
 sys.path.insert(0, %r)
 sys.argv = ["party.py", "--report", "%%1"]
 import party
-from party_hud import collect, ui
+from party_hud import claude_log, codex_log, collect, processes, ui
 ui.get_snapshot = lambda f=None: collect.collect(%r)
 ui.report_for = lambda a: {"text": "\\n".join(f"L{n}" for n in range(30)), "start": 1, "end": 2}
 ui.tmux = lambda *a: "off" if "@party_anim" in a else ""

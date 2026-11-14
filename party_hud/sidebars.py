@@ -11,6 +11,7 @@ import time
 import zlib
 from datetime import datetime, timezone
 
+from . import claude_log
 from .art import ART_MIN_WIDTH, SPLIT_GAP, SPLIT_MIN_WIDTH, SPLIT_SIDE_COLS
 from .collect import (
     AGENT_CMDS,
@@ -22,7 +23,6 @@ from .collect import (
     lonely_sidebars,
     pane_values,
     read_seen,
-    subagent_unanswered,
 )
 from .common import CURSOR, PARTY_DIR, ROOT, tmux, tmux_run
 
@@ -289,7 +289,7 @@ def dismiss(pane):
         return 4, "", f"not a known agent: {pane}\n"
     if lead != caller:
         return 6, "", f"{pane}: not summoned by you\n"
-    if agent["status"] == "working" or agent.get("summons") or subagent_unanswered(agent):
+    if agent["status"] == "working" or agent.get("summons") or claude_log.subagent_unanswered(agent):
         return 6, "", f"{pane}: still working\n"
     if agent["status"] == "waiting":
         return 6, "", f"{pane}: waiting for input, not dismissed\n"
