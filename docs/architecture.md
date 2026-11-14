@@ -43,6 +43,8 @@ or a temporary file.
  window-resized hook ----------------->  --reflow   put the sidebar width back
  session / window changed, attach --->  --nudge    restart this window's sidebar if it was stopped, redraw now
  after-kill-pane hook --------------->  --tidy     close windows left with only a sidebar (a report pane counts as one)
+ layout saver, before a restore ----->  --restore-begin  note the panes that exist in @party_restoring; --ensure does nothing while it is set
+ layout saver, after a restore ------>  --restore-end    the panes named become sidebars unless they are in @party_restoring; unset it
  sidebar pane ------------------------>  --sidebar  the long-running UI, one per window
  prefix a ---------------------------->  --next     jump to the next waiting / done member and exit
  prefix R ---------------------------->  --menu      open a pane running --select, the select screen

@@ -2425,6 +2425,38 @@ sidebars.nudge()
 sidebars.tmux = real_tmux
 ok(("resize-pane", "-t", "%7", "-x", "46") in calls and not any(c[:3] == ("resize-pane", "-t", "%8") for c in calls),
    "Window switch: that window's sidebar at the wrong width (36) is reset to the configured 46, other panes untouched")
+def restore_tmux(restoring, sidebar_on=""):
+    sep = collect.FIELD_SEP
+    places = {"a:1.1": sep.join(["a:1.1", "%1", ""]), "a:2.1": sep.join(["a:2.1", "%5", ""]), "a:3.1": sep.join(["a:3.1", "%6", "1"]),
+              "@1": "a\t" + restoring, "@2": "a\t" + restoring}
+    def fake(*a):
+        calls.append(a)
+        if a[0] == "show-option":
+            return restoring if a[2] == "@party_restoring" else sidebar_on
+        if a[0] == "display-message":
+            return places.get(a[3], sep.join(["a:2.0", "%7", ""])) + "\n"  # a missing place: tmux answers for the active pane
+        return {"list-windows": "@1\n@2\n", "list-panes": "%1\n%2\n" if "-a" in a else "1\n", "split-window": "%9\n"}.get(a[0], "")
+    return fake
+calls.clear()
+sidebars.tmux = restore_tmux("")
+sidebars.restore_begin()
+ok(calls[-1] == ("set-option", "-g", "@party_restoring", "%1 %2"), "--restore-begin: remembers the panes that exist now")
+calls.clear()
+sidebars.tmux = restore_tmux("%1 %2")
+rc = sidebars.restore_end(["a:1.1", "a:2.1", "a:3.1", "gone:1.1", ""])[0]
+respawned = [c[3] for c in calls if c[0] == "respawn-pane"]
+ok(rc == 0 and respawned == ["%5"] and calls[calls.index(("respawn-pane", "-k", "-t", "%5", sidebars.EXE + " --sidebar")) - 1][-6:] == (";", "select-pane", "-t", "%5", "-T", "party-hud"),
+   "--restore-end: only a pane made during the restore becomes a sidebar (titled party-hud); one from before, an existing sidebar and a missing place are left alone")
+unset = calls.index(("set-option", "-gu", "@party_restoring"))
+ok(unset > calls.index(("respawn-pane", "-k", "-t", "%5", sidebars.EXE + " --sidebar")) and any(c[:4] == ("set-option", "-g", "@party_sidebar_on", "1") for c in calls[unset:]),
+   "--restore-end: --ensure is released after the panes are taken over, then the hooks go in")
+calls.clear()
+sidebars.ensure("@1")
+ok(not any(c[0] == "split-window" for c in calls), "--ensure during a restore: adds no sidebar")
+calls.clear()
+sidebars.tmux = restore_tmux("")
+ok(sidebars.restore_end(["a:2.1"])[0] == 2 and [c[0] for c in calls] == ["show-option"], "--restore-end without --restore-begin: exit 2, no pane is touched")
+sidebars.tmux = real_tmux
 pt = {"focus": "party", "sel": "%1", "squad": None, "peek": False}
 ui.point_at(("squad", 0), pt, towns)
 ok(pt["sel"] == "%1", "Mouse over the current squad's row: selected member unchanged")
@@ -3233,6 +3265,9 @@ for argv, target, args in (
     (["--nudge"], "party.nudge", [""]),
     (["--nudge", "@2"], "party.nudge", ["@2"]),
     (["--tidy"], "party.tidy", []),
+    (["--restore-begin"], "party.restore_begin", []),
+    (["--restore-end"], "party.restore_end", [[]]),
+    (["--restore-end", "a:1.1", "b:2.1"], "party.restore_end", [["a:1.1", "b:2.1"]]),
     (["--remember-width"], "party.remember_width", []),
     (["--toggle"], "party.toggle", []),
     (["--ask", "%5", "hi"], "party.ask", ["%5", "hi"]),

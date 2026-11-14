@@ -35,9 +35,13 @@ EXE = shlex.join(
 )  # run through python (no exec bit needed); quoted for paths with spaces
 
 
+SIDEBAR_TITLE = "party-hud"
+
+
 def mark_sidebar(pane):
     """Mark a pane as a sidebar. remain-on-exit keeps a stopped (hidden) sidebar's pane so wake can respawn it; the empty format hides "Pane is dead".
-    allow-passthrough lets the images reach the outer terminal; set on this pane only, a global setting would let any program bypass tmux."""
+    allow-passthrough lets the images reach the outer terminal; set on this pane only, a global setting would let any program bypass tmux.
+    The pane title is the one mark a layout saver such as tmux-resurrect keeps, so its restore hook can name the sidebars to --restore-end."""
     tmux(
         "set-option",
         "-p",
@@ -66,6 +70,12 @@ def mark_sidebar(pane):
         pane,
         "remain-on-exit-format",
         "",
+        ";",
+        "select-pane",  # with -T it only sets the title, the active pane stays
+        "-t",
+        pane,
+        "-T",
+        SIDEBAR_TITLE,
     )
 
 
@@ -533,7 +543,12 @@ def remember_width():
 
 
 def ensure(window_id):
-    if tmux("display-message", "-p", "-t", window_id, "#{session_name}").strip().startswith("crew-"):
+    session, _, restoring = (
+        tmux("display-message", "-p", "-t", window_id, "#{session_name}\t#{@party_restoring}")
+        .rstrip("\n")
+        .partition("\t")
+    )
+    if session.startswith("crew-") or restoring:
         return
     if "1" in tmux("list-panes", "-t", window_id, "-F", "#{@party_sidebar}").split():
         return
@@ -552,6 +567,40 @@ def ensure(window_id):
     ).strip()
     if pid:
         mark_sidebar(pid)
+
+
+def restore_begin():
+    """Before a layout restore: remember the panes that exist now and hold --ensure back until restore_end.
+    A sidebar added while a window is being rebuilt would shift the pane indexes the restore goes by."""
+    tmux("set-option", "-g", "@party_restoring", " ".join(tmux("list-panes", "-a", "-F", "#{pane_id}").split()))
+
+
+RESTORE_FIELDS = FIELD_SEP.join(["#{session_name}:#{window_index}.#{pane_index}", "#{pane_id}", "#{@party_sidebar}"])
+
+
+def restore_end(places):
+    """(rc, stdout, stderr) for party.py --restore-end. Each place is session:window.pane (indexes) where the saved layout had a
+    sidebar; the pane there becomes a sidebar unless it existed before restore_begin or is one already. With a pane taken over, or
+    sidebars already on, the hooks go in and every window still without a sidebar gets one. rc 2: restore_begin did not run,
+    nothing is touched."""
+    before = set(tmux("show-option", "-gqv", "@party_restoring").split())
+    if not before:
+        return 2, "", "--restore-end: run --restore-begin before the restore\n"
+    taken = False
+    for place in places:
+        got = tmux("display-message", "-p", "-t", place, RESTORE_FIELDS).rstrip("\n").split(FIELD_SEP)
+        # tmux display-message answers for the client's active pane when the target does not exist, so the place it prints is compared
+        if len(got) != 3 or got[0] != place or got[1] in before or got[2] == "1":
+            continue
+        mark_sidebar(got[1])
+        tmux("respawn-pane", "-k", "-t", got[1], f"{EXE} --sidebar")
+        taken = True
+    tmux("set-option", "-gu", "@party_restoring")
+    if taken or tmux("show-option", "-gqv", "@party_sidebar_on").strip() == "1":
+        install_hooks()
+        for wid in sorted(set(tmux("list-windows", "-a", "-F", "#{window_id}").split())):
+            ensure(wid)
+    return 0, "", ""
 
 
 def toggle():
