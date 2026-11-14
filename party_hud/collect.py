@@ -51,9 +51,11 @@ TMUX_FIELDS = [
 ]
 # wrappers hide the agent (codex under node, scripts that spawn an agent), so child processes are checked too
 AGENT_CMDS = {"claude": "claude", "codex": "codex", "agy": "agy", "grok": "grok"}
+# codex asks at startup whether to update itself when a newer version is out, and the Enter of --ask picks "Update now"
+SUMMON_CMDS = {**AGENT_CMDS, "codex": "codex -c check_for_update_on_startup=false"}
 READ_ONLY_CMDS = {
     "claude": "claude --permission-mode plan",
-    "codex": "codex -s read-only",
+    "codex": SUMMON_CMDS["codex"] + " -s read-only",
     "agy": "agy --mode plan",
     "grok": "grok --permission-mode plan",
 }
@@ -455,10 +457,12 @@ def tool_row(call):
 
 
 ACTIVE_WINDOW = 4.0  # screen changed this recently = working (spinners and timers keep changing)
+# a line each agent draws near the bottom of its screen while it asks the user to allow something
+PERMISSION_MARKS = {"agy": "Requesting permission for:", "codex": "Press enter to confirm or esc to cancel"}
 
 
 def screen_changed(panes, now):
-    """{pane: screen changed recently; (changed, True) while an agy permission menu is shown}, for agents without a status file.
+    """{pane: screen changed recently; (changed, {agent kinds whose permission prompt is on the screen}) when there is one}, for agents without a status file.
     Only a CRC32 of each screen is kept, in activity.json."""
     path = os.path.join(PARTY_DIR, "activity.json")
     try:
@@ -475,8 +479,9 @@ def screen_changed(panes, now):
         keep[pid] = [digest, changed_at]
         out[pid] = bool(old) and now - changed_at < ACTIVE_WINDOW
         tail = [ln for ln in screen.splitlines() if ln.strip()][-15:]
-        if any("Requesting permission for:" in ln for ln in tail):
-            out[pid] = (out[pid], True)
+        asking = {kind for kind, mark in PERMISSION_MARKS.items() if any(mark in ln for ln in tail)}
+        if asking:
+            out[pid] = (out[pid], asking)
     try:
         os.makedirs(PARTY_DIR, exist_ok=True)
         tmp = f"{path}.{os.getpid()}"
@@ -506,6 +511,16 @@ def agent_kind(cmd, pane_pid, cmdlines=child_cmdlines):
 
 
 FIELD_SEP = "|@party@|"  # printable: tmux 3.5 escapes control characters in -F output (0x1f becomes "\037")
+
+
+def pane_values(pane, *formats):
+    """(the pane's values for the tmux formats, "") or, when the pane does not exist, (None, the message for stderr)."""
+    rc, out, err = tmux_run(["display-message", "-p", "-t", pane, FIELD_SEP.join(["#{pane_id}", *formats])])
+    got = out.rstrip("\n").split(FIELD_SEP)
+    # tmux display-message exits 0 when the target pane does not exist, so the pane id it prints is compared instead
+    if rc != 0 or got[0] != pane:
+        return None, err or f"no such pane: {pane}\n"
+    return got[1:], ""
 
 
 def parse_panes(text):
@@ -1140,17 +1155,17 @@ def report_text(pane, wait=False, timeout=600, after=None, read=None):
         return 2, "", f"bad timeout: {timeout}\n"
     if after is not None and (not wait or not math.isfinite(after)):
         return 2, "", "--after needs --wait and a finite epoch\n"
-    rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
-    if rc != 0:
-        return 2, "", err or f"no such pane: {pane}\n"
+    found, err = pane_values(pane)
+    if found is None:
+        return 2, "", err
     deadline = time.monotonic() + timeout
     while True:
         snap = get_snapshot()
         a = next((a for t in snap["towns"] for a in t["agents"] if a["pane"] == pane), None)
         if a is None:
-            rc, _, err = tmux_run(["display-message", "-p", "-t", pane, "#{pane_id}"])
-            if rc != 0:
-                return 2, "", err or f"no such pane: {pane}\n"
+            found, err = pane_values(pane)
+            if found is None:
+                return 2, "", err
             return 4, "", f"not a known agent: {pane}\n"
         busy = wait and (a["status"] == "working" or a.get("summons") or subagent_unanswered(a))
         rep = None if busy else report_for(a)
@@ -1345,8 +1360,8 @@ def collect(fixture=None, now=None):
         for a in others:
             c = changed.get(a["pane"])
             if isinstance(c, tuple):
-                c, menu = c
-                if menu and a["kind"] == "agy":
+                c, asking = c
+                if a["kind"] in asking and a["pane"] not in finished:
                     a["status"] = "waiting"
                     continue
             # codex redraws its screen after task_complete; that is not a new turn

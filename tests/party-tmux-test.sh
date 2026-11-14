@@ -174,6 +174,11 @@ check "Ask then report: --report-text --wait --after returns the agent's reply" 
   eq "$(as_host --report-text "$member" --wait --after "$sent" --timeout 30)" "party-test-reply-42"
 check "Dismiss: a member whose report was read is closed" test "$(as_host --dismiss "$member"; echo $?)" = 0
 check "Dismiss: closing the last member of the crew session ends that session" eq "$(t has-session -t "=$crew" 2>/dev/null && echo up || echo gone)" "gone"
+# tmux display-message exits 0 for a pane that is gone; only a real server shows that
+gone="no such pane: $member"$'\n'"rc=2"
+check "Gone member: --report-text names the missing pane and exits 2" eq "$(as_host --report-text "$member" 2>&1; echo "rc=$?")" "$gone"
+check "Gone member: --ask names the missing pane and exits 2" eq "$(as_host --ask "$member" hello 2>&1; echo "rc=$?")" "$gone"
+check "Gone member: --dismiss names the missing pane and exits 2" eq "$(as_host --dismiss "$member" 2>&1; echo "rc=$?")" "$gone"
 
 # Pressing q in a sidebar hides all sidebars (including itself)
 t send-keys -t "$(t list-panes -a -F '#{pane_id} #{@party_sidebar} #{pane_dead}' | grep ' 1 0$' | head -1 | cut -d' ' -f1)" q

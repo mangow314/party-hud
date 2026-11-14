@@ -1687,6 +1687,21 @@ def rollout(*events):
 done_f, started_f, empty_f = rollout("task_started", "task_complete"), rollout("task_complete", "task_started"), rollout("token_count")
 ok(collect.codex_turn_done(done_f) and not collect.codex_turn_done(started_f) and not collect.codex_turn_done(empty_f)
    and not collect.codex_turn_done("/nope"), "codex turn done: only when the newest turn event is task_complete")
+cx_ask = open(os.path.join(os.path.dirname(sys.argv[1]), "tests", "fixtures", "codex-approval.txt"), encoding="utf-8").read()
+ask_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id=f"%{i}", pane_pid=str(i), pane_current_command=cmd, session_name="s", session_attached="1",
+                  window_active="1", window_id="@1", window_panes="2") for i, cmd in ((1, "codex"), (2, "agy"))]
+real_roll = collect.codex_rollout
+collect.read_tmux, collect.read_claude_sessions = (lambda: ask_panes), (lambda: {})
+asked = {}
+for label, path, screen in (("open", started_f, cx_ask), ("done", done_f, cx_ask), ("no prompt", started_f, cx_ask[:cx_ask.index("› 1.")])):
+    collect.codex_rollout, collect.tmux, collect.PARTY_DIR = (lambda *a, p=path: p), (lambda *args, s=screen: s), tempfile.mkdtemp()
+    asked[label] = {a["kind"]: a["status"] for t in collect.collect()["towns"] for a in t["agents"]}
+collect.read_tmux, collect.read_claude_sessions, collect.tmux = real4
+collect.codex_rollout = real_roll
+ok(asked["open"]["codex"] == "waiting", "codex approval prompt on screen during a turn -> waiting")
+ok(asked["open"]["agy"] == "idle", "agy pane showing the codex approval prompt -> unaffected")
+ok(asked["done"]["codex"] == "idle", "codex: the prompt line still on screen after task_complete (quoted in the answer) -> not waiting")
+ok(asked["no prompt"]["codex"] == "idle", "codex screen without the approval prompt -> not waiting")
 cx_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id="%1", pane_pid="1", pane_current_command="codex", session_name="s",
                  session_attached="1", window_active="1", window_id="@1", window_panes="1")]
 real5 = (collect.read_tmux, collect.read_claude_sessions, collect.codex_rollout, collect.screen_changed)
@@ -2537,17 +2552,19 @@ fails = []
 def ok(cond, msg):
     if not cond: fails.append(msg)
 calls, snaps = [], []
+FS = collect.FIELD_SEP
+GONE_OUT = ("\n", "%3\n")  # what tmux display-message -p -t prints, with exit 0, for a pane that does not exist
 real_snapshot = collect.get_snapshot
 real_report = collect.report_for
 agent = lambda s, summons=(), **kw: {"pane": "%5", "kind": "claude", "status": s, "summons": list(summons), **kw}
 snap = lambda s, summons=(), **kw: {"towns": [{"agents": [agent(s, summons, **kw)]}]}
-def run(rounds, *a, pane_rc=0, **kw):
+def run(rounds, *a, pane_rc=0, pane_out="%5\n", **kw):
     calls.clear()
     seq = list(rounds)
     snaps.clear()
     collect.get_snapshot = lambda: snaps.append(1) or seq.pop(0) if len(seq) > 1 else snaps.append(1) or seq[0]
     collect.tmux_run = lambda args, timeout=None: calls.append((tuple(args), timeout)) or (
-        (pane_rc, "%5\n", "can't find pane\n") if args[0] == "display-message" else (None, "", ""))
+        (pane_rc, pane_out, "can't find pane\n" if pane_rc else "") if args[0] == "display-message" else (None, "", ""))
     collect.report_for = lambda a: {"text": "all done"}
     return collect.report_text(*a, **kw)
 waits = lambda: [c for c in calls if c[0][0] == "wait-for"]
@@ -2563,20 +2580,23 @@ collect.report_for = real_report
 ok(collect.report_text("%5") == (0, "answer one\n", ""), "report-text without --wait: a working member -> the previous round's answer, as before the live page")
 ok(run([snap("waiting")], "5")[0] == 2 and not calls, "report-text: a name that is not a pane id -> 2, tmux not called")
 rc, out, err = run([snap("waiting")], "%5", pane_rc=1)
-ok(rc == 2 and out == "" and "can't find pane" in err, "report-text: pane does not exist -> 2 with the tmux error on stderr")
+ok(rc == 2 and out == "" and "can't find pane" in err, "report-text: tmux fails on the pane -> 2 with the tmux error on stderr")
+for other in GONE_OUT:
+    rc, out, err = run([snap("waiting")], "%5", pane_out=other)
+    ok((rc, out, err) == (2, "", "no such pane: %5\n"), "report-text: pane does not exist (tmux exits 0 and prints no or another pane id) -> 2")
 rc, out, err = run([{"towns": []}], "%5")
 ok(rc == 4 and out == "" and "%5" in err, "report-text: pane exists but is no known agent -> 4")
 gone = [0]
 def gone_after_wait(args, timeout=None):
     if args[0] == "display-message":
         gone[0] += 1
-        return (0, "%5\n", "") if gone[0] == 1 else (1, "", "can't find pane: %5\n")
+        return (0, "%5\n", "") if gone[0] == 1 else (0, GONE_OUT[0], "")
     return None, "", ""
 snaps2 = [snap("working"), {"towns": []}]
 collect.get_snapshot = lambda: snaps2.pop(0)
 collect.tmux_run = gone_after_wait
 rc, out, err = collect.report_text("%5", True, 30)
-ok(rc == 2 and out == "" and "can't find pane" in err, "report-text --wait: the pane disappears while waiting -> 2, not 4")
+ok((rc, out, err) == (2, "", "no such pane: %5\n"), "report-text --wait: the pane disappears while waiting -> 2, not 4")
 rd = {}
 seq_r = [{"towns": [{"agents": [dict(agent("idle"), round=3)]}]}, {"towns": [{"agents": [dict(agent("idle"), round=4)]}]}]
 run(seq_r, "%5", read=rd)
@@ -2646,8 +2666,8 @@ ok(rc == 7 and out == "".join(f"line {i}\n" for i in range(10, 30)) and "waiting
 ok(run([snap("waiting")], "%5", False, 30, after=A)[0] == 2, "report-text --after without --wait -> 2")
 ask_calls = []
 party.get_snapshot = lambda: snap("waiting")
-party.tmux_run = lambda args, timeout=None: ask_calls.append(("tmux", tuple(args))) or (
-    (0, "%5\n", "") if args[0] == "display-message" else (0, "", ""))
+party.tmux_run = collect.tmux_run = lambda args, timeout=None: ask_calls.append(("tmux", tuple(args))) or (
+    (0, f"%5{FS}/w\n", "") if args[0] == "display-message" else (0, "", ""))
 real_run = party.subprocess.run
 party.subprocess.run = lambda cmd, **kw: ask_calls.append((tuple(cmd), kw.get("input"))) or subprocess.CompletedProcess(cmd, 0, "", "")
 t0 = time.time()
@@ -2667,8 +2687,8 @@ ok(rc == 0 and ask_calls[1:] == [(("tmux", "load-buffer", "-b", "party-ask-5", "
                                   ("tmux", ("send-keys", "-t", "%5", "Enter"))],
    "ask: several lines -> load-buffer from stdin, paste-buffer -p -d, then Enter")
 ask_calls.clear()
-party.tmux_run = lambda args, timeout=None: ask_calls.append(("tmux", tuple(args))) or (
-    (0, "%12\n", "") if args[0] == "display-message" else (0, "", ""))
+party.tmux_run = collect.tmux_run = lambda args, timeout=None: ask_calls.append(("tmux", tuple(args))) or (
+    (0, f"%12{FS}/w\n", "") if args[0] == "display-message" else (0, "", ""))
 party.get_snapshot = lambda: {"towns": [{"agents": [{**agent("waiting"), "pane": "%12"}]}]}
 party.ask("%12", "hi")
 ok(ask_calls[1] == (("tmux", "load-buffer", "-b", "party-ask-12", "-"), "hi")
@@ -2677,9 +2697,13 @@ ok(ask_calls[1] == (("tmux", "load-buffer", "-b", "party-ask-12", "-"), "hi")
 party.subprocess.run = real_run
 ok(party.ask("5", "x")[0] == 2, "ask: a name that is not a pane id -> 2")
 party.get_snapshot = lambda: {"towns": []}
+party.tmux_run = collect.tmux_run = lambda args, timeout=None: (0, f"%5{FS}/w\n", "")
 ok(party.ask("%5", "x")[0] == 4, "ask: pane exists but is no known agent -> 4")
-party.tmux_run = lambda args, timeout=None: (1, "", "can't find pane\n")
-ok(party.ask("%5", "x")[0] == 2, "ask: pane does not exist -> 2")
+ask_calls.clear()
+for other in GONE_OUT:
+    party.tmux_run = collect.tmux_run = lambda args, timeout=None, other=other: ask_calls.append(tuple(args)) or (0, other, "")
+    ok(party.ask("%5", "x") == (2, "", "no such pane: %5\n"), "ask: pane does not exist (tmux exits 0 and prints no or another pane id) -> 2")
+ok(all(c[0] == "display-message" for c in ask_calls), "ask: nothing is sent to a pane that does not exist")
 fake = os.path.join(sys.argv[2], "bin"); os.makedirs(fake)
 with open(os.path.join(fake, "tmux"), "w") as f:
     f.write(f'#!/bin/sh\necho $$ >"{fake}/pid"\nexec sleep 30\n')
@@ -2748,14 +2772,16 @@ lead_alive = [True]
 FS = collect.FIELD_SEP
 def fake_run(args, timeout=None):
     calls.append(tuple(args))
-    if args[0] == "display-message" and args[-1] == "#{@party_lead}": return 0, crew_lead[0] + "\n", ""
-    if args[0] == "display-message" and args[-1] == "#{pane_id}": return (0, args[3] + "\n", "") if lead_alive[0] else (1, "", "can't find pane\n")
+    if args[0] == "display-message" and args[-1] == FS.join(["#{pane_id}", "#{@party_lead}"]): return 0, args[3] + FS + crew_lead[0] + "\n", ""
+    # tmux exits 0 for a pane that does not exist and prints no pane id
+    if args[0] == "display-message" and args[-1] == "#{pane_id}": return 0, (args[3] if lead_alive[0] else "") + "\n", ""
     if args[0] in ("split-window", "new-window", "new-session"): return 0, "%9\n", ""
     if args[0] == "has-session": return (0 if has_crew[0] else 1), "", ""
     if args[0] == "display-message" and args[-1] == FS.join(["#{window_width}", "#{window_height}"]): return 0, f"132{FS}41\n", ""
-    if args[0] == "display-message": return 0, shows.pop(0) if len(shows) > 1 else shows[0], ""
+    if args[0] == "display-message": return 0, (args[3] + FS if pane_alive[0] else "") + (shows.pop(0) if len(shows) > 1 else shows[0]), ""
     return 0, "", ""
-sidebars.tmux_run = fake_run
+pane_alive = [True]
+sidebars.tmux_run = collect.tmux_run = fake_run
 sidebars.tmux = lambda *a: calls.append(a) or ("screen" if a[0] == "capture-pane" else "")
 sidebars.time.sleep = lambda s: None
 listed = [True]
@@ -2782,7 +2808,8 @@ calls.clear()
 ok(sidebars.summon("claude", tmp, True, 5, here=True)[0] == 2 and not calls, "summon --window --here -> 2, tmux not called")
 calls.clear(); shows[:] = ready
 sidebars.summon("codex", tmp, True, 5)
-ok(opened() == ("new-window", "-P", "-F", "#{pane_id}", "-c", tmp, "codex"), "summon --window: new-window, --cwd passed to -c")
+ok(opened() == ("new-window", "-P", "-F", "#{pane_id}", "-c", tmp, "codex -c check_for_update_on_startup=false"),
+   "summon --window: new-window, --cwd passed to -c; codex starts with its startup update prompt turned off")
 hashed = os.path.join(tmp, "a#(b)#{c}")
 os.makedirs(hashed, exist_ok=True)
 calls.clear(); shows[:] = ready
@@ -2790,7 +2817,8 @@ sidebars.summon("codex", hashed, True, 5)
 ok(opened()[opened().index("-c") + 1] == os.path.join(tmp, "a##(b)##{c}"), "summon: every # in --cwd is doubled for tmux's format expansion")
 calls.clear(); shows[:] = ready
 sidebars.summon("codex", tmp, False, 5, True, True)
-ok(opened() == ("split-window", "-t", "%1", "-P", "-F", "#{pane_id}", "-c", tmp, "codex -s read-only"), "summon --read-only: codex starts with -s read-only")
+ok(opened() == ("split-window", "-t", "%1", "-P", "-F", "#{pane_id}", "-c", tmp, "codex -c check_for_update_on_startup=false -s read-only"),
+   "summon --read-only: codex starts with -s read-only, update prompt off")
 calls.clear(); shows[:] = ready
 sidebars.summon("claude", tmp, False, 5, True)
 ok(any(c[0] == "new-session" and c[-1] == "claude --permission-mode plan" for c in calls), "summon --read-only: the default crew session also gets the read-only command")
@@ -2825,6 +2853,9 @@ shows[:] = ready; listed[0] = False; t[0] = 0.0
 rc, out, err = sidebars.summon("claude", tmp, False, 3)
 ok(rc == 3 and "%9" in err, "summon: not ready until the snapshot lists the pane (ask and report-text read the snapshot)")
 listed[0] = True
+shows[:] = [f"{sep}\n"]; pane_alive[0] = False; t[0] = 0.0
+ok(sidebars.summon("claude", tmp, False, 3) == (2, "", "no such pane: %9\n"), "summon: the new pane goes away before it is ready -> 2 at once, not a timeout")
+pane_alive[0] = True
 agent = lambda pane, kind="claude", window="@1": {"pane": pane, "kind": kind, "window": window, "status": "idle"}
 mk_towns = lambda *ts: {n: {"name": n, "agents": list(ag)} for n, ag in ts}
 towns = mk_towns(("main", [agent("%1"), agent("%7")]), ("crew-1", [agent("%2", "codex"), agent("%3", "grok")]))
@@ -2885,9 +2916,10 @@ lead = ["%1"]
 exists = [True]
 def fake_run(args, timeout=None):
     calls.append(tuple(args))
-    if args[0] == "display-message": return (0, lead[0] + "\n", "") if exists[0] else (1, "", "can't find pane\n")
+    # tmux exits 0 for a pane that does not exist and prints no pane id
+    if args[0] == "display-message": return 0, (args[3] if exists[0] else "") + collect.FIELD_SEP + lead[0] + "\n", ""
     return 0, "", ""
-sidebars.tmux_run = fake_run
+sidebars.tmux_run = collect.tmux_run = fake_run
 member = {"pane": "%9", "kind": "codex", "status": "idle", "summons": [], "round": 3}
 sidebars.get_snapshot = lambda: {"towns": [{"agents": [member]}]}
 os.environ["TMUX_PANE"] = "%1"
@@ -2930,7 +2962,7 @@ rc, out, err = run("%8")
 ok(rc == 4 and not killed(), "dismiss: a pane that is not a known agent -> 4, no kill-pane")
 exists[0] = False
 rc, out, err = run()
-ok(rc == 2 and not killed(), "dismiss: pane does not exist -> 2, no kill-pane")
+ok((rc, err) == (2, "no such pane: %9\n") and not killed(), "dismiss: pane does not exist -> 2, no kill-pane")
 exists[0] = True
 rc, out, err = run("9")
 ok(rc == 2 and not calls, "dismiss: bad pane id -> 2, tmux not called")
@@ -2947,7 +2979,7 @@ check "dismiss: four rules before kill-pane; exit codes 2, 4, 6" dismiss_ok
 crew_ok() {
   python3 - "$party" "$tmp" <<'EOF3'
 import json, os, subprocess, sys, time
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import sidebars
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import collect, sidebars
 import party
 fails = []
 def ok(cond, msg):
@@ -2957,7 +2989,7 @@ os.environ["XDG_STATE_HOME"] = state
 root = os.path.join(state, "party-hud", "crew")
 read = lambda *p: open(os.path.join(root, *p), encoding="utf-8").read()
 party.get_snapshot = lambda: {"towns": [{"agents": [{"pane": "%5", "kind": "codex", "round": 4}]}]}
-party.tmux_run = lambda args, timeout=None: (0, "%5" + party.FIELD_SEP + "/work/dir\n", "")
+party.tmux_run = collect.tmux_run = lambda args, timeout=None: (0, "%5" + collect.FIELD_SEP + "/work/dir\n", "")
 party.subprocess.run = lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", "")
 rc, out, err = party.ask("%5", "first?")
 sess = os.listdir(root)

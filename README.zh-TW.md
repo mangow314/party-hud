@@ -194,7 +194,7 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 | Agent | 狀態 | HP | SP |
 |---|---|---|---|
 | Claude Code | `~/.claude/sessions/*.json` | statusline 整合，或從 transcript 推估 | 從 transcript 讀快取 TTL |
-| Codex | 畫面有沒有變化 | `~/.codex/sessions` 的 rollout 紀錄檔 | 不顯示 |
+| Codex | 畫面有沒有變化；畫面停在核准提示時算等待中 | `~/.codex/sessions` 的 rollout 紀錄檔 | 不顯示 |
 | agy、Grok | 畫面有沒有變化 | `--` | 不顯示 |
 
 pane 的指令是上面這些 agent，或它的子行程裡有這些 agent，就算隊員。也會讀 [workmux](https://github.com/raine/workmux) 的狀態。

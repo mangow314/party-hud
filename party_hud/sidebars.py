@@ -16,9 +16,11 @@ from .collect import (
     AGENT_CMDS,
     FIELD_SEP,
     READ_ONLY_CMDS,
+    SUMMON_CMDS,
     agent_kind,
     get_snapshot,
     lonely_sidebars,
+    pane_values,
     read_seen,
     subagent_unanswered,
 )
@@ -189,7 +191,7 @@ SUMMON_POLL = 1.0
 
 
 def summon(agent, cwd, window, timeout, read_only=False, here=False):
-    """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments or tmux failure, 3 timeout,
+    """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments, tmux failure or the new pane closed before it was ready, 3 timeout,
     6 the caller is crew of a lead whose pane still exists (it reports to the lead instead).
     Default: a window in the detached session crew-<caller pane number> (created at the caller's window size);
     window: a new window in the caller's session; here: a split beside the caller.
@@ -209,13 +211,13 @@ def summon(agent, cwd, window, timeout, read_only=False, here=False):
     cwd = os.path.abspath(cwd or os.getcwd())
     if not os.path.isdir(cwd):
         return 2, "", f"not a directory: {cwd}\n"
-    rc, out, err = tmux_run(["display-message", "-p", "-t", caller, "#{@party_lead}"])
-    if rc != 0:
-        return 2, "", err or f"no such pane: {caller}\n"
-    lead = out.rstrip("\n")
-    if lead and tmux_run(["display-message", "-p", "-t", lead, "#{pane_id}"])[0] == 0:
+    found, err = pane_values(caller, "#{@party_lead}")
+    if found is None:
+        return 2, "", err
+    lead = found[0]
+    if lead and pane_values(lead)[0] is not None:
         return 6, "", f"{caller} is crew of {lead}: report to your lead instead of summoning\n"
-    cmd = (READ_ONLY_CMDS if read_only else AGENT_CMDS)[agent]
+    cmd = (READ_ONLY_CMDS if read_only else SUMMON_CMDS)[agent]
     if window:
         where = ["new-window"]
     elif here:
@@ -240,12 +242,10 @@ def summon(agent, cwd, window, timeout, read_only=False, here=False):
     tmux("set-option", "-p", "-t", pane, "@party_lead", caller)
     deadline, last = time.monotonic() + timeout, None
     while True:
-        rc, out, err = tmux_run(
-            ["display-message", "-p", "-t", pane, FIELD_SEP.join(["#{pane_current_command}", "#{pane_pid}"])]
-        )
-        if rc != 0:
-            return 2, "", err or f"no such pane: {pane}\n"
-        cmd, _, pid = out.strip().partition(FIELD_SEP)
+        found, err = pane_values(pane, "#{pane_current_command}", "#{pane_pid}")
+        if found is None:
+            return 2, "", err
+        cmd, pid = found
         digest = None
         if agent_kind(cmd, pid):
             digest = zlib.crc32(tmux("capture-pane", "-p", "-t", pane).encode())
@@ -270,10 +270,10 @@ def dismiss(pane):
         return 2, "", "not inside tmux ($TMUX_PANE is not set)\n"
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
-    rc, out, err = tmux_run(["display-message", "-p", "-t", pane, "#{@party_lead}"])
-    if rc != 0:
-        return 2, "", err or f"no such pane: {pane}\n"
-    lead = out.rstrip("\n")
+    found, err = pane_values(pane, "#{@party_lead}")
+    if found is None:
+        return 2, "", err
+    lead = found[0]
     agent = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
     if agent is None:
         return 4, "", f"not a known agent: {pane}\n"
