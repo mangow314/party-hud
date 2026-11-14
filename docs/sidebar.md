@@ -71,8 +71,8 @@ exec python3 ~/.tmux/plugins/party-hud/party.py --restore-end $(
 - `--restore-begin` notes the panes that exist and keeps new windows from getting a sidebar until `--restore-end`:
   a sidebar added while a window is being rebuilt would shift the pane indexes the restore goes by.
 - `--restore-end` takes places written `session:window.pane` (window and pane index). The pane at a place becomes a
-  sidebar and whatever runs in it is ended (after a restore that is the empty shell), unless the pane existed before `--restore-begin`, is a sidebar already, or
-  the place does not exist. If a pane was taken over, or the sidebars were on already, they are on afterwards and
+  sidebar and whatever runs in it is ended (after a restore, the empty shell), unless the pane existed before
+  `--restore-begin`, is a sidebar already, or the place does not exist. If a pane was taken over, or the sidebars were on already, they are on afterwards and
   every window without a sidebar gets one. Without `--restore-begin` it exits 2 and changes nothing.
 - party-hud does not read the save file itself; the script above does.
 - Sidebars opened by an older version have no title. Close and open them once (`prefix C-t` twice) so the next save
