@@ -15,7 +15,7 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
 ## Guardrails
 
 - `party.py` and `party_hud/` use only the Python 3.10+ standard library. Pillow / NumPy only under `scripts/`.
-- Read only: the HUD (sidebar, collector, report pane) only reads; the summon, send and dismiss subcommands open panes, send keys and close panes they opened only when an agent explicitly calls them; the restore subcommands replace the shell of a pane with a sidebar only when a layout saver's hook names its place and the pane was made after `--restore-begin`; never write to an agent's files, never use the network under any circumstances.
+- Read only: the HUD (sidebar, collector, report pane) only reads; the summon, send and dismiss subcommands open panes, send keys and close panes they opened only when an agent explicitly calls them; `--restore-end` turns a pane into a sidebar, ending whatever runs in it, only at a place its caller names and only if that pane was made after `--restore-begin` and is not a sidebar already; never write to an agent's files, never use the network under any circumstances.
 - A change that adds work per frame or per collection needs `python3 bench/bench.py` numbers before and after.
 - No comments by default. Allowed only for what the code cannot show: outside behavior a line depends on (tmux,
   terminal, OS, Python, an agent), a constraint set elsewhere in the code, the name of an opaque value, a lint
