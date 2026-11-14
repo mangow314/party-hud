@@ -22,8 +22,8 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
   suppression with its reason. English, one line, says why. A design choice goes in a test or `docs/architecture.md`.
   Update or delete a comment in the same change as its code, but never delete one without checking that the
   behavior it guards no longer applies. Docstrings only where the name does not make the interface clear.
-- `party_hud/` modules import only earlier ones: `common` -> `art` -> `collect` -> `render` -> `sidebars` -> `ui`.
-  `render.py` stays pure (snapshot in, text out).
+- `party_hud/` modules import only earlier ones: `common` -> `art` -> `collect` -> `markdown` -> `render` ->
+  `sidebars` -> `ui`. `markdown.py` and `render.py` stay pure (snapshot in, text out).
 - A sidebar out of view exits after 2 s, so hidden windows have no sidebar process. Work that must happen for hidden
   windows (bells, closing sidebar-only windows) belongs in the collector or a tmux hook, not the sidebar loop.
 - Only the process holding `snapshot.lock` collects; the others reuse the old `snapshot.json` and never wait on it.

@@ -31,7 +31,8 @@ HERE = os.path.dirname(os.path.abspath(__file__))
 PARTY = os.path.join(HERE, "..", "party.py")
 sys.path.insert(0, os.path.join(HERE, ".."))
 from party_hud.collect import collect
-from party_hud.render import clear_markdown_cache, render, render_select, report_parts, select_roster
+from party_hud.markdown import clear_markdown_cache
+from party_hud.render import render, render_select, report_parts, select_roster
 
 
 def fixture(n):

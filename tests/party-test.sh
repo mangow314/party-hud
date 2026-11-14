@@ -91,7 +91,7 @@ check "HP threshold color: 88% teal (bar = colored underline)" grep -qE "4m.\[58
 
 # Selecting a member of another squad: the viewed squad and the cards follow
 python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
 print(render.render(collect.collect(sys.argv[2])["towns"], 33, "%4"))' "$party" "$tmp/fixture.json" >"$tmp/sel.ansi"
 sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' "$tmp/sel.ansi" >"$tmp/sel.txt"
 bar_only_server() { grep -qE "^│▌ .* Server" "$1" && ! grep -qE "^│▌ .* Studio" "$1"; }
@@ -105,7 +105,7 @@ check "Viewed squad with nothing to flag: gold name; unviewed squad with someone
   across "38;2;240;160;80m!.*Studio.*38;2;226;178;74mServer" "$tmp/sel.ansi"
 check "Select %4 -> every box line is 33 wide" widths_ok "$tmp/sel.txt"
 python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
 t=collect.collect(sys.argv[2])["towns"]; e=t+[dict(t[1],name="Empty",agents=[])]
 print(render.render(e,33,"%1",focus="squad",squad=2))' "$party" "$tmp/fixture.json" \
   | sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' >"$tmp/squad.txt"
@@ -115,7 +115,7 @@ check "Empty squad selected -> every box line is 33 wide" widths_ok "$tmp/squad.
 ui_ok() {
   python3 - "$party" "$tmp/fixture.json" <<'EOF'
 import os, re, sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
 snap = collect.collect(sys.argv[2]); towns = snap["towns"]
 agents = [a for t in towns for a in t["agents"]]
 strip = lambda x: re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", x)
@@ -196,10 +196,10 @@ ok("Working · 12m 03s" in lf and "Now" in lf and "last words" in " ".join(lf) a
    "live report: status row with the time so far, Now block, then the previous round's report")
 ok(all(common.cw(l) <= 60 for l in lf), "live report: no row is wider than the width")
 colored = "\x1b[31mred\x1b[0m plain"
-ok(render.wrap_sgr(colored, 40) == ["\x1b[31mred\x1b[0m plain\x1b[0m"], "Last output: SGR escapes stay as they are")
-ok(render.wrap_sgr("a\x1b[2Jb\x1b[1;1Hc\x1b]0;title\x07d\x1b[?25l\x1b[38;5;1me", 40) == ["abcd\x1b[38;5;1me\x1b[0m"],
+ok(markdown.wrap_sgr(colored, 40) == ["\x1b[31mred\x1b[0m plain\x1b[0m"], "Last output: SGR escapes stay as they are")
+ok(markdown.wrap_sgr("a\x1b[2Jb\x1b[1;1Hc\x1b]0;title\x07d\x1b[?25l\x1b[38;5;1me", 40) == ["abcd\x1b[38;5;1me\x1b[0m"],
    "Last output: non-SGR escapes (cursor, clear, OSC) are dropped")
-wr = render.wrap_sgr("\x1b[1;32m" + "你好ab" * 5 + "\x1b[0m tail", 9)
+wr = markdown.wrap_sgr("\x1b[1;32m" + "你好ab" * 5 + "\x1b[0m tail", 9)
 ok(len(wr) > 2 and all(common.cw(strip(r)) <= 9 for r in wr) and all(r.endswith("\x1b[0m") for r in wr[:-1])
    and all(r.startswith("\x1b[1;32m") for r in wr[:3]) and wr[-1].endswith(" tail\x1b[0m"),
    "Last output: a long line wraps with the colour carried to every row, every row within the width (CJK = 2)")
@@ -361,9 +361,9 @@ ok("Quest complete" in sf.splitlines()[0] and sf.index("Execute ticket 001") > s
 nr = strip(render.render_no_report(40, 10)).splitlines()
 ok(len(nr) == 10 and "No party members." in nr[1] and all(common.cw(l) == 40 for l in nr[:3]) and "q close" in nr[-1],
    "report pane with no party members: says so and waits (a pane that exits at once only flashes)")
-ok(render.wrap("一二三四五", 4) == ["一二", "三四", "五"] and render.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
+ok(markdown.wrap("一二三四五", 4) == ["一二", "三四", "五"] and markdown.wrap("a\tb\x1b[31m", 9) == ["a   b[31m"],
    "report: wrap by display width; tabs expanded, control characters dropped")
-md = render.render_markdown
+md = markdown.render_markdown
 B, I, R, fgc = "\033[1m", "\033[3m", common.RESET, common.fg
 ok(md("# T\n###### s", 20) == [fgc("gold", True) + "T" + R, fgc("gold", True) + "s" + R], "markdown: # to ###### headings in gold bold, marker dropped")
 ok(md("a **b** c", 20) == ["a " + B + "b" + R + " c"], "markdown: **bold**")
@@ -389,20 +389,20 @@ mdcases = {
     "subagents": {"live": False, "start": 1, "end": 2, "text": mdt, "subagents": [{"desc": "d", "type": "t", "text": mdt + " 2"}]},
 }
 for name, rep in mdcases.items():
-    render.clear_markdown_cache()
+    markdown.clear_markdown_cache()
     cold1 = render.report_rows(rep, [], [], 30, 40, 10.0)
     warm = render.report_rows(rep, [], [], 30, 40, 10.0)
-    render.clear_markdown_cache()
+    markdown.clear_markdown_cache()
     ok(cold1 == warm == render.report_rows(rep, [], [], 30, 40, 10.0), f"markdown cache: {name} report gives the same rows reused and recomputed")
-render.clear_markdown_cache()
+markdown.clear_markdown_cache()
 a1 = md(mdt, 30, 40)
 ok(md(mdt + "x", 30, 40) != a1 and md(mdt, 12, 40) != a1 and md(mdt, 30, 20) != a1 and md(mdt, 30, 40) == a1, "markdown cache: another text, width or code_width never gets the earlier rows")
 ok(md(mdt, 30) == md(mdt, 30, 30), "markdown cache: no code_width means width")
 a1.append("junk"); a1[0] = "junk"
 ok(md(mdt, 30, 40) == [r for r in md(mdt, 30, 40)] and "junk" not in md(mdt, 30, 40), "markdown cache: editing the returned rows leaves the next call unchanged")
-render.clear_markdown_cache()
-md(mdt, 30, 40); h0 = render._markdown_rows.cache_info().hits; md(mdt, 30, 40)
-ok(render._markdown_rows.cache_info().hits == h0 + 1, "markdown cache: the same input a second time is a hit, not laid out again")
+markdown.clear_markdown_cache()
+md(mdt, 30, 40); h0 = markdown._markdown_rows.cache_info().hits; md(mdt, 30, 40)
+ok(markdown._markdown_rows.cache_info().hits == h0 + 1, "markdown cache: the same input a second time is a hit, not laid out again")
 raw = ["  - **x**", "  - nested", "| a | b |", "![img](u.png)", "<b>x</b>"]
 ok(md("\n".join(raw), 30) == raw, "markdown: nested lists, tables, images and HTML are shown as written")
 tb = "| 名稱 | `k` |\n|:--|--:|\n| 一二 | **x** |\n| ab | yy |"
@@ -629,19 +629,19 @@ heads = "\n".join(f"## Head {i}\nparagraph {i} " + "text " * (i % 15) + "\n" for
 reports_ = [tbl, fence, nested, quote, cjk, heads, "intro\n\n" + tbl, "x\n\n" + fence.replace("after", tbl)]
 pv_ok, pv_n, pv_seen = True, 0, []
 mdcount = [0]
-real_rows, real_table = render.md_rows, render.md_table
-render.md_rows = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_rows(*a, **k))[1]
-render.md_table = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_table(*a, **k))[1]
+real_rows, real_table = markdown.md_rows, markdown.md_table
+markdown.md_rows = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_rows(*a, **k))[1]
+markdown.md_table = lambda *a, **k: (mdcount.__setitem__(0, mdcount[0] + 1), real_table(*a, **k))[1]
 at_ = next(i for i, (_, a, _) in enumerate(srs) if a["pane"] == "%3")
 for text in reports_:
     rp = dict(srep, text=text)
     for w in (30, 44, 62):
-        render.clear_markdown_cache()
+        markdown.clear_markdown_cache()
         mdcount[0] = 0
         full = [strip(r).rstrip() for r in render.report_rows(rp, [], [], w, w, 4000.0, False)]
         n_full = mdcount[0]
         for h in (12, 20, 30):
-            render.clear_markdown_cache()
+            markdown.clear_markdown_cache()
             mdcount[0] = 0
             pv = [strip(r).rstrip() for r in render.select_preview(srs, sst, at_, w, h, rp, 4000.0)]
             rule = next(i for i, r in enumerate(pv) if r.startswith("─" * w))
@@ -651,8 +651,8 @@ for text in reports_:
             pv_ok = pv_ok and body[-1] == "… more · ⏎ to read" and body[:-1] == full[: len(body) - 1] and len(pv) == h
 ok(pv_ok and pv_n == 72, "select preview: the report rows shown are the first rows of the full layout and the last row is '… more · ⏎ to read', for tables, code fences, nested lists, quotes, CJK and headings at several sizes")
 ok(all(pv_seen), "select preview: only part of the report is laid out (fewer layout calls than the full layout, a table counts as one block) at every size")
-render.md_rows, render.md_table = real_rows, real_table
-render.clear_markdown_cache()
+markdown.md_rows, markdown.md_table = real_rows, real_table
+markdown.clear_markdown_cache()
 cxst = [{"name": "S", "agents": [{**sm(f"%{i}", f"m{i}", st_), **({"kind": "codex", "sp": None} if i % 2 else {})} for i, st_ in enumerate(["waiting", "done", "working", "idle", "waiting", "idle", "done", "sleep"], 20)]}]
 cxro = render.select_roster(cxst)
 ok({len(render.card(a, render.SELECT_CARD, False, False)) for _, a, _ in cxro} == {4, 5}, "select screen: fixture has both 4-row (codex) and 5-row (claude) cards without art")
@@ -3125,7 +3125,7 @@ cat >"$tmp/t.jsonl" <<'EOF'
 {"type":"assistant","isSidechain":true,"timestamp":"2026-11-03T04:07:00.000Z","message":{"usage":{"input_tokens":999999}}}
 EOF
 ci=$(python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
 from datetime import datetime
 last, ttl, used = collect.cache_info(sys.argv[2])
 print(int(last - datetime.fromisoformat("2026-11-03T04:06:00+00:00").timestamp()), ttl, used)' "$party" "$tmp/t.jsonl")
@@ -3135,7 +3135,7 @@ check "transcript: last usage 04:06, TTL 3600, context 40100 tokens (subagent us
 pad=$(printf 'x%.0s' $(seq 1000))
 for _ in $(seq 300); do echo "{\"type\":\"attachment\",\"content\":\"$pad\"}"; done >>"$tmp/t.jsonl"
 ci=$(python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
 print(collect.cache_info(sys.argv[2])[1:])' "$party" "$tmp/t.jsonl")
 check "transcript: last usage found behind 300 KB of attachments, not taken for a new session" test "$ci" = "(3600, 40100)"
 
@@ -3144,7 +3144,7 @@ sl="$root/integrations/claude-statusline.sh"
 echo '{"session_id":"abc-1","context_window":{"used_percentage":12.4,"context_window_size":1000000},"transcript_path":"/p/abc-1.jsonl","model":{"display_name":"Opus 5.5 (1M context)"}}' |
   XDG_RUNTIME_DIR="$tmp/xdg" TMUX_PANE=%7 "$sl"
 got=$(XDG_RUNTIME_DIR="$tmp/xdg" python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, render, sidebars, ui
+sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, collect, common, markdown, render, sidebars, ui
 d=collect.read_party("%7"); print(d["session_id"], d["ctx_left"], d["ctx_size"], d["transcript"], d["model"])' "$party")
 check "statusline integration: writes session, 88% left, max 1M, transcript, model base name" test "$got" = "abc-1 88 1000000 /p/abc-1.jsonl Opus 5.5"
 check "statusline integration: broken JSON or outside tmux -> no error, no output" \
