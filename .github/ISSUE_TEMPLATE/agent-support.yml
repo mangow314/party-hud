@@ -1,0 +1,41 @@
+name: Support another agent
+description: Ask party-hud to show a coding agent it does not know yet
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        party-hud only reads files an agent already writes; it never writes to them and never uses the network.
+        [docs/integrations.md](https://github.com/mangow314/party-hud/blob/master/docs/integrations.md) lists what it
+        reads for each supported agent. The answers below are what a new fixture and collector need.
+  - type: input
+    id: agent
+    attributes:
+      label: Agent and version
+      placeholder: foo-cli 1.2.0
+    validations:
+      required: true
+  - type: input
+    id: process
+    attributes:
+      label: Process name
+      description: How the agent shows up in `ps` inside its pane (command and arguments)
+    validations:
+      required: true
+  - type: textarea
+    id: files
+    attributes:
+      label: Session and transcript files
+      description: Where the agent writes its session state or logs, and their format. Paste a short, scrubbed sample.
+    validations:
+      required: true
+  - type: textarea
+    id: status
+    attributes:
+      label: How to tell busy, idle and waiting
+      description: Anything in those files or on screen that shows whether it is working or waiting for you.
+  - type: textarea
+    id: context
+    attributes:
+      label: Context and model
+      description: Where the context usage and model name can be read, if anywhere.
