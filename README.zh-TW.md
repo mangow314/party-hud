@@ -146,6 +146,10 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 
 這需要 `jq`。沒設定 statusline 整合或沒裝 `jq` 時，HP 會從 transcript 推估。細節見 [docs/integrations.md](docs/integrations.md)。
 
+### tmux-resurrect 還原後的側欄
+
+[tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect)（tmux 的存檔還原外掛）會把側欄 pane 還原成空的 shell。掛上兩個 hook：還原前跑 `party.py --restore-begin`、還原後跑 `party.py --restore-end`，這些 pane 就會變回側欄。設定方式見 [docs/sidebar.md](docs/sidebar.md#after-a-tmux-resurrect-restore)。
+
 ### 終端機小提示
 
 - HP／SP 血條是彩色底線。在 Ghostty 把底線往下移一點、加粗一點比較好看：

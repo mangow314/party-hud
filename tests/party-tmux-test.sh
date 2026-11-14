@@ -180,6 +180,26 @@ check "Gone member: --report-text names the missing pane and exits 2" eq "$(as_h
 check "Gone member: --ask names the missing pane and exits 2" eq "$(as_host --ask "$member" hello 2>&1; echo "rc=$?")" "$gone"
 check "Gone member: --dismiss names the missing pane and exits 2" eq "$(as_host --dismiss "$member" 2>&1; echo "rc=$?")" "$gone"
 
+# Layout restore (the hooks of a saver such as tmux-resurrect): the pane named afterwards becomes the sidebar
+check "Sidebar panes are titled party-hud, running or stopped (the mark a saved layout keeps)" \
+  eq "$(t list-panes -a -F '#{@party_sidebar} #{pane_title}' | grep '^1 ' | sort -u)" "1 party-hud"
+place() { t display -p -t "$1" '#{session_name}:#{window_index}.#{pane_index}'; }
+t run-shell "python3 $party --restore-begin"
+rwin=$(t new-window -t a: -P -F '#{window_id}') # now the client's window: tmux answers for its active pane when a target is missing
+sleep 1
+check "Restore: no sidebar is added while a restore runs" eq "$(t list-panes -t "$rwin" | grep -c '')" "1"
+shell=$(t split-window -hbf -d -l 34 -t "$rwin" -P -F '#{pane_id}') # stands for the shell a restore leaves where the sidebar was
+t run-shell "python3 $party --restore-end '$(place "$shell")' '$(place "$host")' 'nowhere:9.9'"
+sleep 1
+check "Restore: the pane named becomes a sidebar" eq "$(t display -p -t "$shell" '#{@party_sidebar} #{pane_title}')" "1 party-hud"
+check "Restore: a pane from before the restore and a missing place are left alone (one sidebar per window)" eq "$(sidebars)" "$(windows)"
+check "Restore: the pane from before still runs its program" eq "$(t display -p -t "$host" '#{@party_sidebar}#{pane_dead}')" "0"
+t new-window -d -t a:
+sleep 1
+check "Restore: new windows get a sidebar again afterwards" eq "$(sidebars)" "$(windows)"
+check "Restore: --restore-end without --restore-begin says so and exits 2" \
+  eq "$(as_host --restore-end "$(place "$host")" 2>&1; echo "rc=$?")" "--restore-end: run --restore-begin before the restore"$'\n'"rc=2"
+
 # Pressing q in a sidebar hides all sidebars (including itself)
 t send-keys -t "$(t list-panes -a -F '#{pane_id} #{@party_sidebar} #{pane_dead}' | grep ' 1 0$' | head -1 | cut -d' ' -f1)" q
 sleep 3

@@ -15,8 +15,8 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
 ## Guardrails
 
 - `party.py` and `party_hud/` use only the Python 3.10+ standard library. Pillow / NumPy only under `scripts/`.
-- Read only: the HUD (sidebar, collector, report pane) only reads; the summon, send and dismiss subcommands open panes, send keys and close panes they opened only when an agent explicitly calls them; never write to an agent's files, never use the network under any circumstances.
-  (HUD（側欄、collector、回報 pane）只讀；召集、送出和解散的子指令只在 agent 明確呼叫時，才開 pane、送按鍵和關掉自己召喚的 pane；任何情況都不寫 agent 的檔案、不走網路。)
+- Read only: the HUD (sidebar, collector, report pane) only reads; the summon, send and dismiss subcommands open panes, send keys and close panes they opened only when an agent explicitly calls them; the restore subcommands replace the shell of a pane with a sidebar only when a layout saver's hook names its place and the pane was made after `--restore-begin`; never write to an agent's files, never use the network under any circumstances.
+  (HUD（側欄、collector、回報 pane）只讀；召集、送出和解散的子指令只在 agent 明確呼叫時，才開 pane、送按鍵和關掉自己召喚的 pane；還原的子指令只在存檔還原外掛的 hook 指名位置、而且那個 pane 是 `--restore-begin` 之後才建立時，才把它的 shell 換成側欄；任何情況都不寫 agent 的檔案、不走網路。)
 - A change that adds work per frame or per collection needs `python3 bench/bench.py` numbers before and after.
 - No comments by default. Allowed only for what the code cannot show: outside behavior a line depends on (tmux,
   terminal, OS, Python, an agent), a constraint set elsewhere in the code, the name of an opaque value, a lint

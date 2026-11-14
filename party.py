@@ -21,6 +21,9 @@ Modes (started by tmux; see party.tmux):
   party.py --reflow WID       put the sidebar width back (hook)
   party.py --nudge [WID]      restart a stopped sidebar and redraw now (hook)
   party.py --tidy             close windows left with only a sidebar (hook)
+  party.py --restore-begin    before a layout restore (tmux-resurrect's pre-restore-all hook): note the panes that exist, hold --ensure back
+  party.py --restore-end [PLACE ...]  after it: the pane at each PLACE (session:window.pane, where the saved layout had a sidebar)
+                              becomes a sidebar again, unless it existed before --restore-begin; exit 2 if --restore-begin did not run
   party.py --remember-width   keep the width you dragged a sidebar to (mouse binding)
   party.py --fixture F        read fake data from a JSON file instead of tmux (tests)
 
@@ -49,6 +52,8 @@ from party_hud.sidebars import (
     open_report_pane,
     reflow,
     remember_width,
+    restore_begin,
+    restore_end,
     summon,
     tidy,
     toggle,
@@ -117,6 +122,8 @@ def main():
     ap.add_argument("--remember-width", action="store_true")
     ap.add_argument("--nudge", nargs="?", const="", metavar="WINDOW_ID")
     ap.add_argument("--tidy", action="store_true")
+    ap.add_argument("--restore-begin", action="store_true")
+    ap.add_argument("--restore-end", nargs="*", metavar="PLACE")
     ap.add_argument("--next", action="store_true")
     ap.add_argument("--menu", action="store_true")
     ap.add_argument("--select", action="store_true")
@@ -154,6 +161,13 @@ def main():
         nudge(args.nudge)
     elif args.tidy:
         tidy()
+    elif args.restore_begin:
+        restore_begin()
+    elif args.restore_end is not None:
+        rc, out, err = restore_end(args.restore_end)
+        sys.stdout.write(out)
+        sys.stderr.write(err)
+        sys.exit(rc)
     elif args.next:
         from party_hud.ui import jump_next
 

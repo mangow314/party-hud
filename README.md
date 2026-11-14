@@ -158,6 +158,12 @@ printf '%s' "$input" | ~/.tmux/plugins/party-hud/integrations/claude-statusline.
 
 This needs `jq`. Without the statusline setup or `jq`, HP is estimated from the transcript. Details: [docs/integrations.md](docs/integrations.md).
 
+### Sidebars after a tmux-resurrect restore
+
+[tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect) brings a sidebar pane back as an empty shell. Two
+hooks, `party.py --restore-begin` before the restore and `party.py --restore-end` after it, turn those panes back into
+sidebars. Setup: [docs/sidebar.md](docs/sidebar.md#after-a-tmux-resurrect-restore).
+
 ### Terminal tips
 
 - The HP / SP bars are colored underlines. In Ghostty they look best a little lower and thicker:

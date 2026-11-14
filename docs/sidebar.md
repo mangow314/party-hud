@@ -41,3 +41,40 @@ and a pin marks the session the sidebar itself is in.
 
 Images leave tmux through `allow-passthrough`, which party-hud turns on for its own sidebar and report panes only: a program in any
 other pane still cannot send escape sequences straight to your terminal. Details: [architecture.md](architecture.md#images).
+
+## After a tmux-resurrect restore
+
+[tmux-resurrect](https://github.com/tmux-plugins/tmux-resurrect) saves a sidebar pane without a command to start again,
+so a restore brings it back as an empty shell. Sidebar panes carry the pane title `party-hud`, and the save file keeps
+pane titles. With two hooks party-hud turns the restored panes back into sidebars:
+
+```tmux
+set -g @resurrect-hook-pre-restore-all 'python3 ~/.tmux/plugins/party-hud/party.py --restore-begin'
+set -g @resurrect-hook-post-restore-all '~/.config/tmux/party-restore.sh'
+```
+
+`~/.config/tmux/party-restore.sh` (make it executable) lists the places where the save file had a sidebar:
+
+```sh
+#!/bin/sh
+# tmux-resurrect's save directory; it is ~/.tmux/resurrect when that directory exists
+last="${XDG_DATA_HOME:-$HOME/.local/share}/tmux/resurrect/last"
+set -f
+IFS='
+'
+# shellcheck disable=SC2046 # split on newlines only: one place per line, session names may hold spaces
+exec python3 ~/.tmux/plugins/party-hud/party.py --restore-end $(
+  awk -F '\t' '$1 == "pane" && $7 == "party-hud" { print $2 ":" $3 "." $6 }' "$last"
+)
+```
+
+- `--restore-begin` notes the panes that exist and keeps new windows from getting a sidebar until `--restore-end`:
+  a sidebar added while a window is being rebuilt would shift the pane indexes the restore goes by.
+- `--restore-end` takes places written `session:window.pane` (window and pane index). The pane at a place becomes a
+  sidebar and the shell in it is ended, unless the pane existed before `--restore-begin`, is a sidebar already, or
+  the place does not exist. If a pane was taken over, or the sidebars were on already, they are on afterwards and
+  every window without a sidebar gets one. Without `--restore-begin` it exits 2 and changes nothing.
+- party-hud does not read the save file itself; the script above does.
+- Sidebars opened by an older version have no title. Close and open them once (`prefix C-t` twice) so the next save
+  has it.
+- If a restore stops between the two hooks, new windows get no sidebar until you run `tmux set -gu @party_restoring`.
