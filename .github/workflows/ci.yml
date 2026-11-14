@@ -35,7 +35,11 @@ jobs:
         run: |
           ruff check .
           ruff format --check .
-      - name: Unit tests
+      - name: Install pytest (pinned)
+        run: pip install pytest==9.2.0
+      - name: Unit tests (pytest)
+        run: python -m pytest
+      - name: Unit tests (bash, being moved to pytest)
         run: bash tests/party-test.sh
       - name: Integration tests (private tmux server)
         run: bash tests/party-tmux-test.sh
