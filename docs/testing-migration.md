@@ -47,7 +47,7 @@ recounted by prefix when the batch starts.
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
 |---|---|---|---|---|
 | 0 | Markdown (pilot, done) | wrap, wrap_sgr, render_markdown | `test_markdown.py` | 41 tests |
-| 1 | Collector readers | see "Batch 1" below | `test_claude_log.py`, `test_codex_log.py`, `test_processes.py`, `test_report_for.py` | 67 |
+| 1 | Collector readers (done) | see "Batch 1" below | `test_claude_log.py`, `test_codex_log.py`, `test_processes.py`, `test_report_for.py` | 63 |
 | 2 | Collect and snapshot | screen diff, unseen/round, bells, snapshot lock, list-panes (≈1556-1668, 1806-1862, 1941-1968, 2428-2501) | `test_collect.py` | 59 |
 | 3 | `--report-text` | `report_text_ok` heredoc (2505-2717) | `test_report_text.py` | 39 |
 | 4 | Sidebar rendering | fixture cards and widths (52-113), squads, peek, fit (117-170, 2116-2163, 2333-2427) | `test_render_sidebar.py` | 76 |
@@ -63,36 +63,31 @@ Batches 1-3 first: they are the code the split into `claude_log` / `codex_log` /
 `monkeypatch` most. Batches 4-10 can go in any order. `tests/party-tmux-test.sh` (real tmux) stays bash; moving it to a
 `@pytest.mark.tmux` test that skips without tmux is a separate decision after batch 11.
 
-## Batch 1: collector readers
+## Batch 1: collector readers (done)
 
-Asserts by message prefix (67 in all): `claude live` 11, `screen report` 8 (one runs in a loop over agy and grok),
-`subagents` / `subagent report` 8, `codex rollout` / `codex_rollout` 6, `claude report` 5, `claude typed` 5,
-`claude task` 3, `report_for` 3, `codex report` / `codex task` / `codex live` 2 each, `git branch` 2, `Wrappers` 2,
-and one each for `codex turn done`, `codex process`, `claude session`, `Recognizes claude / agy / grok`,
-`Plain node`, `ps parsing`, `Without /proc`, `Process alive`.
+63 bash asserts became 65 tests (two asserts that looped over agy and grok are `parametrize` cases), found by message
+prefix: `claude live` 11, `screen report` 8, `subagents` / `subagent report` 8, `codex rollout` / `codex_rollout` 6,
+`claude report` 5, `claude typed` 5, `claude task` 3, `report_for` 3, `codex report` / `codex task` / `codex live` 2
+each, `git branch` 2, `Wrappers` 2, and one each for `codex turn done`, `codex process`, `claude session`,
+`Recognizes claude / agy / grok`, `Plain node`, `ps parsing`, `Without /proc`, `Process alive`.
 
 | File | Module under test | Asserts |
 |---|---|---|
-| `test_claude_log.py` | `claude_log`: report, task, typed, live, subagents, session | 33 |
+| `test_claude_log.py` | `claude_log` (report, task, typed, live, subagents, session) and `report_for` on Claude | 31 |
 | `test_codex_log.py` | `codex_log`: usage, report, task, live, turn done, rollout pairing, process match | 14 |
 | `test_processes.py` | `processes` and `collect.agent_kind`: `ps` parsing, without `/proc`, alive check, wrappers | 7 |
-| `test_report_for.py` | `collect.report_for`, `collect.git_branch`, `collect.screen_report` (agy / grok screens) | 13 |
+| `test_report_for.py` | `collect.git_branch` and agy / grok reports read off the screen | 11 |
 
-What has to change on the way:
+How the shared state was untangled:
 
-- `claude live` long-turn asserts read one log again and again and check `_search_long_turn` was or was not called.
-  They stay one test (`test_long_turn_search_is_remembered_per_log`) with a spy set by `monkeypatch`, since the memo
-  across reads is the behavior under test.
-- `report_for` and `subagents` asserts reuse `turn`, `liveq` and the `sess` folder built earlier in the heredoc; each
-  test builds them with `records.py` in its own `tmp_path`.
-- `screen report` asserts replace `collect.tmux` by hand and restore it lines later; `monkeypatch.setattr(collect,
-  "tmux", ...)` per test.
-- Asserts without `/proc` set `processes.HAVE_PROC = False` and fill `processes._ps_memo`; `monkeypatch` both.
-- `codex rollout` pairing replaces `proc_args`, `proc_children`, `proc_start` (in `processes`), `rollouts_since`
-  (in `codex_log`) and `glob.glob`; `monkeypatch` each in its defining module.
-
-Mutations for the spot-check: `claude_typed` keeps `<system-reminder>` text; `paired_rollout` reuses a taken rollout;
-`parse_ps` takes the start time from the wrong fields.
+- `claude live` long-turn asserts read one log again and again. Each became its own test that replays the reads it
+  depends on; a `searches` fixture spies on `_search_long_turn` through `monkeypatch`.
+- `report_for` and `subagents` asserts reused `turn`, `liveq` and the `sess` folder; fixtures build them per test
+  with `records.py` in `tmp_path`.
+- `collect.tmux`, `HAVE_PROC`, `_ps_memo`, the `proc_*` functions, `rollouts_since`, `glob.glob` and
+  `LONG_TURN_LOOKBACK` are replaced with `monkeypatch` in their defining modules.
+- `test_claude_log.py` and `test_report_for.py` turn off basedpyright's Optional checks at the top of the file: the
+  tests index results they expect to exist, and a `None` there fails the test anyway.
 
 ## Gates
 
