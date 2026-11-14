@@ -32,15 +32,22 @@ the last batch lands.
   (`common.PARTY_DIR` is computed at import), `LC_COLLATE=C`, and the `strip` helper for ANSI escapes.
 - `tests/fixtures/sidebar.json`: the fixture now written inline at the top of `party-test.sh` (lines 27-50).
 - `widths_ok` (every box line exactly 33 columns) becomes a helper in `conftest.py`.
+- An autouse fixture in `conftest.py` clears the module-level memos between tests: `claude_log._long_turns`,
+  `_cache_memo`, `_transcript_memo`, `codex_log._tail_memo`, `_rollout_meta`, `processes._ps_memo`. In bash they
+  carried over from one assert to the next; a test that checks a memo builds it up inside that one test.
+- `tests/records.py`: plain helpers that write Claude transcripts and Codex rollouts to `tmp_path` (`rec`, `text`,
+  `transcript`, `bulk`, rollout event lines). `pytest.ini_options.pythonpath` gets `"tests"` so test files import it.
 
 ## Batches
 
-Counts are bash `ok(` / `check` calls in that range, measured on the pilot branch.
+Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
+text before the first `:`), not by line number. Counts for batches 2-10 are `ok(` / `check` calls in the range and get
+recounted by prefix when the batch starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
 |---|---|---|---|---|
 | 0 | Markdown (pilot, done) | wrap, wrap_sgr, render_markdown | `test_markdown.py` | 41 tests |
-| 1 | Collector readers | claude report/task/typed/live, codex rollout/report/task/live, `ps` parsing, without `/proc` (≈1214-1555, 1863-1940, 2086-2115) | `test_claude_log.py`, `test_codex_log.py`, `test_processes.py` | 64 |
+| 1 | Collector readers | see "Batch 1" below | `test_claude_log.py`, `test_codex_log.py`, `test_processes.py`, `test_report_for.py` | 67 |
 | 2 | Collect and snapshot | screen diff, unseen/round, bells, snapshot lock, list-panes (≈1556-1668, 1806-1862, 1941-1968, 2428-2501) | `test_collect.py` | 59 |
 | 3 | `--report-text` | `report_text_ok` heredoc (2505-2717) | `test_report_text.py` | 39 |
 | 4 | Sidebar rendering | fixture cards and widths (52-113), squads, peek, fit (117-170, 2116-2163, 2333-2427) | `test_render_sidebar.py` | 76 |
@@ -55,6 +62,37 @@ Counts are bash `ok(` / `check` calls in that range, measured on the pilot branc
 Batches 1-3 first: they are the code the split into `claude_log` / `codex_log` / `processes` was for, and they need
 `monkeypatch` most. Batches 4-10 can go in any order. `tests/party-tmux-test.sh` (real tmux) stays bash; moving it to a
 `@pytest.mark.tmux` test that skips without tmux is a separate decision after batch 11.
+
+## Batch 1: collector readers
+
+Asserts by message prefix (67 in all): `claude live` 11, `screen report` 8 (one runs in a loop over agy and grok),
+`subagents` / `subagent report` 8, `codex rollout` / `codex_rollout` 6, `claude report` 5, `claude typed` 5,
+`claude task` 3, `report_for` 3, `codex report` / `codex task` / `codex live` 2 each, `git branch` 2, `Wrappers` 2,
+and one each for `codex turn done`, `codex process`, `claude session`, `Recognizes claude / agy / grok`,
+`Plain node`, `ps parsing`, `Without /proc`, `Process alive`.
+
+| File | Module under test | Asserts |
+|---|---|---|
+| `test_claude_log.py` | `claude_log`: report, task, typed, live, subagents, session | 33 |
+| `test_codex_log.py` | `codex_log`: usage, report, task, live, turn done, rollout pairing, process match | 14 |
+| `test_processes.py` | `processes` and `collect.agent_kind`: `ps` parsing, without `/proc`, alive check, wrappers | 7 |
+| `test_report_for.py` | `collect.report_for`, `collect.git_branch`, `collect.screen_report` (agy / grok screens) | 13 |
+
+What has to change on the way:
+
+- `claude live` long-turn asserts read one log again and again and check `_search_long_turn` was or was not called.
+  They stay one test (`test_long_turn_search_is_remembered_per_log`) with a spy set by `monkeypatch`, since the memo
+  across reads is the behavior under test.
+- `report_for` and `subagents` asserts reuse `turn`, `liveq` and the `sess` folder built earlier in the heredoc; each
+  test builds them with `records.py` in its own `tmp_path`.
+- `screen report` asserts replace `collect.tmux` by hand and restore it lines later; `monkeypatch.setattr(collect,
+  "tmux", ...)` per test.
+- Asserts without `/proc` set `processes.HAVE_PROC = False` and fill `processes._ps_memo`; `monkeypatch` both.
+- `codex rollout` pairing replaces `proc_args`, `proc_children`, `proc_start` (in `processes`), `rollouts_since`
+  (in `codex_log`) and `glob.glob`; `monkeypatch` each in its defining module.
+
+Mutations for the spot-check: `claude_typed` keeps `<system-reminder>` text; `paired_rollout` reuses a taken rollout;
+`parse_ps` takes the start time from the wrong fields.
 
 ## Gates
 
