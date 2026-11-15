@@ -11,7 +11,8 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
 - Before done, run: `ruff check . && ruff format --check . && basedpyright . && uvx pytest@9.2.0`.
 - Code must run on Linux and macOS (CI runs both): `/proc` exists only on Linux, macOS goes through `ps`.
 - Local runs cover one OS only; macOS differences (`ps` output, locale, Python's `Python.app` re-exec) show up only in
-  CI. On a branch that will run for more than a commit or two, push early and read the `macos-latest` job each push.
+  CI. CI runs on pull requests and on `master` only, so on a branch that will run for more than a commit or two, open
+  the PR early and read the `macos-latest` job each push.
 
 ## Guardrails
 
@@ -24,9 +25,12 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
   Update or delete a comment in the same change as its code, but never delete one without checking that the
   behavior it guards no longer applies. Docstrings only where the name does not make the interface clear.
 - `party_hud/` modules import only earlier ones: `common` -> `art` -> `processes` -> `claude_log` -> `codex_log` ->
-  `collect` -> `markdown` -> `render` -> `sidebars` -> `ui`. `markdown.py` and `render.py` stay pure (snapshot in,
-  text out). Call a function of another collector module as `module.name` (not `from` import), so a test or bench
-  that replaces it there reaches every caller.
+  `collect` -> `markdown` -> `render` -> `sidebars` -> `ui`. `markdown.py` and `render.py` do no I/O and read no
+  clock, environment or tmux (snapshot in, text out); their only state is the animation tick (set by `set_tick` or a
+  `tick` argument) and the layout cache of `render_markdown`.
+- The collector modules (`processes`, `claude_log`, `codex_log`, `collect`) call each other's functions as
+  `module.name` (not `from` import), so a test or bench that replaces one there reaches every collector caller.
+  `sidebars` and `ui` import collect's names directly: a test of them replaces the name in `sidebars` or `ui`.
 - A sidebar out of view exits after 2 s, so hidden windows have no sidebar process. Work that must happen for hidden
   windows (bells, closing sidebar-only windows) belongs in the collector or a tmux hook, not the sidebar loop.
 - Only the process holding `snapshot.lock` collects; the others reuse the old `snapshot.json` and never wait on it.
