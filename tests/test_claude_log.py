@@ -3,6 +3,7 @@
 
 import json
 import os
+from datetime import datetime
 from functools import partial
 
 import pytest
@@ -484,3 +485,51 @@ def test_claude_session_only_in_a_pane_whose_process_tree_holds_its_pid(monkeypa
         )
         kinds.append([a["kind"] for t in collect.collect()["towns"] for a in t["agents"]])
     assert kinds == [["claude"], []]
+
+
+CACHE_LINES = [
+    {
+        "type": "assistant",
+        "timestamp": "2026-11-03T04:00:00.000Z",
+        "message": {"usage": {"cache_creation": {"ephemeral_1h_input_tokens": 500, "ephemeral_5m_input_tokens": 0}}},
+    },
+    {"type": "user", "timestamp": "2026-11-03T04:05:00.000Z", "message": {"content": "hi"}},
+    {
+        "type": "assistant",
+        "timestamp": "2026-11-03T04:06:00.000Z",
+        "message": {
+            "usage": {
+                "input_tokens": 10,
+                "cache_read_input_tokens": 40000,
+                "cache_creation_input_tokens": 90,
+                "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0},
+            }
+        },
+    },
+    {
+        "type": "assistant",
+        "isSidechain": True,
+        "timestamp": "2026-11-03T04:07:00.000Z",
+        "message": {"usage": {"input_tokens": 999999}},
+    },
+]
+
+
+def write_cache_transcript(path, pad_kb=0):
+    with open(path, "w") as f:
+        f.writelines(json.dumps(line) + "\n" for line in CACHE_LINES)
+        f.writelines(json.dumps({"type": "attachment", "content": "x" * 1000}) + "\n" for _ in range(pad_kb))
+    return str(path)
+
+
+def test_cache_info_takes_the_last_usage_time_the_ttl_of_the_last_cache_write_and_main_context(tmp_path):
+    info = claude_log.cache_info(write_cache_transcript(tmp_path / "t.jsonl"))
+    assert info is not None
+    last, ttl, used = info
+    assert last == datetime.fromisoformat("2026-11-03T04:06:00+00:00").timestamp()
+    assert ttl == 3600
+    assert used == 40100
+
+
+def test_cache_info_finds_the_last_usage_behind_300_kb_of_attachments(tmp_path):
+    assert claude_log.cache_info(write_cache_transcript(tmp_path / "t.jsonl", 300))[1:] == (3600, 40100)
