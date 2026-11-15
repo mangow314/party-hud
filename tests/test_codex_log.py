@@ -1,3 +1,4 @@
+import builtins
 import json
 import os
 import time
@@ -269,3 +270,101 @@ def test_collect_and_report_pair_the_same_rollouts(paired, monkeypatch):
         collect.report_for({"kind": "codex", "pane": f"%{i}"})
     assert from_collect == [ra, rb]
     assert seen == [ra, rb]
+
+
+def put(path, text):
+    with open(path, "w") as f:
+        f.write(text)
+
+
+@pytest.fixture
+def roll(tmp_path):
+    return str(tmp_path / "r.jsonl")
+
+
+def test_tail_unchanged_file_is_not_opened_again(roll, monkeypatch):
+    opened = []
+    real_open = open
+
+    def spy_open(file, *a, **k):
+        if file == roll:
+            opened.append(file)
+        return real_open(file, *a, **k)
+
+    put(roll, "a\nb\n")
+    monkeypatch.setattr(builtins, "open", spy_open)
+    first = codex_log._tail_lines(roll)
+    second = codex_log._tail_lines(roll)
+    assert first == [b"a", b"b"]
+    assert second == first
+    assert len(opened) == 1
+    assert second is not first
+
+
+def test_tail_caller_changing_the_list_does_not_change_the_memory(roll):
+    put(roll, "a\nb\n")
+    codex_log._tail_lines(roll).append(b"x")
+    assert codex_log._tail_lines(roll) == [b"a", b"b"]
+
+
+def test_tail_appended_line_is_read(roll):
+    put(roll, "a\nb\n")
+    codex_log._tail_lines(roll)
+    with open(roll, "a") as f:
+        f.write("c\n")
+    assert codex_log._tail_lines(roll) == [b"a", b"b", b"c"]
+
+
+def test_tail_same_size_newer_mtime_is_read(roll):
+    put(roll, "a\nb\nc\n")
+    codex_log._tail_lines(roll)
+    st = os.stat(roll)
+    put(roll, "a\nb\nZ\n")
+    os.utime(roll, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
+    assert codex_log._tail_lines(roll) == [b"a", b"b", b"Z"]
+
+
+def test_tail_deleted_file_gives_no_lines(roll):
+    put(roll, "a\n")
+    codex_log._tail_lines(roll)
+    os.remove(roll)
+    assert codex_log._tail_lines(roll) == []
+
+
+def test_tail_recreated_file_is_read(roll):
+    put(roll, "a\n")
+    codex_log._tail_lines(roll)
+    os.remove(roll)
+    codex_log._tail_lines(roll)
+    put(roll, "new\n")
+    assert codex_log._tail_lines(roll) == [b"new"]
+
+
+def test_tail_truncated_file_is_read(roll):
+    put(roll, "new\n")
+    codex_log._tail_lines(roll)
+    put(roll, "n\n")
+    assert codex_log._tail_lines(roll) == [b"n"]
+
+
+def test_tail_different_file_of_the_same_size_and_mtime_is_read(roll, tmp_path):
+    put(roll, "n\n")
+    codex_log._tail_lines(roll)
+    st = os.stat(roll)
+    other = str(tmp_path / "o.jsonl")
+    put(other, "m\n")
+    os.utime(other, ns=(st.st_atime_ns, st.st_mtime_ns))
+    os.replace(other, roll)
+    st2 = os.stat(roll)
+    assert st2.st_size == st.st_size
+    assert st2.st_mtime_ns == st.st_mtime_ns
+    assert st2.st_ino != st.st_ino
+    assert codex_log._tail_lines(roll) == [b"m"]
+
+
+def test_tail_memory_is_capped_and_drops_the_oldest(roll):
+    put(roll, "m\n")
+    for i in range(codex_log.TAIL_MEMO_MAX + 3):
+        codex_log._tail_lines(roll, 1000 + i)
+    assert len(codex_log._tail_memo) == codex_log.TAIL_MEMO_MAX
+    assert (roll, 1000) not in codex_log._tail_memo
