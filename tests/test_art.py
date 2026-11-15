@@ -227,3 +227,42 @@ def test_portrait_chosen_by_class(towns, agents):
 def test_classes_are_unique_within_a_squad(towns):
     assert all(len({a["cls"] for a in t["agents"]}) == len(t["agents"]) for t in towns)
     assert len(set(common.spread([f"sess-{i}" for i in range(6)], 8).values())) == 6
+
+
+REPO_ART = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "art")
+
+
+def png_head(name):
+    """(width, height, bit depth and color type) from a PNG's IHDR."""
+    with open(os.path.join(REPO_ART, name), "rb") as f:
+        b = f.read(33)
+    assert b[:8] == b"\x89PNG\r\n\x1a\n"
+    return int.from_bytes(b[16:20], "big"), int.from_bytes(b[20:24], "big"), b[24:26]
+
+
+RGBA8 = bytes([8, 6])
+
+
+def test_the_8_big_portraits_are_384x432_rgba_so_the_corners_and_glow_stay_transparent():
+    names = [n for n in os.listdir(REPO_ART) if n.startswith("portrait-big-") and n.endswith(".png")]
+    assert len(names) == 8
+    assert {png_head(n) for n in names} == {(384, 432, RGBA8)}
+
+
+def test_the_8_small_portraits_are_192x216_rgba_so_the_corners_stay_transparent():
+    names = [n for n in os.listdir(REPO_ART) if n.startswith("portrait-") and "-big-" not in n and n.endswith(".png")]
+    assert len(names) == 8
+    assert {png_head(n) for n in names} == {(192, 216, RGBA8)}
+
+
+@pytest.mark.parametrize(
+    ("label", "cells"),
+    [("took", 8), ("waited", 10), ("asked", 9), ("files", 9), ("work", 8), ("where", 9), ("running", 11)],
+)
+def test_heading_labels_are_rgba_44_px_high_and_20_px_per_cell(label, cells):
+    assert png_head(f"label-{label}.png") == (cells * 20, 44, RGBA8)
+
+
+@pytest.mark.parametrize(("suffix", "height"), [("", 240), ("-5x1", 192), ("-6x1", 159), ("-7x1", 138), ("-8x1", 120)])
+def test_select_banners_are_960_px_wide_at_their_heights(suffix, height):
+    assert png_head(f"banner-select{suffix}.png")[:2] == (960, height)

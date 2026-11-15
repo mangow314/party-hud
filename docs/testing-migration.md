@@ -45,7 +45,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on); batches 2-9 and the pty batch removed 274, 214, 247, 274, 313, 379, 276, 273 and 330 more. They are only a guide;
+removed 441 lines (from about line 1237 on); batches 2-10 and the pty batch removed 274, 214, 247, 274, 313, 379, 276, 273, 330 and 283 more. They are only a guide;
 each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -61,7 +61,7 @@ each batch recounts by prefix when it starts.
 | 8 | Art and images (done) | see "Batch 8" below | `test_art.py`, `test_animation.py`, `test_render_select.py` | 54 |
 | 8b | Report pane on a pty (done) | see "Pty batch" below | `test_report_pane.py` | 46 |
 | 9 | Crew sub-commands (done) | see "Batch 9" below | `test_crew.py` | 61 |
-| 10 | The rest | transcript TTL, statusline script, `cw`, imports per sub-command, `leave_without_teardown` (3048-3330) | `test_common.py`, `test_party_cli.py` | 18 |
+| 10 | The rest (done) | see "Batch 10" below | `test_claude_log.py`, `test_statusline.py`, `test_art.py`, `test_common.py`, `test_party_cli.py` | 17 |
 | 11 | Remove bash runner | delete `party-test.sh`, its CI step and this file; update CLAUDE.md and CONTRIBUTING | | |
 
 Batches 1-3 first: they are the code the split into `claude_log` / `codex_log` / `processes` was for, and they need
@@ -239,6 +239,21 @@ and their `check` lines are gone, so the bash count dropped by 67.
   `tmp_path`, and each test makes the rounds it reads.
 - `time.monotonic` / `time.sleep`, `os.environ`, `sys.argv`, `sys.stdout` and the `party` / `sidebars` / `collect`
   functions go through `monkeypatch`; bash set them by hand and never put some back.
+
+## Batch 10: the rest (done)
+
+The last 11 `check` lines and the 6 `ok(` calls in `leaves_ok` became 62 tests, each in the file of the module it
+checks; the bash count dropped by 18 (the 17, and `def ok(`) to 0. `party-test.sh` now holds no test: it stays, with
+its scaffolding, until batch 11 removes it together with the CI step that runs it.
+
+- `test_claude_log.py` (+2): `cache_info` on a transcript, and behind 300 KB of attachments.
+- `test_statusline.py` (3): `integrations/claude-statusline.sh` writes what `collect.read_party` reads; broken JSON
+  or no `TMUX_PANE` prints nothing. Skipped without `jq`, which the script needs.
+- `test_art.py` (+14): sizes and color types of the portrait, label and select banner PNGs in `art/`.
+- `test_common.py` (2): `cw` against the per-character algorithm, and its bounded cache.
+- `test_party_cli.py` (41): the 24 dispatch / import cases, `--fixture` through argparse, `--help`, a mistyped flag,
+  `leave_without_teardown` on the resident sub-commands, and `party.py --report` on a pty. Bash ran each group as one
+  check that listed its failures; each case is its own test now.
 
 ## Gates
 
