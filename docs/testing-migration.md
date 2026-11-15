@@ -43,13 +43,14 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on), so they are only a guide; each batch recounts by prefix when it starts.
+removed 441 lines (from about line 1237 on) and batch 2 removed 274 more, so they are only a guide; each batch recounts
+by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
 |---|---|---|---|---|
 | 0 | Markdown (pilot, done) | wrap, wrap_sgr, render_markdown | `test_markdown.py` | 41 tests |
 | 1 | Collector readers (done) | see "Batch 1" below | `test_claude_log.py`, `test_codex_log.py`, `test_processes.py`, `test_report_for.py` | 63 |
-| 2 | Collect and snapshot | screen diff, unseen/round, bells, snapshot lock, list-panes (≈1556-1668, 1806-1862, 1941-1968, 2428-2501) | `test_collect.py` | 59 |
+| 2 | Collect and snapshot (done) | see "Batch 2" below | `test_collect.py`, `test_codex_log.py` | 53 |
 | 3 | `--report-text` | `report_text_ok` heredoc (2505-2717) | `test_report_text.py` | 39 |
 | 4 | Sidebar rendering | fixture cards and widths (52-113), squads, peek, fit (117-170, 2116-2163, 2333-2427) | `test_render_sidebar.py` | 76 |
 | 5 | Report page | report rows, live page, banners, queue (171-458) | `test_render_report.py` | 76 |
@@ -89,6 +90,21 @@ How the shared state was untangled:
   `LONG_TURN_LOOKBACK` are replaced with `monkeypatch` in their defining modules.
 - `test_claude_log.py` and `test_report_for.py` turn off basedpyright's Optional checks at the top of the file: the
   tests index results they expect to exist, and a `None` there fails the test anyway.
+
+## Batch 2: collect and snapshot (done)
+
+53 bash asserts became 53 tests: `collect.collect` on a fixture (fresh Claude, report pane, other agents, sessions
+status against workmux icons, codex HP, a stale pane state file) 10, `Screen diff` 1, agy / codex permission prompts 8,
+`codex:` turn status and rounds 5, unseen / `Round` / `Seen` 13, `Bell`, `Tidy` and the two collector `crew done`
+asserts 4, `No snapshot`, `list-panes` and `printable` 3, and the codex rollout tail memo 9 (in `test_codex_log.py`, its
+module). The `crew done` asserts on `ui` and `render`, `SP = cache minutes`, and the cursor `follow_here` asserts stay
+for batches 4 and 7.
+
+- An autouse fixture in `test_collect.py` points `collect.PARTY_DIR` and `sidebars.PARTY_DIR` at `tmp_path`; bash set
+  them with `tempfile.mkdtemp()` and left them for later lines.
+- `collect.read_tmux`, `collect.tmux`, `collect.screen_changed`, `claude_log.read_claude_sessions`,
+  `codex_log.codex_rollout`, `collect.collect` and `builtins.open` are replaced with `monkeypatch`.
+- Rollout tail asserts read one file in sequence; each test replays the writes and reads it depends on.
 
 ## Gates
 

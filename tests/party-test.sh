@@ -1189,123 +1189,8 @@ ok(sj.count("\x1b[H") == 2 and "L1" in sj[sj.rindex("\x1b[H"):] and "EXITED" in 
 fit = report_session([b"j", b"q"], rows=40, lines=3, draws=[1, 1])
 ok(fit.count("\x1b[H") == 1, "report pane: a report that fits the pane does not redraw on j")
 ok("EXITED" in twice, "report pane: q ends the program, which closes the pane")
-from datetime import datetime
-pane = lambda pid, cmd: {"session_name": "New", "window_index": "1", "window_name": "w", "window_active": "1",
-                         "session_attached": "1", "pane_id": pid, "pane_active": "1", "pane_current_command": cmd,
-                         "pane_current_path": "/n", "@workmux_pane_status": "", "pane_pid": ""}
-with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-    json.dump({"panes": [pane("%20", "claude"), pane("%21", "agy"), pane("%22", "grok"), pane("%23", "codex")], "now": 10000,
-               "sessions": {"%20": {"sid": "s20", "name": "新開", "status": "idle"}}, "screen_changed": ["%22"],
-               "codex": {"%23": [64000, 256000]}}, f)
-new = {a["pane"]: a for t in collect.collect(f.name)["towns"] for a in t["agents"]}
-nl = strip(render.render(collect.collect(f.name)["towns"], 33, "%20"))
-ok(new["%20"]["hp"] == 100 and new["%20"]["fresh"] and re.search(r"新開.*· idle.*\n.*HP +100% +║\n.*SP +60/60m +║", nl),
-   "Freshly started Claude (no request sent yet): HP 100%, SP full at 60")
 ok(render.sp_points({"sp": (10.0, 300)}) == 1 and render.sp_points({"sp": (3600.0, 3600)}) == 60 and render.sp_points({"sp": None}) is None,
    "SP = cache minutes left (rounded up, max 60); unknown is --")
-with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as g:
-    json.dump({"panes": [pane("%30", "claude"), dict(pane("%31", "python3"), **{"@party_report": "1", "window_id": "@7"})], "now": 10000,
-               "sessions": {"%30": {"sid": "s30", "name": "x", "status": "idle"}}}, g)
-rs = collect.collect(g.name)
-ok(rs["panes"]["%31"]["sidebar"] is True and rs["panes"]["%30"]["sidebar"] is False
-   and [a["pane"] for t in rs["towns"] for a in t["agents"]] == ["%30"],
-   "A report pane (@party_report) is treated like a sidebar: not a member, and it does not keep a window alive")
-ok(new["%21"]["hp"] is None and not new["%21"]["fresh"] and re.search(r"agy.*\n.*· idle.*\n.*HP +-- +│\n╰", nl) and "SP --" not in nl,
-   "Other agents with unreadable context: HP stays --, no SP row")
-ok(new["%22"]["status"] == "working" and new["%21"]["status"] == "idle", "Other agents: recent screen change = busy, no change = idle")
-with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-    json.dump({"panes": [pane("%30", "claude"), dict(pane("%31", "claude"), **{"@workmux_pane_status": "✅"}),
-                         dict(pane("%32", "claude"), **{"@workmux_pane_status": "🤖"})], "now": 10000,
-               "sessions": {"%30": {"sid": "s30", "name": "w", "status": "waiting"},
-                            "%31": {"sid": "s31", "name": "d", "status": "waiting"},
-                            "%32": {"sid": "s32", "name": "r", "status": "waiting"}}}, f)
-wt = {a["pane"]: a for t in collect.collect(f.name)["towns"] for a in t["agents"]}
-ok(wt["%30"]["status"] == "waiting" and "!1" in strip(render.squad_summary([wt["%30"]])[0]),
-   "Claude Code sessions status waiting (no workmux icon) = waiting member, squad summary shows !1")
-ok(wt["%31"]["status"] == "done", "workmux done icon wins over sessions status waiting")
-ok(wt["%32"]["status"] == "waiting", "sessions status waiting wins over a stale workmux working icon")
-ok(new["%23"]["kind"] == "codex" and new["%23"]["name"] == "codex", "codex pane: kind and name are both codex")
-ok(new["%23"]["hp"] == 75 and new["%23"]["hp_left"] == 192000, "codex HP: 64k used of a 256k window -> 75% left (192k)")
-stale = {"session_id": "old", "transcript": "/t/old", "ctx_left": 59, "ctx_size": 200000, "model": "Opus 5.5"}
-with tempfile.NamedTemporaryFile("w", suffix=".json", delete=False) as f:
-    json.dump({"panes": [pane("%40", "codex"), pane("%41", "agy")], "now": 10000, "codex": {"%40": [64000, 256000]},
-               "party": {"%40": stale, "%41": stale}, "cache": {"/t/old": [9990, 300, 60000]}}, f)
-old = {a["pane"]: a for t in collect.collect(f.name)["towns"] for a in t["agents"]}
-ok(all(old[k]["sp"] is None and old[k]["model"] == "" and old[k]["status"] != "sleep" for k in ("%40", "%41"))
-   and old["%40"]["hp"] == 75 and old["%41"]["hp"] is None,
-   "Pane state file left by Claude is ignored for codex / agy: no SP, no model, not sleep, HP from rollout or --")
-collect.PARTY_DIR = tempfile.mkdtemp()
-screens = iter(["a", "a", "b", "b"])
-collect.tmux = lambda *args: next(screens)
-first, same = collect.screen_changed(["%9"], 100), collect.screen_changed(["%9"], 110)
-moved, later = collect.screen_changed(["%9"], 120), collect.screen_changed(["%9"], 130)
-ok(first == {"%9": False} and same == {"%9": False} and moved == {"%9": True} and later == {"%9": False},
-   "Screen diff: first read and no change don't count, a change = busy, back to idle after 4+ s still")
-agy_menu = open(os.path.join(os.path.dirname(sys.argv[1]), "tests", "fixtures", "agy-permission.txt"), encoding="utf-8").read()
-agy_done = agy_menu[:agy_menu.index("Command\n")]
-menu_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id=f"%{i}", pane_pid=str(i), pane_current_command=cmd, session_name="s", session_attached="1",
-                   window_active="1", window_id="@1", window_panes="2") for i, cmd in ((1, "agy"), (2, "grok"))]
-real4 = (collect.read_tmux, claude_log.read_claude_sessions, collect.tmux)
-collect.read_tmux, claude_log.read_claude_sessions = (lambda: menu_panes), (lambda: {})
-status_of = {}
-for label, screen in (("menu", agy_menu), ("no menu", agy_done)):
-    collect.tmux, collect.PARTY_DIR = (lambda *args, s=screen: s), tempfile.mkdtemp()
-    status_of[label] = {a["kind"]: a["status"] for t in collect.collect()["towns"] for a in t["agents"]}
-collect.read_tmux, claude_log.read_claude_sessions, collect.tmux = real4
-ok(status_of["menu"]["agy"] == "waiting", "agy permission menu on screen -> waiting")
-ok(status_of["no menu"]["agy"] == "idle", "agy screen without the permission menu -> not waiting")
-ok(status_of["menu"]["grok"] == "idle", "grok pane showing the agy permission menu -> unaffected")
-busy_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id=f"%{i}", pane_pid=str(i), pane_current_command=cmd, session_name="s", session_attached="1",
-                   window_active="1", window_id="@1", window_panes="3") for i, cmd in ((1, "agy"), (2, "grok"), (3, "codex"))]
-collect.read_tmux, claude_log.read_claude_sessions = (lambda: busy_panes), (lambda: {})
-collect.PARTY_DIR = tempfile.mkdtemp()
-for n in (100, 101):
-    collect.tmux = lambda *args, n=n: agy_menu + f"tick {n}"
-    busy = {a["kind"]: a["status"] for t in collect.collect(now=n)["towns"] for a in t["agents"]}
-collect.read_tmux, claude_log.read_claude_sessions, collect.tmux = real4
-ok(busy == {"agy": "waiting", "grok": "working", "codex": "working"}, "changing screen with the menu text: agy waiting, others still working")
-def rollout(*events):
-    with tempfile.NamedTemporaryFile("w", suffix=".jsonl", delete=False) as rf:
-        rf.writelines('{"type":"event_msg","payload":{"type":"%s"}}\n' % e for e in events)
-    return rf.name
-done_f, started_f, empty_f = rollout("task_started", "task_complete"), rollout("task_complete", "task_started"), rollout("token_count")
-cx_ask = open(os.path.join(os.path.dirname(sys.argv[1]), "tests", "fixtures", "codex-approval.txt"), encoding="utf-8").read()
-ask_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id=f"%{i}", pane_pid=str(i), pane_current_command=cmd, session_name="s", session_attached="1",
-                  window_active="1", window_id="@1", window_panes="2") for i, cmd in ((1, "codex"), (2, "agy"))]
-real_roll = codex_log.codex_rollout
-collect.read_tmux, claude_log.read_claude_sessions = (lambda: ask_panes), (lambda: {})
-asked = {}
-for label, path, screen in (("open", started_f, cx_ask), ("done", done_f, cx_ask), ("no prompt", started_f, cx_ask[:cx_ask.index("› 1.")])):
-    codex_log.codex_rollout, collect.tmux, collect.PARTY_DIR = (lambda *a, p=path: p), (lambda *args, s=screen: s), tempfile.mkdtemp()
-    asked[label] = {a["kind"]: a["status"] for t in collect.collect()["towns"] for a in t["agents"]}
-collect.read_tmux, claude_log.read_claude_sessions, collect.tmux = real4
-codex_log.codex_rollout = real_roll
-ok(asked["open"]["codex"] == "waiting", "codex approval prompt on screen during a turn -> waiting")
-ok(asked["open"]["agy"] == "idle", "agy pane showing the codex approval prompt -> unaffected")
-ok(asked["done"]["codex"] == "idle", "codex: the prompt line still on screen after task_complete (quoted in the answer) -> not waiting")
-ok(asked["no prompt"]["codex"] == "idle", "codex screen without the approval prompt -> not waiting")
-cx_panes = [dict({f: "" for f in collect.TMUX_FIELDS}, pane_id="%1", pane_pid="1", pane_current_command="codex", session_name="s",
-                 session_attached="1", window_active="1", window_id="@1", window_panes="1")]
-real5 = (collect.read_tmux, claude_log.read_claude_sessions, codex_log.codex_rollout, collect.screen_changed)
-collect.read_tmux, claude_log.read_claude_sessions = (lambda: cx_panes), (lambda: {})
-def cx_status(path, changed=True):
-    codex_log.codex_rollout, collect.screen_changed = (lambda *a: path), (lambda ps, now: {p: changed for p in ps})
-    return [a for t in collect.collect()["towns"] for a in t["agents"]][0]["status"]
-cx = (cx_status(done_f), cx_status(started_f), cx_status(None), cx_status(empty_f), cx_status(done_f, False))
-ok(cx[0] != "working", "codex: newest event task_complete and screen changed -> not working")
-ok(cx[1] == "working", "codex: newest event task_started and screen changed -> working")
-ok(cx[2] == "working" and cx[3] == "working", "codex: no rollout or no turn event in the tail, screen changed -> working")
-ok(cx[4] == "idle", "codex: task_complete and screen unchanged -> idle")
-towns_cx = []
-for changed in (True, False):
-    cx_status(done_f, changed)
-    towns_cx.append([{"agents": [dict(a, focus=False) for t in collect.collect()["towns"] for a in t["agents"]]}])
-collect.read_tmux, claude_log.read_claude_sessions, codex_log.codex_rollout, collect.screen_changed = real5
-st_cx = {"%1": {"status": "idle", "unseen": False, "round": 2}}
-for ts in towns_cx:
-    st_cx = collect.mark_unseen(ts, st_cx)
-ok(st_cx["%1"]["round"] == 2 and towns_cx[1][0]["agents"][0]["status"] == "idle",
-   "codex: redraw after task_complete (changed, then unchanged) does not start a new round")
 for t in towns:
     for a in t["agents"]:
         a["window"] = "@" + a["pane"][1:]  # in the fixture every member has its own window
@@ -1448,59 +1333,6 @@ text += "".join(en_pages)
 for nm in [t["name"] for t in towns] + [a["name"] for a in agents] + [s["desc"] for a in agents for s in a.get("summons", [])]:
     text = text.replace(nm, "")
 ok(not re.search(r"[一-鿿＀-￯]", text), "UI text is all English (only session / member names may be CJK)")
-def mu(raw, focus, state):
-    ts = [{"agents": [{"pane": "%50", "status": raw, "focus": focus}]}]
-    new_state = collect.mark_unseen(ts, state)
-    return ts[0]["agents"][0]["status"], new_state
-s0 = {"%50": {"status": "working", "unseen": False}}
-st1, s1 = mu("idle", False, s0)
-st2, s2 = mu("idle", False, s1)
-st3, s3 = mu("idle", True, s2)
-st4, _ = mu("idle", False, s3)
-ok(st1 == st2 == "done" and st3 == "idle" and st4 == "idle", "Unseen done: busy -> idle while not watched becomes done and stays; back to idle once seen")
-ok(mu("idle", True, s0)[0] == "idle" and mu("sleep", False, s1)[0] == "done" and mu("working", False, s1)[0] == "working",
-   "Watched pane finishing goes straight to idle; asleep keeps done; busy again clears done")
-ok(mu("idle", False, {})[0] == "idle", "Idle member that was never busy is not marked done")
-ts = [{"agents": [{"pane": "%60", "status": "idle", "focus": True}, {"pane": "%61", "status": "idle", "focus": False, "lead": "%60"},
-                  {"pane": "%62", "status": "idle", "focus": False}]}]
-collect.mark_unseen(ts, {"%61": {"status": "working", "unseen": False}, "%62": {"status": "working", "unseen": False}})
-ok([a["pane"] for a in ts[0]["agents"]] == ["%62", "%60", "%61"] and ts[0]["agents"][2]["status"] == "done",
-   "Unseen done: a summoned member that finishes stays right under its lead; other done members move up")
-def mr(raw, state, seen=None, focus=False):
-    ts = [{"agents": [{"pane": "%50", "status": raw, "focus": focus}]}]
-    new_state = collect.mark_unseen(ts, state, seen)
-    return ts[0]["agents"][0], new_state
-a1, r1 = mr("idle", {"%50": {"status": "working", "unseen": False, "round": 4}})
-a2, r2 = mr("idle", r1)
-a3, r3 = mr("working", r2)
-a4, r4 = mr("sleep", r3)
-ok(mr("idle", {})[0]["round"] == 0 and a1["round"] == 5 and a2["round"] == 5 and a3["round"] == 5 and a4["round"] == 6 and r4["%50"]["round"] == 6,
-   "Round: first seen is 0, +1 each time a member goes working -> idle/sleep, unchanged while idle or working")
-ok(mr("idle", {"%50": {"status": "working", "unseen": False}})[0]["status"] == "done" and mr("idle", {"%50": {"status": "working", "unseen": False}})[0]["round"] == 1,
-   "Round: an unseen.json written before rounds existed reads as round 0")
-wk = {"%50": {"status": "working", "unseen": False, "round": 2}}
-ok(mr("idle", wk, {"%50": 2})[0]["status"] == "done" and mr("idle", wk, {"%50": 3})[0]["status"] == "idle"
-   and mr("idle", wk, {"%50": 9})[0]["status"] == "idle" and mr("idle", wk, {"%51": 9})[0]["status"] == "done",
-   "Seen: a round read (seen >= round) is not done; a newer round (seen < round) or another member's seen is")
-ok(mr("idle", {"%50": {"status": "idle", "unseen": True, "round": 3}}, {"%50": 3})[0]["status"] == "idle",
-   "Seen: reading the report of a round already done clears the done on the next collection")
-import shutil, tempfile
-collect.PARTY_DIR = sidebars.PARTY_DIR = sd = tempfile.mkdtemp()
-ok(collect.read_seen() == {}, "Seen: no seen.json reads as empty")
-sidebars.mark_seen("%50", 5)
-sidebars.mark_seen("%50", 3)
-sidebars.mark_seen("%51", 1)
-ok(collect.read_seen() == {"%50": 5, "%51": 1}, "Seen: mark_seen never lowers a value and keeps the other members")
-with open(os.path.join(sd, "seen.json"), "w") as f:
-    f.write("{broken")
-ok(collect.read_seen() == {}, "Seen: a broken seen.json reads as empty")
-shutil.rmtree(sd)
-gt = [{"agents": [{"pane": "%51", "status": "working", "focus": False}]}]
-g1 = collect.mark_unseen(gt, {"%50": {"status": "idle", "unseen": False, "round": 5}}, {"%50": 5})
-ok(g1["%50"]["round"] == 5 and not g1["%50"]["unseen"], "Round: a pane missing from a collection keeps its round in the state")
-g2 = mr("working", g1, {"%50": 5})[1]
-g3 = mr("idle", g2, {"%50": 5})[0]
-ok(g3["round"] == 6 and g3["status"] == "done", "Round: a pane that comes back as an agent goes on from its old round, so its next finished round is done")
 low = {"hp": 8, "hp_left": 16000, "hp_max": 200000, "sp": None, "fresh": False}
 red, dim = "\x1b[1;38;2;208;96;90m", "\x1b[1;38;2;138;143;168m"
 render._tick = 0; on = render.stat_rows(low, 22)[0]
@@ -1520,16 +1352,6 @@ nw = [{"pane": p, "status": s} for p, s in (("%1", "idle"), ("%2", "done"), ("%3
 ok(ui.next_waiting(nw, "%1") == "%3" and ui.next_waiting(nw, "%3") == "%3"
    and ui.next_waiting([dict(a, status="idle") if a["status"] == "waiting" else a for a in nw], "%2") == "%4",
    "n / prefix a: jump to waiting first, then cycle unseen done")
-ag = lambda p, s, w="@1": {"pane": p, "status": s, "window": w}
-vis = {"%1": {"visible": False}, "%2": {"visible": False}, "%9": {"visible": True}}
-r0, b0 = collect.bell_panes(None, [ag("%1", "waiting")], vis)
-r1, b1 = collect.bell_panes({"%1": "working", "%9": "working"}, [ag("%1", "done"), ag("%2", "idle"), ag("%9", "waiting")], vis)
-r2, _ = collect.bell_panes(b1, [ag("%1", "done")], vis)
-ok(r0 == [] and r1 == ["%1"] and r2 == [],
-   "Bell: silent on start; once when a hidden member turns waiting / done; no repeats; members you can see don't ring")
-lp = {"%1": {"window": "@1", "sidebar": True}, "%2": {"window": "@1", "sidebar": False},
-      "%3": {"window": "@2", "sidebar": True}, "%4": {"window": "@3", "sidebar": False}}
-ok(collect.lonely_sidebars(lp) == ["%3"], "Tidy: only a sidebar left alone in its window is closed")
 dt = [dict(towns[1], agents=[dict(towns[1]["agents"][0], status="done")])]
 dw = strip(render.render(dt, 33, None, art=True))
 ok(render.squad_alert(dt[0]["agents"]) == "done" and re.search(r"1 member · 1 done", dw), "Squad with unseen done member: row 2 says · N done")
@@ -1544,12 +1366,6 @@ ok([m["pane"] for _, m in ui.report_queue([{"name": "A", "agents": [lead_idle, c
 ok(ui.next_waiting([lead_idle, crew_done, solo_done], "%1") == "%3" and ui.next_waiting([lead_idle, crew_done], "%1") is None
    and ui.next_waiting([lead_idle, crew_done, crew_wait], "%1") == "%4",
    "crew done: prefix a skips it; a waiting crew still counts")
-vis2 = {"%2": {"visible": False}, "%3": {"visible": False}, "%4": {"visible": False}}
-ring_crew, _ = collect.bell_panes({"%2": "working", "%3": "working", "%4": "working"}, [crew_done, solo_done, crew_wait], vis2)
-ok(sorted(ring_crew) == ["%3", "%4"], "crew done: no bell; a plain done member and a waiting crew still ring")
-ok(collect.unread_count({"%2": "done", "%3": "done", "%4": "waiting"}, {"%2", "%4"}) == 2
-   and collect.unread_count({"%2": "done"}, set()) == 1,
-   "crew done: not counted in @party_reports; a waiting crew and a plain done member are")
 ok(render.squad_alert([lead_idle, crew_done]) is None and render.squad_alert([lead_idle, crew_done, crew_wait]) == "waiting"
    and render.squad_alert([lead_idle, crew_done, solo_done]) == "done",
    "crew done: squad stays dark; a waiting crew or a plain done member still lights it")
@@ -1965,96 +1781,6 @@ rm = []
 tall = render.render(many, 33, "%1", height=24, hints="sidebar", row_map=rm, art=True)
 ok(len(tall.split("\n")) == 24 and len(rm) == 23,
    "Squad list taller than the pane: the row map is cut with the frame, the hint row maps to nothing")
-import fcntl, threading, time as _time
-os.makedirs(collect.PARTY_DIR, exist_ok=True)
-for f in ("snapshot.json",):
-    if os.path.exists(os.path.join(collect.PARTY_DIR, f)):
-        os.remove(os.path.join(collect.PARTY_DIR, f))
-lock = os.open(os.path.join(collect.PARTY_DIR, "snapshot.lock"), os.O_CREAT | os.O_RDWR, 0o600)
-fcntl.flock(lock, fcntl.LOCK_EX)
-real_collect, collected, got = collect.collect, [], []
-collect.collect = lambda *a: collected.append(1) or {"t": _time.time(), "towns": [], "panes": {}}
-th = threading.Thread(target=lambda: got.append(collect.get_snapshot()))
-th.start()
-_time.sleep(0.3)
-waited = not got
-with open(os.path.join(collect.PARTY_DIR, "snapshot.json"), "w") as f:
-    json.dump({"v": collect.SNAP_VERSION, "t": _time.time(), "towns": [], "panes": {}, "mark": 1}, f)
-fcntl.flock(lock, fcntl.LOCK_UN)
-th.join(5)
-collect.collect = real_collect
-ok(waited and got and got[0].get("mark") == 1 and not collected,
-   "No snapshot and the lock is taken: wait for the collector and use its snapshot, do not collect again")
-sep = collect.FIELD_SEP
-good = sep.join(["a", "1", "w\\037x"] + ["0"] * (len(collect.TMUX_FIELDS) - 3))
-rows = collect.parse_panes(good + "\n" + "a\\0371\\037bash\n")
-ok(len(rows) == 1 and rows[0]["session_name"] == "a" and rows[0]["window_name"] == "w\\037x",
-   "list-panes output: printable field separator; a line with the wrong field count is skipped, not a crash")
-import random, unicodedata as _ud
-from party_hud import common as _common
-def old_printable(s):
-    return "".join(ch for ch in s if _ud.category(ch) != "Cc")
-every = [chr(i) for i in range(sys.maxunicode + 1)]
-rnd = random.Random(7)
-pool = [chr(c) for c in (*range(0, 0xa1), 0xd7ff, 0xe000, 0x300, 0x301, 0x4e00, 0x9fff, 0xff21, 0x1f600, 0x10ffff)]
-mixed = ["".join(rnd.choice(pool) for _ in range(rnd.randint(0, 40))) for _ in range(2000)]
-mixed += ["\ud800", "a\udbffb\udc00\x00", "é\x07中\x9f\x7f"]
-ok(all(_common.printable(c) == old_printable(c) for c in every) and all(_common.printable(s) == old_printable(s) for s in mixed),
-   "printable gives the same text as dropping every Unicode Cc character, for each code point and for mixed strings")
-import builtins, os as _o, tempfile as _tf2
-tdir = _tf2.mkdtemp(prefix="tail-memo-")
-roll = _o.path.join(tdir, "r.jsonl")
-def put(path, text):
-    with open(path, "w") as fh:
-        fh.write(text)
-opened = []
-real_open = builtins.open
-def spy_open(file, *a, **k):
-    if file == roll:
-        opened.append(file)
-    return real_open(file, *a, **k)
-builtins.open = spy_open
-try:
-    codex_log._tail_memo.clear()
-    put(roll, "a\nb\n")
-    del opened[:]
-    first = codex_log._tail_lines(roll)
-    second = codex_log._tail_lines(roll)
-    ok(first == [b"a", b"b"] and second == first and len(opened) == 1 and second is not first,
-       "reads a codex rollout tail only when it changed: the second call on an unchanged file does not open it")
-    second.append(b"x")
-    ok(codex_log._tail_lines(roll) == [b"a", b"b"], "a caller changing the returned list does not change the remembered tail")
-    with real_open(roll, "a") as fh:
-        fh.write("c\n")
-    ok(codex_log._tail_lines(roll) == [b"a", b"b", b"c"], "reads a codex rollout tail only when it changed: an appended line is read")
-    st = _o.stat(roll)
-    put(roll, "a\nb\nZ\n")
-    _o.utime(roll, ns=(st.st_atime_ns, st.st_mtime_ns + 5_000_000_000))
-    ok(codex_log._tail_lines(roll) == [b"a", b"b", b"Z"], "reads a codex rollout tail only when it changed: same size, newer mtime is read")
-    _o.remove(roll)
-    ok(codex_log._tail_lines(roll) == [], "reads a codex rollout tail only when it changed: a deleted file gives no lines")
-    put(roll, "new\n")
-    ok(codex_log._tail_lines(roll) == [b"new"], "reads a codex rollout tail only when it changed: a recreated file is read")
-    put(roll, "n\n")
-    ok(codex_log._tail_lines(roll) == [b"n"], "reads a codex rollout tail only when it changed: a truncated file is read")
-    st = _o.stat(roll)
-    other = _o.path.join(tdir, "o.jsonl")
-    put(other, "m\n")
-    _o.utime(other, ns=(st.st_atime_ns, st.st_mtime_ns))
-    _o.replace(other, roll)
-    st2 = _o.stat(roll)
-    ok(st2.st_size == st.st_size and st2.st_mtime_ns == st.st_mtime_ns and st2.st_ino != st.st_ino and codex_log._tail_lines(roll) == [b"m"],
-       "reads a codex rollout tail only when it changed: a different file of the same size and mtime is read")
-    codex_log._tail_memo.clear()
-    for i in range(codex_log.TAIL_MEMO_MAX + 3):
-        codex_log._tail_lines(roll, 1000 + i)
-    ok(len(codex_log._tail_memo) == codex_log.TAIL_MEMO_MAX and (roll, 1000) not in codex_log._tail_memo,
-       "reads a codex rollout tail only when it changed: the memory is capped and drops the oldest")
-finally:
-    builtins.open = real_open
-    codex_log._tail_memo.clear()
-    import shutil as _sh
-    _sh.rmtree(tdir, ignore_errors=True)
 print("\n".join(fails), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
