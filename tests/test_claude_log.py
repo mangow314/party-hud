@@ -318,9 +318,9 @@ def test_live_prompt_beyond_the_lookback_is_not_found(transcript, monkeypatch):
 
 def test_live_turn_inside_the_tail_never_searches(liveq, searches):
     cl = claude_log.claude_live(liveq)
-    n_ = len(searches)
+    assert searches == []
     assert claude_log.claude_live(liveq) == cl
-    assert len(searches) == n_
+    assert searches == []
 
 
 def test_report_for_working_gives_the_live_page(transcript, turn, liveq):

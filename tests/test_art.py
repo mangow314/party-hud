@@ -214,7 +214,10 @@ def test_crests_are_unique_for_up_to_8_squads():
 
 def test_crests_repeat_from_the_9th_squad():
     assert len(set(art.crest_ids(f"s{i}" for i in range(8)).values())) == 8
-    assert len(art.crest_ids(f"s{i}" for i in range(9))) == 9
+    nine = art.crest_ids([f"s{i}" for i in range(9)])
+    assert len(nine) == 9
+    assert set(nine.values()) == {art.CREST_ID + k for k in range(len(art.CREST_FILES))}
+    assert len(art.CREST_FILES) == 8
 
 
 def test_portrait_chosen_by_class(towns, agents):

@@ -219,8 +219,13 @@ def test_split_page_rows_open_with_the_side_frame(wide):
     cjk_row = next(ln for ln in wl if "結果" in ln)
     assert all(common.cw(ln) <= 150 for ln in wl)
     assert all(ln[0] in "┏┃┗" for ln in wl[: bot + 1])
-    assert all(ln.startswith(" " * 30) for ln in wl[bot + 1 :])
     assert common.cw(cjk_row[: cjk_row.index("結果")]) == 32
+    fx = render.render_report(
+        done, "Studio", rep, [], 150, 2, 3, art=True, banner=(118, 15), portrait=(24, 14), height=20, fixed=True
+    )
+    below = [strip(l) for l in fx.splitlines()][20:]
+    assert below
+    assert all(ln.startswith(" " * 30) for ln in below)
 
 
 @pytest.fixture

@@ -38,3 +38,4 @@ def test_statusline_writes_session_context_left_size_transcript_and_model_base_n
 def test_statusline_prints_nothing_on_broken_json_or_outside_tmux(tmp_path, text, pane):
     r = statusline(text, tmp_path, pane)
     assert (r.stdout, r.stderr) == ("", "")
+    assert [p for p in tmp_path.rglob("*") if p.is_file()] == []

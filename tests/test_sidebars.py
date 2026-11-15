@@ -399,11 +399,15 @@ def test_restore_end_releases_ensure_then_installs_the_hooks(restored):
     assert any(c[:4] == ("set-option", "-g", "@party_sidebar_on", "1") for c in calls[unset:])
 
 
-def test_ensure_during_a_restore_adds_no_sidebar(restored):
-    _, calls = restored
-    calls.clear()
-    sidebars.ensure("@1")
-    assert not any(c[0] == "split-window" for c in calls)
+def test_ensure_during_a_restore_adds_no_sidebar(monkeypatch):
+    splits = {}
+    for restoring in ("", "%1 %2"):
+        calls = []
+        fake = restore_tmux(calls, restoring)
+        monkeypatch.setattr(sidebars, "tmux", lambda *a, fake=fake: "0\n" if a[0] == "list-panes" else fake(*a))
+        sidebars.ensure("@1")
+        splits[restoring] = any(c[0] == "split-window" for c in calls)
+    assert splits == {"": True, "%1 %2": False}
 
 
 def test_restore_end_without_restore_begin_exits_2(monkeypatch):
