@@ -45,7 +45,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on); batches 2-8 removed 274, 214, 247, 274, 313, 379 and 276 more. They are only a guide;
+removed 441 lines (from about line 1237 on); batches 2-8 and the pty batch removed 274, 214, 247, 274, 313, 379, 276 and 273 more. They are only a guide;
 each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -59,6 +59,7 @@ each batch recounts by prefix when it starts.
 | 6 | Select screen (done) | see "Batch 6" below | `test_render_select.py` | 45 |
 | 7 | Panes and keys (done) | see "Batch 7" below | `test_ui.py`, `test_sidebars.py` | 96 |
 | 8 | Art and images (done) | see "Batch 8" below | `test_art.py`, `test_animation.py`, `test_render_select.py` | 54 |
+| 8b | Report pane on a pty (done) | see "Pty batch" below | `test_report_pane.py` | 46 |
 | 9 | Crew sub-commands | `summon_ok`, `dismiss_ok`, `crew_ok` (2718-3047) | `test_crew.py` | 67 |
 | 10 | The rest | transcript TTL, statusline script, `cw`, imports per sub-command, `leave_without_teardown` (3048-3330) | `test_common.py`, `test_party_cli.py` | 18 |
 | 11 | Remove bash runner | delete `party-test.sh`, its CI step and this file; update CLAUDE.md and CONTRIBUTING | | |
@@ -215,6 +216,17 @@ gone with them.
   `monkeypatch`; the image files are written to `tmp_path` per test.
 - The unreadable-image assert caught any exception to check that none was raised; the test calls `send_image`
   directly, so an exception fails it.
+
+## Pty batch: report pane and select screen on a pty (done)
+
+46 bash asserts, the whole rest of `ui_ok`, became 47 tests in `test_report_pane.py` (the running-time assert looped
+over two phases). `ui_ok` and its `check` line are gone, so the bash count dropped by 48: the 46 asserts, `def ok(`
+and `check`.
+
+- `report_session` is a module function; the child gets the repo and fixture paths from `ROOT` / `FIXTURE`.
+- A session read by several tests (`once`, `twice`, the resize burst, the select screen) runs once per module.
+- Bash shared one `seen.json` and removed it between sessions; each session that reads it now gets its own
+  `XDG_RUNTIME_DIR` under `tmp_path`, so no test depends on the order.
 
 ## Gates
 
