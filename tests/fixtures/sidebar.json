@@ -1,0 +1,22 @@
+{
+  "panes": [
+    {"session_name":"Studio","window_index":"1","window_name":"Frontend","window_active":"1","session_attached":"1",
+     "pane_id":"%1","pane_active":"1","pane_current_command":"claude","pane_current_path":"/r/studio","@workmux_pane_status":"🤖"},
+    {"session_name":"Studio","window_index":"2","window_name":"Review","window_active":"0","session_attached":"1",
+     "pane_id":"%2","pane_active":"1","pane_current_command":"claude","pane_current_path":"/r/studio/src","@workmux_pane_status":"💬"},
+    {"session_name":"Studio","window_index":"3","window_name":"nvim","window_active":"0","session_attached":"1",
+     "pane_id":"%3","pane_active":"1","pane_current_command":"nvim","pane_current_path":"/r/lib","@workmux_pane_status":""},
+    {"session_name":"Studio","window_index":"3","window_name":"nvim","window_active":"0","session_attached":"1",
+     "pane_id":"%9","pane_active":"0","pane_current_command":"python3","pane_current_path":"/r/side","@workmux_pane_status":"",
+     "@party_sidebar":"1"},
+    {"session_name":"Server","window_index":"1","window_name":"一個很長很長的中文視窗名稱","window_active":"1","session_attached":"0",
+     "pane_id":"%4","pane_active":"1","pane_current_command":"claude","pane_current_path":"/r/server","@workmux_pane_status":""}
+  ],
+  "now": 10000,
+  "sessions": {"%1":{"sid":"s1","name":"","status":"busy"},"%2":{"sid":"s2","name":"審查員","status":"idle"},
+               "%4":{"sid":"s4","name":"","status":"idle"}},
+  "transcripts": {"s2":"/t/2","s4":"/t/4"},
+  "party": {"%1":{"session_id":"s1","ctx_left":88,"ctx_size":200000,"transcript":"/t/1","model":"Opus 5.5"},"%2":{"session_id":"old","ctx_left":32,"transcript":"/t/old"}},
+  "cache": {"/t/1":[8920,3600,24000],"/t/2":[9000,300,60000],"/t/4":[5000,300,150000]},
+  "summons": {"/t/1":[{"type":"executor","desc":"Execute ticket 001"}]}
+}
