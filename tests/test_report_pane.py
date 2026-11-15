@@ -13,6 +13,7 @@ import subprocess
 import sys
 import termios as _tm
 import time
+from concurrent.futures import ThreadPoolExecutor
 
 import pytest
 from screen import strip
@@ -35,8 +36,10 @@ print("EXITED", flush=True)
 """
 
 
-def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), gap=0.0, hold=0.0, runtime=None):
-    """Run src on a pty rows x 60, send keys (each after draws[i] screens), and return everything it wrote.
+def report_session(
+    keys, rows=10, lines=60, draws=None, src=child, resizes=(), gap=0.0, hold=0.0, runtime=None, marker=b"\x1b[J"
+):
+    """Run src on a pty rows x 60, send keys (each after draws[i] markers, one per screen), and return everything it wrote.
     runtime: the child's XDG_RUNTIME_DIR (where seen.json goes); None keeps the test process's."""
     m, sl = pty.openpty()
     fcntl.ioctl(sl, _tm.TIOCSWINSZ, struct.pack("HHHH", rows, 60, 0, 0))
@@ -69,7 +72,7 @@ def report_session(keys, rows=10, lines=60, draws=None, src=child, resizes=(), g
             out += os.read(m, 65536)
     for key, n in zip(keys, draws or range(1, len(keys) + 1)):
         if not resizes:
-            read_until(b"\x1b[J", n)
+            read_until(marker, n)
         # a pty holds little unread output (far less on macOS than on Linux); unread, the child blocks in its write
         held = time.monotonic() + hold
         while time.monotonic() < held:
@@ -220,6 +223,7 @@ def test_enter_jumps_to_the_members_pane_and_exits(once):
 def test_the_callers_window_is_asked_by_the_panes_own_tmux_pane():
     seen_win = report_session(
         [b"q"],
+        marker=b"close",
         src=child.replace(
             "ui.run_report",
             "ui.report_queue = lambda t, p=None, w=None: print('WIN', w, flush=True) or []\nui.run_report",
@@ -346,7 +350,7 @@ ui.run_menu()""".replace("PNGPATH", repr(REAL_PNG))
 
 
 def test_directly_opened_report_page_has_no_h():
-    direct_h = report_session([b"h", b"q"], rows=80)
+    direct_h = report_session([b"h", b"q"], rows=80, draws=[1, 1], hold=0.3)
     assert "EXITED" in direct_h
     assert "Traceback" not in direct_h
     assert direct_h.count("\x1b[?1049h") == 1
@@ -367,7 +371,7 @@ def test_report_page_from_the_select_screen_shows_h(roster):
 
 
 def test_select_g_does_nothing():
-    sel_g = report_session([b"g", b"q"], src=select_child)
+    sel_g = report_session([b"g", b"q"], draws=[1, 1], src=select_child, hold=0.3)
     assert "switch-client" not in sel_g
     assert "EXITED" in sel_g
     assert "L0" not in sel_g
@@ -584,9 +588,19 @@ def beat_changes(phase):
     return draws, [(b[0] - b[1] - 0.5) % 1 for a, b in itertools.pairwise(draws) if a[2] != b[2]]
 
 
-@pytest.mark.parametrize("ph", ["0.0", "0.7"])
-def test_the_shown_running_time_changes_right_after_each_half_second(ph):
-    dr, ch = beat_changes(ph)
+PHASES = ["0.0", "0.7"]
+
+
+@pytest.fixture(scope="module")
+def beats():
+    """Both phases at once: each session waits about 8 s of real time on its own pty."""
+    with ThreadPoolExecutor(len(PHASES)) as ex:
+        return dict(zip(PHASES, ex.map(beat_changes, PHASES)))
+
+
+@pytest.mark.parametrize("ph", PHASES)
+def test_the_shown_running_time_changes_right_after_each_half_second(beats, ph):
+    dr, ch = beats[ph]
     late = [o - 1 if o > 0.9 else o for o in ch]
     assert len(dr) >= 8
     assert len(ch) >= 3
