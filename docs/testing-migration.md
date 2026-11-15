@@ -45,7 +45,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on); batches 2-5 removed 274, 214, 247 and 274 more. They are only a guide;
+removed 441 lines (from about line 1237 on); batches 2-6 removed 274, 214, 247, 274 and 313 more. They are only a guide;
 each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -56,7 +56,7 @@ each batch recounts by prefix when it starts.
 | 3 | `--report-text` (done) | see "Batch 3" below | `test_report_text.py` | 37 |
 | 4 | Sidebar rendering (done) | see "Batch 4" below | `test_render_sidebar.py` | 70 |
 | 5 | Report page (done) | see "Batch 5" below | `test_render_report.py` | 74 |
-| 6 | Select screen | roster, cards, preview, time ticks (459-812) | `test_render_select.py` | 48 |
+| 6 | Select screen (done) | see "Batch 6" below | `test_render_select.py` | 45 |
 | 7 | Panes and keys | pane widths, fit, open/close, Tidy, key handling (813-1213, 2264-2332) | `test_ui.py`, `test_sidebars.py` | 101 |
 | 8 | Art and images | placeholders, uploads, crests, animations, select art (1669-1805, 1969-2085, 2164-2263) | `test_art.py` | 78 |
 | 9 | Crew sub-commands | `summon_ok`, `dismiss_ok`, `crew_ok` (2718-3047) | `test_crew.py` | 67 |
@@ -158,6 +158,23 @@ The `report pane:` asserts that drive the pane through a pty stay too; they need
 - The bash loop over the markdown cache cases rebound `rep` to its last case, and later asserts in `ui_ok` read
   that value. `ui_ok` now sets `rep` to that case directly, so those asserts see the same input.
 - `HOME` is set with `monkeypatch.setenv`; bash set `os.environ["HOME"]` for the rest of the heredoc.
+
+## Batch 6: select screen (done)
+
+45 bash asserts in `ui_ok` became 45 tests in `test_render_select.py`: `ui.select_key`, `ui.select_banner`,
+`render.select_roster`, `render_select`, `select_preview`, `select_summary`, `select_crew_line`, `select_row`,
+`ui.select_image_plan` / `select_images_out`, `select_reread`, and the time ticks (`tick_wait`, `time_anchor`,
+`select_wait`, `select_phase`) with their simulated clocks.
+
+Left in bash: `--menu` and `r: the report opens beside the sidebar's own window` (tmux pane opening, batch 7), and
+the `live page re-read` assert (with the pty `report pane:` asserts).
+
+- The roster fixtures (`st`, `sst`, `srs`, `srep`) are module constants; `srows_of` is a module function.
+- The preview layout count replaces `markdown.md_rows` / `md_table` with `monkeypatch` instead of by hand.
+- The clock simulations are copied as they were, with two lint changes: `itertools.pairwise` for successive pairs
+  and default arguments for the loop variables their lambdas read (each lambda is called inside its own loop pass,
+  so the values are the same).
+- `ui_ok` keeps `mm`, `mt`, `sm`, `sst`, `srs`, `srep`, `PH` and `srows_of`: the `--menu` and pty asserts read them.
 
 ## Gates
 
