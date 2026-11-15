@@ -43,7 +43,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on) and batch 2 removed 274 more, so they are only a guide; each batch recounts
+removed 441 lines (from about line 1237 on) batch 2 removed 274 more and batch 3 214, so they are only a guide; each batch recounts
 by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -51,7 +51,7 @@ by prefix when it starts.
 | 0 | Markdown (pilot, done) | wrap, wrap_sgr, render_markdown | `test_markdown.py` | 41 tests |
 | 1 | Collector readers (done) | see "Batch 1" below | `test_claude_log.py`, `test_codex_log.py`, `test_processes.py`, `test_report_for.py` | 63 |
 | 2 | Collect and snapshot (done) | see "Batch 2" below | `test_collect.py`, `test_codex_log.py` | 53 |
-| 3 | `--report-text` | `report_text_ok` heredoc (2505-2717) | `test_report_text.py` | 39 |
+| 3 | `--report-text` (done) | see "Batch 3" below | `test_report_text.py` | 37 |
 | 4 | Sidebar rendering | fixture cards and widths (52-113), squads, peek, fit (117-170, 2116-2163, 2333-2427) | `test_render_sidebar.py` | 76 |
 | 5 | Report page | report rows, live page, banners, queue (171-458) | `test_render_report.py` | 76 |
 | 6 | Select screen | roster, cards, preview, time ticks (459-812) | `test_render_select.py` | 48 |
@@ -105,6 +105,22 @@ for batches 4 and 7.
 - `collect.read_tmux`, `collect.tmux`, `collect.screen_changed`, `claude_log.read_claude_sessions`,
   `codex_log.codex_rollout`, `collect.collect` and `builtins.open` are replaced with `monkeypatch`.
 - Rollout tail asserts read one file in sequence; each test replays the writes and reads it depends on.
+
+## Batch 3: `--report-text` (done)
+
+The `report_text_ok` heredoc (37 asserts, two of them in a loop over the two outputs tmux gives for a missing pane)
+became 39 tests in `test_report_text.py`: `collect.report_text` exit codes, `--wait`, `--after` and the
+waiting-for-input screen tail 27, `party.ask` 9, `common.tmux_run`'s timeout 1, and the collector's `wait-for -S` and
+`@party_reports` 2. The bash count drops by 39 lines: 37 `ok(` calls, the heredoc's `def ok(` and its `check` line.
+
+- The `run` / `run_after` / `run_waiting` helpers, which reset shared `calls` and `snaps` lists, are methods of a
+  `Fake` built per test by the `fk` fixture; `collect.get_snapshot`, `tmux_run`, `report_for`,
+  `claude_log.claude_report`, `party.get_snapshot`, `party.tmux_run` and `party.subprocess.run` go through
+  `monkeypatch`.
+- The collector asserts ran the real `get_snapshot` in the shared state folder; a fixture points `collect.PARTY_DIR`
+  at `tmp_path`, so each starts with no `bells.json`.
+- The file turns off basedpyright's `reportArgumentType`: `report_text`'s `timeout` is inferred as `int` from its
+  default, and the tests pass a float as `--timeout` does.
 
 ## Gates
 
