@@ -45,7 +45,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on); batches 2, 3 and 4 removed 274, 214 and 247 more. They are only a guide;
+removed 441 lines (from about line 1237 on); batches 2-5 removed 274, 214, 247 and 274 more. They are only a guide;
 each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -55,7 +55,7 @@ each batch recounts by prefix when it starts.
 | 2 | Collect and snapshot (done) | see "Batch 2" below | `test_collect.py`, `test_codex_log.py` | 53 |
 | 3 | `--report-text` (done) | see "Batch 3" below | `test_report_text.py` | 37 |
 | 4 | Sidebar rendering (done) | see "Batch 4" below | `test_render_sidebar.py` | 70 |
-| 5 | Report page | report rows, live page, banners, queue (171-458) | `test_render_report.py` | 76 |
+| 5 | Report page (done) | see "Batch 5" below | `test_render_report.py` | 74 |
 | 6 | Select screen | roster, cards, preview, time ticks (459-812) | `test_render_select.py` | 48 |
 | 7 | Panes and keys | pane widths, fit, open/close, Tidy, key handling (813-1213, 2264-2332) | `test_ui.py`, `test_sidebars.py` | 101 |
 | 8 | Art and images | placeholders, uploads, crests, animations, select art (1669-1805, 1969-2085, 2164-2263) | `test_art.py` | 78 |
@@ -141,6 +141,23 @@ select asserts. Those stay for batches 5-8, as do `Portrait chosen by class`, `C
 - `render._tick` is set with `monkeypatch`; bash set it by hand and reset it to 0.
 - `party-test.sh` reads the fixture from `tests/fixtures/sidebar.json` instead of writing it to `$tmp`; `ui_ok` gets
   `$tmp` as a third argument for its cursor file, which used to sit next to the fixture.
+
+## Batch 5: report page (done)
+
+74 bash asserts at the top of `ui_ok` became 76 tests in `test_render_report.py` (the markdown cache assert looped
+over three reports and is a `parametrize` case): `render.render_report` and `report_side_rows` (narrow and split
+pages, side column, banners, WHERE and FILES rows), `report_rows` for the last output, `collect.home_path`,
+`render.where_rows`, `render_no_report`, `ui.banner_cells`, `ui.report_images` / `report_first_deletes`,
+`ui.portrait_cells`, `report_resize_wait`, `report_peek` and `report_queue`.
+
+Left in bash: `select banner: still at most 10 rows` (batch 6) and `r in the sidebar opens the report pane` (batch 7).
+The `report pane:` asserts that drive the pane through a pty stay too; they need their own batch.
+
+- Inputs shared by many asserts (`done`, `rep`, `sub`, `busy`, `task_l`, `many`) are module constants; the pages
+  built from them (`frame`, `wide`, `side`, the fake art files) are fixtures.
+- The bash loop over the markdown cache cases rebound `rep` to its last case, and later asserts in `ui_ok` read
+  that value. `ui_ok` now sets `rep` to that case directly, so those asserts see the same input.
+- `HOME` is set with `monkeypatch.setenv`; bash set `os.environ["HOME"]` for the rest of the heredoc.
 
 ## Gates
 
