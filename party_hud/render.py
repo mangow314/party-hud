@@ -932,15 +932,11 @@ def select_preview(roster, towns, at, width, height, report, now, peek=()):
             ask = [*ask[: SELECT_ASK_ROWS - 1], clip(ask[SELECT_ASK_ROWS - 1] + "…", width - 2)]
         rows += ["", fg(LABEL_COLOR["asked"], True) + LABEL_TEXT["asked"] + RESET]
         rows += [f"  {fg('fg', True)}{r}{RESET}" for r in ask]
+    state = clip(report_state(a, report), width)
+    tail = clip("  preview" + " · unread" * (a["status"] == "done"), width - cw(state))
     rows += [
         "",
-        fg("gold", True)
-        + report_state(a, report)
-        + RESET
-        + fg("dim")
-        + "  preview"
-        + " · unread" * (a["status"] == "done")
-        + RESET,
+        fg("gold", True) + state + RESET + fg("dim") + tail + RESET,
         fg("line") + "─" * width + RESET,
     ]
     room = height - len(rows)

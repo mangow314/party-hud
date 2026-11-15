@@ -309,6 +309,19 @@ def test_select_preview_lays_out_only_part_of_the_report(previews):
     assert all(pv_seen)
 
 
+def test_select_preview_header_rows_are_the_preview_width_when_narrow():
+    live_r = dict(srep, live=True, end=None, start=3700.0)
+    widths = {}
+    for w in range(18, 34):
+        for pane in ("%1", "%2", "%3", "%4", "%9"):
+            at_ = next(i for i, (_, a, _) in enumerate(srs) if a["pane"] == pane)
+            for label, rep_ in (("done", srep), ("live", live_r), ("none", None)):
+                pv = [strip(r) for r in render.select_preview(srs, sst, at_, w, 12, rep_, 4000.0, ["x"])]
+                rule = next(i for i, r in enumerate(pv) if r.startswith("─"))
+                widths[w, pane, label] = {common.cw(r) for r in pv[: rule + 1]}
+    assert {k: v for k, v in widths.items() if v != {k[0]}} == {}
+
+
 @pytest.fixture
 def cxro():
     cxst = [
