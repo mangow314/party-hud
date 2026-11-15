@@ -283,7 +283,8 @@ def art_page(towns):
 
 
 def test_art_every_box_line_is_33_wide(art_page):
-    assert all(width(ln) == 33 for ln in art_page[0] if ln[:1] in "╭│╰")
+    assert any(ln.startswith("╔") for ln in art_page[0])
+    assert all(width(ln) == 33 for ln in art_page[0] if ln[:1] in "╭│╰╔║╚")
 
 
 def test_art_two_rows_per_squad(art_page):

@@ -10,7 +10,7 @@ import pytest
 from screen import strip
 
 import party
-from party_hud import collect, render, sidebars
+from party_hud import collect, processes, render, sidebars
 
 FS = collect.FIELD_SEP
 READY = f"claude{FS}123\n"
@@ -63,6 +63,7 @@ def tm(monkeypatch):
         sidebars, "tmux", lambda *a: fake.calls.append(a) or ("screen" if a[0] == "capture-pane" else "")
     )
     monkeypatch.setattr(sidebars.time, "sleep", lambda s: None)
+    monkeypatch.setattr(processes, "proc_children", lambda pid: [])
     monkeypatch.setattr(
         sidebars, "get_snapshot", lambda: {"towns": [{"agents": [{"pane": "%9"}] if fake.listed else []}]}
     )
@@ -196,6 +197,7 @@ def test_summon_is_not_ready_until_the_snapshot_lists_the_pane(tm, tmp_path, clo
 def test_summon_of_a_pane_that_closes_before_it_is_ready_is_rc_2_at_once(tm, tmp_path, clock):
     tm.shows, tm.pane_alive = [f"{FS}\n"], False
     assert sidebars.summon("claude", str(tmp_path), False, 3) == (2, "", "no such pane: %9\n")
+    assert clock[0] == 0.0
 
 
 def agent(pane, kind="claude", window="@1"):
@@ -229,8 +231,7 @@ def test_crew_inside_a_crew_keeps_every_agent_in_one_squad_whatever_the_order():
         towns = mk_towns(*((n, pool[n]) for n in order))
         collect.adopt_crews(towns, nest)
         seen.append({n: sorted(x["pane"] for x in t["agents"]) for n, t in towns.items()})
-    assert seen[0] == seen[1]
-    assert sorted(p for v in seen[0].values() for p in v) == ["%0", "%5", "%6"]
+    assert seen[0] == seen[1] == {"crew-0": ["%6"], "main": ["%0", "%5"]}
 
 
 def test_party_lead_lists_the_member_under_its_lead():
