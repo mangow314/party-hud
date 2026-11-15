@@ -53,7 +53,10 @@ class Server:
         self.host = self.side0 = self.member = self.crew = self.sent = self.shell = self.rwin = self.report = ""
 
     def t(self, *args: str) -> str:
-        return self.run("tmux", "-L", "party-test", *args).stdout.rstrip("\n")
+        p = self.run("tmux", "-L", "party-test", *args)
+        if p.returncode:
+            pytest.fail(f"tmux {shlex.join(args)} exited {p.returncode}: {p.stderr.strip()}")
+        return p.stdout.rstrip("\n")
 
     def run(self, *cmd: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
         return subprocess.run(cmd, env=env or self.env, capture_output=True, text=True, check=False, timeout=60)
@@ -122,16 +125,27 @@ class Server:
         return False
 
     def close(self):
-        self.t("kill-server")
-        if self.client:
-            if self.client.stdin:
-                self.client.stdin.close()
-            self.client.terminate()
+        try:
+            self.run("tmux", "-L", "party-test", "kill-server")
+        finally:
             try:
-                self.client.wait(timeout=5)
+                if self.client:
+                    self.stop_client(self.client)
+            finally:
+                shutil.rmtree(self.tmp, ignore_errors=True)
+
+    @staticmethod
+    def stop_client(client: subprocess.Popen[bytes]):
+        try:
+            if client.stdin:
+                client.stdin.close()
+        finally:
+            client.terminate()
+            try:
+                client.wait(timeout=5)
             except subprocess.TimeoutExpired:
-                self.client.kill()
-        shutil.rmtree(self.tmp, ignore_errors=True)
+                client.kill()
+                client.wait()
 
 
 @pytest.fixture(scope="module")
@@ -320,7 +334,8 @@ def test_report_main_pane_passthrough_still_off(srv):
     try:
         assert srv.t("display", "-p", "-t", srv.host, "#{allow-passthrough}") == "off"
     finally:
-        srv.t("kill-pane", "-t", srv.report)
+        if srv.report:
+            srv.t("kill-pane", "-t", srv.report)
 
 
 def test_summon_prints_the_new_pane_id(srv):
@@ -336,7 +351,7 @@ def test_summon_prints_the_new_pane_id(srv):
     # tmux 3.8 gives a split-window pane the PATH of the client that sent the command, not the global one; set both
     srv.t("set-environment", "-g", "PATH", f"{srv.fake}:{srv.env['PATH']}")
     p = srv.as_host("--summon", "agy", "--timeout", "30")
-    srv.member = p.stdout.strip()
+    srv.member = p.stdout.rstrip("\n")
     srv.crew = f"crew-{srv.host.lstrip('%')}"
     assert p.returncode == 0, p.stderr
     assert re.fullmatch(r"%\d+", srv.member), p.stderr
@@ -353,14 +368,14 @@ def test_summon_crew_session_has_no_sidebar(srv):
 
 def test_ask_prints_the_time_it_sent(srv):
     p = srv.as_host("--ask", srv.member, "hello")
-    srv.sent = p.stdout.strip()
+    srv.sent = p.stdout.rstrip("\n")
     assert p.returncode == 0, p.stderr
     assert srv.sent, p.stderr
 
 
 def test_report_text_wait_after_returns_the_reply(srv):
     p = srv.as_host("--report-text", srv.member, "--wait", "--after", srv.sent, "--timeout", "30")
-    assert (p.stdout.strip(), p.returncode) == ("party-test-reply-42", 0), p.stderr
+    assert (p.stdout.rstrip("\n"), p.returncode) == ("party-test-reply-42", 0), p.stderr
 
 
 def test_dismiss_closes_a_member_whose_report_was_read(srv):
@@ -376,7 +391,7 @@ def test_dismiss_last_member_ends_crew_session(srv):
 @pytest.mark.parametrize("args", [("--report-text",), ("--ask", "hello"), ("--dismiss",)], ids=lambda a: a[0])
 def test_gone_member_names_the_missing_pane_and_exits_2(srv, args):
     p = srv.as_host(args[0], srv.member, *args[1:])
-    assert ((p.stdout + p.stderr).strip(), p.returncode) == (f"no such pane: {srv.member}", 2)
+    assert (p.stdout + p.stderr, p.returncode) == (f"no such pane: {srv.member}\n", 2)
 
 
 def test_sidebar_panes_are_titled_party_hud(srv):
@@ -417,7 +432,7 @@ def test_restore_new_windows_get_a_sidebar_afterwards(srv):
 
 def test_restore_end_without_begin_exits_2(srv):
     p = srv.as_host("--restore-end", srv.place(srv.host))
-    assert ((p.stdout + p.stderr).strip(), p.returncode) == ("--restore-end: run --restore-begin before the restore", 2)
+    assert (p.stdout + p.stderr, p.returncode) == ("--restore-end: run --restore-begin before the restore\n", 2)
 
 
 def test_q_in_a_sidebar_closes_all_sidebars(srv):
