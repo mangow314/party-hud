@@ -228,7 +228,8 @@ def report_through_party():
     except subprocess.TimeoutExpired:
         p.kill()
         rc = None
-    while select.select([m], [], [], 0.2)[0]:
+    drained = time.monotonic() + 10
+    while time.monotonic() < drained and select.select([m], [], [], 0.2)[0]:
         out += os.read(m, 65536)
     after = termios.tcgetattr(sl)
     os.close(m)
