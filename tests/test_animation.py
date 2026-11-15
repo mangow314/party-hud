@@ -100,10 +100,9 @@ def test_report_animation_keeps_the_left_column_and_the_width(done):
     )
     ff = render.report_frames(fr_, 40)
     assert len(ff) > 1
+    assert any(side.strip() for side in fl_)
     assert all(
-        [common.cw(r) for r in render.report_view(fl_, f, 40, 0)[0]][:14]
-        == [common.cw(r) for r in render.report_view(fl_, fr_, 40, 0)[0]][:14]
-        for f in ff
+        r.startswith(side) for f in ff for r, side in zip(render.report_view(fl_, f, 40, 0)[0], fl_, strict=False)
     )
     assert all(
         (

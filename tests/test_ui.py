@@ -444,13 +444,15 @@ def overlay():
 
 
 def test_key_help_overlay_keeps_the_page_text_on_both_sides(overlay):
-    _, ov, ovt = overlay
+    pg, ov, ovt = overlay
     box_rows = [strip(r) for r in render.help_box("report", 80, 30)[0]]
     assert len(ov) == 30
     assert all(common.cw(r) == 80 for r in ovt[OT : OT + HN])
     assert [r[OL : OL + HW] for r in ovt[OT : OT + HN]] == box_rows
     assert ovt[OT].startswith("row ")
     assert ovt[OT][OL - 1] == "x"
+    assert ovt[OT][OL + HW :] == strip(pg[OT])[OL + HW : 80].ljust(80 - OL - HW)
+    assert "x" in ovt[OT][OL + HW :]
 
 
 def test_key_help_overlay_page_rows_outside_the_box_are_faint(overlay):
@@ -486,7 +488,9 @@ def test_key_help_overlay_keeps_placeholder_cells_around_the_box():
 
 
 def test_key_help_lists_j_as_next_and_k_as_prev():
-    assert all((t.startswith("next") for k, t in render.HELP["sidebar"] if k in ("j k", "J K")))
+    keys = dict(render.HELP["sidebar"])
+    assert keys["j k"] == "next / prev card"
+    assert keys["J K"] == "next / prev squad"
 
 
 def test_key_hints_keep_the_help_key_at_the_narrowest_widths(windowed):
@@ -557,11 +561,18 @@ def test_report_page_fixed_left_column_closes_on_the_last_row(done):
     assert len(fr) > 40
 
 
-def test_class_icon_is_fixed_by_session_id(windowed, agents):
+def test_class_icon_is_fixed_by_session_id(windowed, agents, tmp_path):
     towns = windowed
     fe = next(a for a in agents if a["pane"] == "%1")
     assert common.class_icon(fe) in render.render(towns, 33)
     assert collect.collect(FIXTURE)["towns"][0]["agents"][1]["cls"] == fe["cls"]
+    with open(FIXTURE) as f:
+        moved = tmp_path / "moved.json"
+        moved.write_text(f.read().replace('"%4"', '"%40"'))
+    server = collect.collect(FIXTURE)["towns"][1]["agents"][0]
+    server_moved = collect.collect(str(moved))["towns"][1]["agents"][0]
+    assert (server_moved["pane"], server_moved["id"]) == ("%40", server["id"])
+    assert server_moved["cls"] == server["cls"]
 
 
 @pytest.fixture

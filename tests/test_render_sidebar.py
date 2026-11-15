@@ -164,7 +164,8 @@ def test_peek_replaces_the_status_box(towns):
     peek = strip(render.render(towns, 33, "%1", ["line1", "", "最後一行", "", ""], "sidebar"))
     assert "Peek · Frontend" in peek
     assert "最後一行" in peek
-    assert "│ HP" not in peek
+    assert "140k" in strip(render.render(towns, 33, "%1", None, "sidebar"))
+    assert not any(t in peek for t in ("HP", "140k", "審查員", "Thief"))
 
 
 def test_sidebar_key_hints_are_in_english(towns):
@@ -263,7 +264,9 @@ def test_art_card_without_sp_is_as_tall_as_the_portrait(agents):
 def test_clicking_a_row_of_a_status_box_selects_that_member(towns):
     rm3 = []
     st3 = strip(render.render(towns, 33, "%1", row_map=rm3)).splitlines()
-    assert all(rm3[i] == ("agent", "%2") for i, ln in enumerate(st3) if "Thief" in ln or "140k" in ln)
+    rows = [i for i, ln in enumerate(st3) if "Thief" in ln or "140k" in ln]
+    assert rows
+    assert all(rm3[i] == ("agent", "%2") for i in rows)
 
 
 def test_sp_is_cache_minutes_left():
@@ -478,9 +481,10 @@ def test_mouse_row_map_is_no_longer_than_the_screen(mouse):
 
 def test_mouse_rows_map_to_member_or_squad(mouse):
     lines, rm = mouse
-    assert all(rm[i] == ("agent", "%2") for i, ln in enumerate(lines) if "審查員" in ln)
-    assert all(rm[i] == ("agent", "%1") for i, ln in enumerate(lines) if "Frontend" in ln)
-    assert all(rm[i] == ("squad", 1) for i, ln in enumerate(lines) if "Server" in ln)
+    for needle, target in (("審查員", ("agent", "%2")), ("Frontend", ("agent", "%1")), ("Server", ("squad", 1))):
+        rows = [i for i, ln in enumerate(lines) if needle in ln]
+        assert rows
+        assert all(rm[i] == target for i in rows)
 
 
 @pytest.fixture

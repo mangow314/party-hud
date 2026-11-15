@@ -37,10 +37,21 @@ print("EXITED", flush=True)
 
 
 def report_session(
-    keys, rows=10, lines=60, draws=None, src=child, resizes=(), gap=0.0, hold=0.0, runtime=None, marker=b"\x1b[J"
+    keys,
+    rows=10,
+    lines=60,
+    draws=None,
+    src=child,
+    resizes=(),
+    gap=0.0,
+    hold=0.0,
+    runtime=None,
+    marker=b"\x1b[J",
+    crashes=False,
 ):
     """Run src on a pty rows x 60, send keys (each after draws[i] markers, one per screen), and return everything it wrote.
-    runtime: the child's XDG_RUNTIME_DIR (where seen.json goes); None keeps the test process's."""
+    runtime: the child's XDG_RUNTIME_DIR (where seen.json goes); None keeps the test process's.
+    crashes: the child is expected to fail; otherwise it must print EXITED and exit 0."""
     m, sl = pty.openpty()
     fcntl.ioctl(sl, _tm.TIOCSWINSZ, struct.pack("HHHH", rows, 60, 0, 0))
     env = dict(os.environ, TMUX_PANE="%99", **({"XDG_RUNTIME_DIR": str(runtime)} if runtime else {}))
@@ -84,9 +95,13 @@ def report_session(
                     break
         os.write(m, key)
     read_until(b"EXITED", 1)
-    p.wait(timeout=5)
+    rc = p.wait(timeout=5)
     os.close(m)
-    return out.decode(errors="ignore")
+    text = out.decode(errors="ignore")
+    if not crashes:
+        assert rc == 0, text[-2000:]
+        assert "EXITED" in text
+    return text
 
 
 def seen_file(runtime):
@@ -129,7 +144,9 @@ def test_report_pane_enters_and_leaves_the_alternate_screen(once):
 
 
 def test_report_pane_leaves_the_alternate_screen_when_it_fails():
-    boom = report_session([], src=child.replace("ui.run_report", "ui.report_for = lambda a: 1 / 0\nui.run_report"))
+    boom = report_session(
+        [], src=child.replace("ui.run_report", "ui.report_for = lambda a: 1 / 0\nui.run_report"), crashes=True
+    )
     assert boom.count("\x1b[?1049h") == 1
     assert boom.rindex("\x1b[?1049l") > boom.index("\x1b[?1049h")
     assert "ZeroDivisionError" in boom
@@ -599,11 +616,12 @@ def test_a_page_without_a_time_is_not_redrawn_on_a_timer():
 
 def beat_changes(phase):
     inj = tick_inject.replace(
-        "S = __import__('time').time() - 99.4", f"S = __import__('time').time() - 99 - {phase}"
+        "S = __import__('time').time() - 99.9", f"S = __import__('time').time() - 99 - {phase}"
     ).replace(
         'ui.report_parts = lambda a, sq, rep, peek, width, *r: ([], [("T" + str(int(r[6] * 10))).ljust(width)] + [("L" + str(n)).ljust(width) for n in range(80)])',
         "from party_hud.render import fmt_took\nui.report_parts = lambda a, sq, rep, peek, width, *r: print('DRAW', __import__('time').time(), S, fmt_took(r[6] - S).replace(' ', '_'), flush=True) or ([], [('L' + str(n)).ljust(width) for n in range(80)])",
     )
+    assert f"time() - 99 - {phase}" in inj
     out = report_session([b"q"], draws=[9], src=child.replace("ui.run_report", inj, 1))
     draws = [(float(t), float(s0), v) for t, s0, v in re.findall(r"DRAW ([0-9.]+) ([0-9.]+) (\S+)", out)]
     return draws, [(b[0] - b[1] - 0.5) % 1 for a, b in itertools.pairwise(draws) if a[2] != b[2]]
