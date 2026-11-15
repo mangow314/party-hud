@@ -315,10 +315,10 @@ def test_select_preview_header_rows_are_the_preview_width_when_narrow():
     for w in range(18, 34):
         for pane in ("%1", "%2", "%3", "%4", "%9"):
             at_ = next(i for i, (_, a, _) in enumerate(srs) if a["pane"] == pane)
-            for rep_ in (srep, live_r, None):
+            for label, rep_ in (("done", srep), ("live", live_r), ("none", None)):
                 pv = [strip(r) for r in render.select_preview(srs, sst, at_, w, 12, rep_, 4000.0, ["x"])]
                 rule = next(i for i, r in enumerate(pv) if r.startswith("─"))
-                widths[w, pane, rep_ is None] = {common.cw(r) for r in pv[: rule + 1]}
+                widths[w, pane, label] = {common.cw(r) for r in pv[: rule + 1]}
     assert {k: v for k, v in widths.items() if v != {k[0]}} == {}
 
 
