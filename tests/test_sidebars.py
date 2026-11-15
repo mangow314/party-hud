@@ -411,3 +411,32 @@ def test_restore_end_without_restore_begin_exits_2(monkeypatch):
     monkeypatch.setattr(sidebars, "tmux", restore_tmux(calls, ""))
     assert sidebars.restore_end(["a:2.1"])[0] == 2
     assert [c[0] for c in calls] == ["show-option"]
+
+
+def test_remember_width_without_a_dragged_sidebar_changes_nothing(monkeypatch):
+    calls = []
+
+    def tmux(*a):
+        calls.append(a)
+        if a[0] == "show-option":
+            return "34"
+        return "%9 1 34\n%8 1 34\n" if a[0] == "list-panes" else ""
+
+    monkeypatch.setattr(sidebars, "tmux", tmux)
+    sidebars.remember_width()
+    assert not any(c[0] in ("set-option", "resize-pane") for c in calls)
+
+
+@pytest.mark.parametrize(("restoring", "adds"), [("%1 %2", False), ("", True)], ids=["restoring", "not restoring"])
+def test_ensure_adds_a_sidebar_to_a_window_without_one_only_outside_a_restore(monkeypatch, restoring, adds):
+    calls = []
+
+    def tmux(*a):
+        calls.append(a)
+        if a[0] == "display-message":
+            return f"a\t{restoring}\n"
+        return "%9\n" if a[0] == "split-window" else ""
+
+    monkeypatch.setattr(sidebars, "tmux", tmux)
+    sidebars.ensure("@1")
+    assert any(c[0] == "split-window" for c in calls) == adds
