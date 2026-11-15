@@ -382,6 +382,16 @@ def test_n_draws_the_next_report_in_place(twice):
     assert twice.count("L0") == 2
 
 
+def test_select_screen_redraws_at_the_new_size_as_soon_as_it_is_resized():
+    src = select_child.replace("ui.run_menu()", "ui.select_wait = lambda *a: 30.0\nui.run_menu()", 1)
+    sr = report_session([b"q"], rows=30, resizes=[24], src=src)
+    last = sr[sr.rindex("\x1b[H") : sr.index("\x1b[J", sr.rindex("\x1b[H"))]
+    assert "EXITED" in sr
+    assert sr.count("\x1b[J") == 2
+    assert last.count("\n") == 23
+    assert "\x1b[2J" not in sr
+
+
 @pytest.fixture(scope="module")
 def resized():
     rs = report_session([b"q"], rows=30, resizes=[29, 28, 27, 26, 25, 24, 23, 22, 21, 20] * 2, gap=0.005)
@@ -532,6 +542,16 @@ def test_the_banner_of_a_page_turning_final_is_resent_once_after_art_settle():
     assert "a=d,d=I,i=7" not in rl[rl.index(T7) :]
     assert "a=d,d=I,i=7" in rl
     assert rl.index("a=d,d=I,i=7") < rl.index(T7)
+
+
+T8 = "a=T,U=1,f=100,i=8"
+
+
+def test_a_page_turning_final_resends_only_the_images_it_had_not_sent():
+    both = resend_inject.replace("[(7 if final else 8, 10, 5)]", "[(7, 10, 5), (8, 10, 5)] if final else [(8, 10, 5)]")
+    rb = report_session([b"q"], draws=[2], hold=1.2, src=child.replace("ui.run_report", both, 1))
+    assert rb.count(T7) == 2
+    assert rb.count(T8) == 1
 
 
 def test_a_page_final_from_the_start_sends_each_image_once():
