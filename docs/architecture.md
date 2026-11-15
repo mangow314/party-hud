@@ -12,7 +12,7 @@ library only):
 | `codex_log.py` | finds a pane's Codex rollout and reads usage, turns and reports from it |
 | `collect.py` | reads tmux and puts the members together; agy and grok reports from the screen; the shared snapshot and its lock |
 | `markdown.py` | wraps text and lays out a Markdown subset into rows of a given width (pure functions; `render_markdown` remembers the last 32 layouts, so the same input gives the same output and it is still input in, text out) |
-| `render.py` | draws the squad list and cards from a snapshot (pure functions). The Squads frame gets the rows left after the selected card (or the first one), the border and the hint row; when the squads do not fit it keeps the viewed squad and as many neighbours as fit, with `▲ n more` / `▼ n more` rows (n counts squads, a folded `+N empty` run counts N) |
+| `render.py` | draws the squad list and cards from a snapshot (no I/O; the only state is the animation tick). The Squads frame gets the rows left after the selected card (or the first one), the border and the hint row; when the squads do not fit it keeps the viewed squad and as many neighbours as fit, with `▲ n more` / `▼ n more` rows (n counts squads, a folded `+N empty` run counts N) |
 | `sidebars.py` | opens, closes, restarts and resizes sidebar panes; installs the hooks |
 | `ui.py` | the sidebar loop: input, cursor, redraws |
 
