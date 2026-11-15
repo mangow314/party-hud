@@ -68,7 +68,8 @@ def report_session(
             p.send_signal(signal.SIGWINCH)
             time.sleep(gap)
         time.sleep(0.5)
-        while _sel.select([m], [], [], 0.2)[0]:
+        drained = time.monotonic() + 10
+        while time.monotonic() < drained and _sel.select([m], [], [], 0.2)[0]:
             out += os.read(m, 65536)
     for key, n in zip(keys, draws or range(1, len(keys) + 1)):
         if not resizes:
