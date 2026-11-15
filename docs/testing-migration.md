@@ -45,7 +45,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on); batches 2-6 removed 274, 214, 247, 274 and 313 more. They are only a guide;
+removed 441 lines (from about line 1237 on); batches 2-7 removed 274, 214, 247, 274, 313 and 379 more. They are only a guide;
 each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -57,7 +57,7 @@ each batch recounts by prefix when it starts.
 | 4 | Sidebar rendering (done) | see "Batch 4" below | `test_render_sidebar.py` | 70 |
 | 5 | Report page (done) | see "Batch 5" below | `test_render_report.py` | 74 |
 | 6 | Select screen (done) | see "Batch 6" below | `test_render_select.py` | 45 |
-| 7 | Panes and keys | pane widths, fit, open/close, Tidy, key handling (813-1213, 2264-2332) | `test_ui.py`, `test_sidebars.py` | 101 |
+| 7 | Panes and keys (done) | see "Batch 7" below | `test_ui.py`, `test_sidebars.py` | 96 |
 | 8 | Art and images | placeholders, uploads, crests, animations, select art (1669-1805, 1969-2085, 2164-2263) | `test_art.py` | 78 |
 | 9 | Crew sub-commands | `summon_ok`, `dismiss_ok`, `crew_ok` (2718-3047) | `test_crew.py` | 67 |
 | 10 | The rest | transcript TTL, statusline script, `cw`, imports per sub-command, `leave_without_teardown` (3048-3330) | `test_common.py`, `test_party_cli.py` | 18 |
@@ -175,6 +175,26 @@ the `live page re-read` assert (with the pty `report pane:` asserts).
   and default arguments for the loop variables their lambdas read (each lambda is called inside its own loop pass,
   so the values are the same).
 - `ui_ok` keeps `mm`, `mt`, `sm`, `sst`, `srs`, `srep`, `PH` and `srows_of`: the `--menu` and pty asserts read them.
+
+## Batch 7: panes and keys (done)
+
+96 bash asserts in `ui_ok` became 106 tests (loops over usage strings, cell ratios and heights are `parametrize`
+cases):
+
+- `test_sidebars.py` (42): `open_report_pane` on tmux with and without `new-pane`, pane widths and spans,
+  `fit_report_pane`, banner sizes at those widths, `tidy`, `remember_width`, `nudge`, `restore_begin` /
+  `restore_end` / `ensure`.
+- `test_ui.py` (64): `--menu` (`open_select`, `run_menu`), `open_report`, `refresh_live`, `follow_here`,
+  `next_waiting`, `report_queue` on crew, `parse_input`, `handle_key`, `report_scroll` / `report_step`, the report
+  left column and `report_view`, key help and its overlay, `point_at`, the shared cursor file and the class icon.
+
+Left in bash: the pty `report pane:` / `select screen:` asserts and the art, image and animation asserts (batch 8).
+
+- `ui_ok` changed `towns` in place for the cursor asserts (every member in its own window, then %1 and %2 sharing
+  one) and every later key assert ran on that; the `windowed` fixture rebuilds that state.
+- The sequential `point_at` and `follow_here` calls are replayed by fixtures that record the cursor after each step.
+- `sidebars.tmux`, `sidebars._new_pane`, `ui.tmux`, `ui.get_snapshot`, `ui.run_*`, `common.CURSOR` and
+  `TMUX_PANE` go through `monkeypatch`; bash restored some by hand and left `_new_pane` at `None`.
 
 ## Gates
 
