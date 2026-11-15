@@ -3,3 +3,4 @@
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
 addopts = ["-p", "no:cacheprovider"]
+markers = ["tmux: integration tests on a private tmux server (-L party-test); need a real tmux socket"]
