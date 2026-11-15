@@ -4,8 +4,9 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
 
 ## Running checks
 
-- `tests/party-tmux-test.sh` needs a real tmux socket and fails inside the Claude Code sandbox; ask the user to run
-  `! bash tests/party-tmux-test.sh`.
+- The tmux tests (`tests/test_tmux.py`, marker `tmux`, skipped by default) need a real tmux socket and fail inside the
+  Claude Code sandbox; ask the user to run `! uvx pytest@9.2.0 -m tmux`. They run in file order on one shared server,
+  so run them as a whole with `-m tmux`, never pick one with `-k`.
 - New unit tests go in `tests/test_*.py` (pytest); run one with `uvx pytest@9.2.0 -k NAME`.
 - Before done, run: `ruff check . && ruff format --check . && basedpyright . && uvx pytest@9.2.0`.
 - Code must run on Linux and macOS (CI runs both): `/proc` exists only on Linux, macOS goes through `ps`.

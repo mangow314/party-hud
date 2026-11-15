@@ -40,6 +40,6 @@ jobs:
       - name: Unit tests (pytest)
         run: python -m pytest
       - name: Integration tests (private tmux server)
-        run: bash tests/party-tmux-test.sh
+        run: python -m pytest -m tmux
       - name: Benchmark
         run: python3 bench/bench.py

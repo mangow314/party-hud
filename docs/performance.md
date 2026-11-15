@@ -430,7 +430,7 @@ every time: on Linux an `exec` of the same executable with other arguments chang
 times of `/proc/<pid>` or `/proc/<pid>/cmdline`, nor `starttime`, and reading `/proc/<pid>/stat` (15 us) costs more than
 a short command line (10 us).
 
-## Collection rate with many sidebars (`tests/party-tmux-test.sh`)
+## Collection rate with many sidebars (`tests/test_tmux.py`)
 
 The integration test opens 20+ windows on a private tmux server and checks that data is collected at most
 6 times in 10 seconds, no matter how many sidebars are open.

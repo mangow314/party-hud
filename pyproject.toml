@@ -2,5 +2,5 @@
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]
-addopts = ["-p", "no:cacheprovider"]
+addopts = ["-p", "no:cacheprovider", "-m", "not tmux"]
 markers = ["tmux: integration tests on a private tmux server (-L party-test); need a real tmux socket"]
