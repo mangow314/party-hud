@@ -1,5 +1,6 @@
-# pyright: reportOptionalSubscript=false
-"""Tests index results they expect to exist; a None there fails the test, so the Optional check is off."""
+# pyright: reportOptionalSubscript=false, reportOperatorIssue=false
+"""Tests index results they expect to exist, and member fields read from the fixture JSON are typed as unions;
+a None or a wrong type there fails the test anyway, so those checks are off."""
 
 import os
 from itertools import pairwise
@@ -774,3 +775,180 @@ def phase_moving_ok():
 
 def test_select_one_wake_a_second_with_a_moving_cursor():
     assert phase_moving_ok()
+
+
+sel_ros, sel_towns = [("Studio", done, False)], [{"name": "Studio", "agents": [done]}]
+other_ = dict(done, cls=(done["cls"] + 1) % 4)
+
+
+@pytest.fixture
+def sel_art(tmp_path):
+    """Small portrait files for done and other_, and the image plan for those two cards."""
+
+    def png(name, data=b"x"):
+        path = tmp_path / name
+        path.write_bytes(data)
+        return str(path)
+
+    sel_art = {art.portrait_id(done): (png("G"), 6, 3), art.portrait_id(other_): (png("H"), 6, 3)}
+    return sel_art, ui.select_image_plan([done, other_], sel_art)
+
+
+def test_select_images_plan_holds_each_cards_small_portrait(sel_art):
+    _, plan_a = sel_art
+    assert plan_a == [(art.portrait_id(done), 6, 3), (art.portrait_id(other_), 6, 3)]
+    assert ui.select_image_plan([done], None) == []
+
+
+def test_select_images_due_skips_ids_sent_at_the_same_cells(sel_art):
+    _, plan_a = sel_art
+    assert ui.select_images_due(plan_a, {i: (c, r) for i, c, r in plan_a}) == []
+    assert ui.select_images_due(plan_a, {plan_a[0][0]: (7, 3)})[0] == plan_a[0]
+    assert ui.select_images_due(plan_a, {}) == plan_a
+
+
+def test_select_screen_builds_each_card_once_a_frame(monkeypatch):
+    real_card, ncard, once_ok = render.card, [0], True
+
+    def counted_card(*a, **k):
+        ncard[0] += 1
+        return real_card(*a, **k)
+
+    monkeypatch.setattr(render, "card", counted_card)
+    for w_, h_, art_ in [
+        (120, 40, False),
+        (120, 40, True),
+        (80, 12, False),
+        (80, 10, False),
+        (60, 40, False),
+        (120, 8, False),
+        (36, 40, False),
+    ]:
+        for cur_ in ("%1", "%4", "%6", "%9", "%12"):
+            lw_, _ = render.select_widths(w_ - 1)
+            ncard[0] = 0
+            view_ = render.select_view(srs, cur_, lw_, render.select_layout(h_, 1)[3], art_)
+            shown_ = ui.select_cards(srs, view_)
+            rows_ = render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_, (), view_)
+            frame_calls = ncard[0]
+            built = sum(c is not None for c in view_[4])
+            again = render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_)
+            text_ = "".join(strip(r) for r in rows_)
+            once_ok = (
+                once_ok
+                and frame_calls == built
+                and built == (0 if view_[0] else sum(not c for _, _, c in srs))
+                and rows_ == again
+                and all(a_["name"] in text_ for a_ in shown_)
+                and len(shown_) <= built
+            )
+            ncard[0] = 0
+            render.render_select(srs, sst, cur_, w_ - 1, h_, srep, 4000.0, None, art_)
+            once_ok = once_ok and ncard[0] == built
+    assert once_ok
+
+
+def test_select_images_out_repaints_nothing_and_deletes_only_unshared_new_ids(sel_art):
+    sel_art, plan_a = sel_art
+    same_ = {i: (c, r) for i, c, r in plan_a}
+    out_new = ui.select_images_out(plan_a, sel_art, {}, set())
+    assert ui.select_images_out(plan_a, sel_art, same_, set()) == ""
+    assert out_new.index(f"a=d,d=I,i={plan_a[0][0]}") < out_new.index(f"a=T,U=1,f=100,i={plan_a[0][0]},c=6,r=3")
+    assert "a=d" not in ui.select_images_out(plan_a, sel_art, {**same_, plan_a[0][0]: (7, 3)}, set())
+    assert "a=d" not in ui.select_images_out(plan_a, sel_art, {}, {i for i, _, _ in plan_a})
+
+
+def test_select_title_plan_holds_the_banner_id_of_its_shape(sel_art):
+    sel_art, _ = sel_art
+    sel_banner = (60, 7, 4)
+    assert ui.select_title_plan(sel_art, sel_banner, True) == [(art.select_banner_id(4), 60, 7)]
+    assert ui.select_title_plan(None, sel_banner, True) == []
+    assert ui.select_title_plan(sel_art, sel_banner, False) == []
+    assert ui.select_title_plan(sel_art, (88, 10, 6), True)[0][0] == art.select_banner_id(6)
+
+
+def test_select_screen_with_art_opens_with_the_banner_rows():
+    sel_title = [art.image_row(art.select_banner_id(4), r, 60) for r in range(7)]
+    sel_rows = render.render_select(sel_ros, sel_towns, done["pane"], 80, 24, None, None, sel_title)
+    assert sel_rows[:7] == [t + " " * 20 for t in sel_title]
+    assert len(sel_rows) == 24
+    assert render.select_layout(24, 7)[3] == render.select_layout(24, 1)[3] - 6
+    assert not any(
+        art.image_row(art.select_banner_id(4), 0, 60) in r
+        for r in render.render_select(sel_ros, sel_towns, done["pane"], 80, 8, None, None, sel_title)
+    )
+
+
+@pytest.fixture
+def banners():
+    sb_wide, sb_short, sb_narrow, sb_huge = (
+        ui.select_banner(150, 40, 0.5),
+        ui.select_banner(150, 16, 0.5),
+        ui.select_banner(60, 40, 0.5),
+        ui.select_banner(300, 60, 0.5),
+    )
+    return sb_wide, sb_short, sb_narrow, sb_huge
+
+
+def test_select_banner_is_as_wide_as_the_screen_and_centred(banners):
+    sb_wide, sb_short, sb_narrow, sb_huge = banners
+    assert sb_wide
+    assert sb_wide[0] <= 150
+    assert sb_wide[1] <= 10
+    assert abs(sb_wide[3] - (150 - sb_wide[0] - sb_wide[3])) <= 1
+    assert sb_short is None
+    assert sb_narrow
+    assert sb_narrow[0] <= 60
+    assert sb_huge
+    assert sb_huge[0] <= len(art.DIAC)
+    assert abs(sb_huge[3] - (300 - sb_huge[0] - sb_huge[3])) <= 1
+
+
+def test_select_banner_only_when_the_roster_keeps_8_rows():
+    sb_scan = [
+        (w, h, r)
+        for w in range(40, 301, 20)
+        for h in range(8, 61)
+        for r in (0.4, 0.5, 0.6)
+        if ui.select_banner(w, h, r)
+    ]
+    assert ui.select_banner(100, 12, 0.5) is None
+    assert sb_scan
+    assert all(
+        (
+            render.select_layout(h, ui.select_banner(w, h, r)[1])[2]
+            and render.select_layout(h, ui.select_banner(w, h, r)[1])[3] >= 8
+            for w, h, r in sb_scan
+        )
+    )
+
+
+def test_select_banner_plan_and_screen_size(sel_art, banners):
+    sel_art, _ = sel_art
+    sb_wide, sb_short, _, sb_huge = banners
+    sb_title = [
+        " " * sb_huge[3] + art.image_row(art.select_banner_id(sb_huge[2]), r, sb_huge[0]) for r in range(sb_huge[1])
+    ]
+    sb_rows = render.render_select(sel_ros, sel_towns, done["pane"], 300, 60, None, None, sb_title)
+    assert ui.select_title_plan(sel_art, sb_short, True) == []
+    assert ui.select_title_plan(sel_art, sb_wide, True)[0][0] == art.select_banner_id(sb_wide[2])
+    assert len(sb_rows) == 60
+    assert all(render.cw(strip(r)) == 300 for r in sb_rows)
+
+
+def test_report_banner_sizes_are_unchanged_by_the_select_banner():
+    assert ui.banner_cells(120, 0.5) == (84, 6, 7)
+    assert ui.banner_cells(80, 0.5) == (48, 6, 4)
+
+
+def test_select_screen_without_art_has_no_placeholders():
+    assert PH not in "".join(srows_of(180, 47, "%2"))
+    assert PH in "".join(srows_of(180, 47, "%2", srep, True))
+
+
+def test_select_screen_every_height_gives_that_many_rows():
+    assert all(
+        len(o_) == hh and all(common.cw(strip(r)) == 80 for r in o_) and (("j/k" in strip(o_[-1])) == (hh >= 2))
+        for hh in range(1, 41)
+        for o_ in [srows_of(80, hh, "%9")]
+    )

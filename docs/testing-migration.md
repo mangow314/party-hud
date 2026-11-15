@@ -45,7 +45,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on); batches 2-7 removed 274, 214, 247, 274, 313 and 379 more. They are only a guide;
+removed 441 lines (from about line 1237 on); batches 2-8 removed 274, 214, 247, 274, 313, 379 and 276 more. They are only a guide;
 each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -58,7 +58,7 @@ each batch recounts by prefix when it starts.
 | 5 | Report page (done) | see "Batch 5" below | `test_render_report.py` | 74 |
 | 6 | Select screen (done) | see "Batch 6" below | `test_render_select.py` | 45 |
 | 7 | Panes and keys (done) | see "Batch 7" below | `test_ui.py`, `test_sidebars.py` | 96 |
-| 8 | Art and images | placeholders, uploads, crests, animations, select art (1669-1805, 1969-2085, 2164-2263) | `test_art.py` | 78 |
+| 8 | Art and images (done) | see "Batch 8" below | `test_art.py`, `test_animation.py`, `test_render_select.py` | 54 |
 | 9 | Crew sub-commands | `summon_ok`, `dismiss_ok`, `crew_ok` (2718-3047) | `test_crew.py` | 67 |
 | 10 | The rest | transcript TTL, statusline script, `cw`, imports per sub-command, `leave_without_teardown` (3048-3330) | `test_common.py`, `test_party_cli.py` | 18 |
 | 11 | Remove bash runner | delete `party-test.sh`, its CI step and this file; update CLAUDE.md and CONTRIBUTING | | |
@@ -195,6 +195,26 @@ Left in bash: the pty `report pane:` / `select screen:` asserts and the art, ima
 - The sequential `point_at` and `follow_here` calls are replayed by fixtures that record the cursor after each step.
 - `sidebars.tmux`, `sidebars._new_pane`, `ui.tmux`, `ui.get_snapshot`, `ui.run_*`, `common.CURSOR` and
   `TMUX_PANE` go through `monkeypatch`; bash restored some by hand and left `_new_pane` at `None`.
+
+## Batch 8: art, images and animations (done)
+
+54 bash asserts at the end of `ui_ok` became 55 tests (the squad flash assert looped over art on / off):
+
+- `test_art.py` (17): `load_art` with no, all and one missing image, image files read only when sent, image ids,
+  `art_supported`, placeholders and diacritics, `kitty_image` / `kitty_delete`, crests, portraits and classes.
+- `test_animation.py` (26): `report_frames`, `report_anim_enabled`, `ui.animate` (change labels, flashes), the flash
+  in `render.render` / `render.card`, and change labels on stat rows and cards.
+- `test_render_select.py` (+12): select screen images and banners (`select_image_plan`, `select_images_due`,
+  `select_images_out`, `select_title_plan`, `select_banner`), cards built once a frame, and the art / text cards.
+
+`ui_ok` now holds only the pty-driven `report pane:` / `select screen:` asserts; the definitions that only the moved
+asserts read (`done`, `rep`, `mk`, `mm`, `mt`, `sm`, `sst`, `srs`, `srep`, `PH`, `srows_of`, `png`, `empty`) are
+gone with them.
+
+- `art.ART_DIR`, `common.PARTY_DIR` / `ERROR_LOG`, `builtins.open`, `render.card` and `TMUX` go through
+  `monkeypatch`; the image files are written to `tmp_path` per test.
+- The unreadable-image assert caught any exception to check that none was raised; the test calls `send_image`
+  directly, so an exception fails it.
 
 ## Gates
 
