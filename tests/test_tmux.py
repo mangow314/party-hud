@@ -42,6 +42,7 @@ class Server:
         env.update(
             LC_COLLATE="C",
             XDG_RUNTIME_DIR=os.path.join(self.tmp, "xdg"),
+            XDG_STATE_HOME=os.path.join(self.tmp, "state"),
             TMUX_TMPDIR=self.tmp,
             PYTHONDONTWRITEBYTECODE="1",
         )
@@ -55,7 +56,7 @@ class Server:
         return self.run("tmux", "-L", "party-test", *args).stdout.rstrip("\n")
 
     def run(self, *cmd: str, env: dict[str, str] | None = None) -> subprocess.CompletedProcess[str]:
-        return subprocess.run(cmd, env=env or self.env, capture_output=True, text=True, check=False)
+        return subprocess.run(cmd, env=env or self.env, capture_output=True, text=True, check=False, timeout=60)
 
     def lines(self, *args: str) -> list[str]:
         out = self.t(*args)
@@ -101,9 +102,7 @@ class Server:
             TMUX=self.t("display", "-p", "#{socket_path},#{pid},0"),
             TMUX_PANE=self.host,
         )
-        return subprocess.run(
-            ["python3", PARTY, *args], env=env, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, check=False
-        )
+        return self.run("python3", PARTY, *args, env=env)
 
     def attach(self):
         attach = "stty cols 200 rows 50; tmux -L party-test attach -t a"
@@ -336,9 +335,11 @@ def test_summon_prints_the_new_pane_id(srv):
     os.chmod(os.path.join(srv.fake, "agy"), 0o755)
     # tmux 3.8 gives a split-window pane the PATH of the client that sent the command, not the global one; set both
     srv.t("set-environment", "-g", "PATH", f"{srv.fake}:{srv.env['PATH']}")
-    srv.member = srv.as_host("--summon", "agy", "--timeout", "30").stdout.strip()
+    p = srv.as_host("--summon", "agy", "--timeout", "30")
+    srv.member = p.stdout.strip()
     srv.crew = f"crew-{srv.host.lstrip('%')}"
-    assert srv.member
+    assert p.returncode == 0, p.stderr
+    assert re.fullmatch(r"%\d+", srv.member), p.stderr
 
 
 def test_summon_member_sits_in_crew_session(srv):
@@ -351,17 +352,20 @@ def test_summon_crew_session_has_no_sidebar(srv):
 
 
 def test_ask_prints_the_time_it_sent(srv):
-    srv.sent = srv.as_host("--ask", srv.member, "hello").stdout.strip()
-    assert srv.sent
+    p = srv.as_host("--ask", srv.member, "hello")
+    srv.sent = p.stdout.strip()
+    assert p.returncode == 0, p.stderr
+    assert srv.sent, p.stderr
 
 
 def test_report_text_wait_after_returns_the_reply(srv):
-    out = srv.as_host("--report-text", srv.member, "--wait", "--after", srv.sent, "--timeout", "30").stdout
-    assert out.strip() == "party-test-reply-42"
+    p = srv.as_host("--report-text", srv.member, "--wait", "--after", srv.sent, "--timeout", "30")
+    assert (p.stdout.strip(), p.returncode) == ("party-test-reply-42", 0), p.stderr
 
 
 def test_dismiss_closes_a_member_whose_report_was_read(srv):
-    assert srv.as_host("--dismiss", srv.member).returncode == 0
+    p = srv.as_host("--dismiss", srv.member)
+    assert (p.stdout, p.returncode) == ("", 0), p.stderr
 
 
 def test_dismiss_last_member_ends_crew_session(srv):
@@ -372,7 +376,7 @@ def test_dismiss_last_member_ends_crew_session(srv):
 @pytest.mark.parametrize("args", [("--report-text",), ("--ask", "hello"), ("--dismiss",)], ids=lambda a: a[0])
 def test_gone_member_names_the_missing_pane_and_exits_2(srv, args):
     p = srv.as_host(args[0], srv.member, *args[1:])
-    assert (p.stdout.strip(), p.returncode) == (f"no such pane: {srv.member}", 2)
+    assert ((p.stdout + p.stderr).strip(), p.returncode) == (f"no such pane: {srv.member}", 2)
 
 
 def test_sidebar_panes_are_titled_party_hud(srv):
@@ -413,7 +417,7 @@ def test_restore_new_windows_get_a_sidebar_afterwards(srv):
 
 def test_restore_end_without_begin_exits_2(srv):
     p = srv.as_host("--restore-end", srv.place(srv.host))
-    assert (p.stdout.strip(), p.returncode) == ("--restore-end: run --restore-begin before the restore", 2)
+    assert ((p.stdout + p.stderr).strip(), p.returncode) == ("--restore-end: run --restore-begin before the restore", 2)
 
 
 def test_q_in_a_sidebar_closes_all_sidebars(srv):
