@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# party.py unit tests (no tmux needed):
-# fixture rendering (card widths, status, HP bars, non-agent panes hidden) + key / mouse / cursor logic
+# party.py unit tests not yet moved to pytest (no tmux needed): key / mouse / cursor logic, report and select
+# pages, art, crew sub-commands; the fixture is tests/fixtures/sidebar.json
 set -euo pipefail
 # sort order follows the locale and differs on macOS; LC_ALL would override LC_COLLATE, so keep it as LC_CTYPE (UTF-8).
 if [ -n "${LC_ALL:-}" ]; then export LC_CTYPE="$LC_ALL"; unset LC_ALL; fi
@@ -24,96 +24,11 @@ across() { # file $2 matches regex $1, which may span lines (BSD grep -z does no
   python3 -c 'import re, sys; sys.exit(not re.search(sys.argv[1], open(sys.argv[2], encoding="utf-8").read(), re.S))' "$1" "$2"
 }
 
-cat >"$tmp/fixture.json" <<'EOF'
-{
-  "panes": [
-    {"session_name":"Studio","window_index":"1","window_name":"Frontend","window_active":"1","session_attached":"1",
-     "pane_id":"%1","pane_active":"1","pane_current_command":"claude","pane_current_path":"/r/studio","@workmux_pane_status":"🤖"},
-    {"session_name":"Studio","window_index":"2","window_name":"Review","window_active":"0","session_attached":"1",
-     "pane_id":"%2","pane_active":"1","pane_current_command":"claude","pane_current_path":"/r/studio/src","@workmux_pane_status":"💬"},
-    {"session_name":"Studio","window_index":"3","window_name":"nvim","window_active":"0","session_attached":"1",
-     "pane_id":"%3","pane_active":"1","pane_current_command":"nvim","pane_current_path":"/r/lib","@workmux_pane_status":""},
-    {"session_name":"Studio","window_index":"3","window_name":"nvim","window_active":"0","session_attached":"1",
-     "pane_id":"%9","pane_active":"0","pane_current_command":"python3","pane_current_path":"/r/side","@workmux_pane_status":"",
-     "@party_sidebar":"1"},
-    {"session_name":"Server","window_index":"1","window_name":"一個很長很長的中文視窗名稱","window_active":"1","session_attached":"0",
-     "pane_id":"%4","pane_active":"1","pane_current_command":"claude","pane_current_path":"/r/server","@workmux_pane_status":""}
-  ],
-  "now": 10000,
-  "sessions": {"%1":{"sid":"s1","name":"","status":"busy"},"%2":{"sid":"s2","name":"審查員","status":"idle"},
-               "%4":{"sid":"s4","name":"","status":"idle"}},
-  "transcripts": {"s2":"/t/2","s4":"/t/4"},
-  "party": {"%1":{"session_id":"s1","ctx_left":88,"ctx_size":200000,"transcript":"/t/1","model":"Opus 5.5"},"%2":{"session_id":"old","ctx_left":32,"transcript":"/t/old"}},
-  "cache": {"/t/1":[8920,3600,24000],"/t/2":[9000,300,60000],"/t/4":[5000,300,150000]},
-  "summons": {"/t/1":[{"type":"executor","desc":"Execute ticket 001"}]}
-}
-EOF
-
-# Width 33 = drawable width of the default 34-column sidebar after borders
-python3 "$party" --fixture "$tmp/fixture.json" --width 33 >"$tmp/out.ansi"
-sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' "$tmp/out.ansi" >"$tmp/out.txt"
-
-# Every box line (starting with a frame char) must be exactly 33 columns wide (CJK counts as 2)
-widths_ok() {
-  python3 - "$1" <<'EOF'
-import sys, unicodedata
-lines = [l for l in open(sys.argv[1]).read().splitlines() if l[:1] in ("╭", "│", "╰", "╔", "║", "╚")]
-width = lambda l: sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in l)
-bad = [l for l in lines if width(l) != 33]
-print("\n".join(bad), file=sys.stderr)
-sys.exit(1 if bad or not lines else 0)
-EOF
-}
-check "Every box line is 33 columns wide" widths_ok "$tmp/out.txt"
-check "Layout: Squads 2, then cards of the viewed squad right below (Studio: 2 agents -> 2 cards, nvim excluded)" \
-  across "╭─ Squads 2 .*[╭╔][─═] claude [─═].*[╭╔][─═] claude [─═]" "$tmp/out.txt"
-lacks() { ! grep -q -- "$1" "$2"; } # file $2 does not contain $1
-check "Cards don't list other squads' members" lacks "z zzz" "$tmp/out.txt"
-check "Viewed squad (Studio): gold ▌ bar in the left column" grep -qE "^│▌ .* Studio" "$tmp/out.txt"
-check "Studio summary: waiting !1, busy ⠋1; own squad gets the location pin after its name" grep -qE "Studio 󰍎 +!1 ⠋1 +│" "$tmp/out.txt"
-check "Server: only an asleep member -> summary zzz 1 (expired cache still visible)" grep -qE "Server +zzz 1 │" "$tmp/out.txt"
-next_line_has() { grep -A1 -- "$1" "$tmp/out.txt" | sed -n 2p | grep -q -- "$2"; } # the line after $1 contains $2
-check "Waiting member sorts before busy (Frontend)" across "審查員.*! wait.*Frontend.*⠋ busy" "$tmp/out.txt"
-check "Text card (no art): class icon, name, class, ... workmux 🤖 -> spinner + busy, on one line" \
-  grep -qE "Frontend (Warrior|Merchant|Thief|Cleric|Scholar|Hunter|Apothecary|Dancer) +⠋ busy ║" "$tmp/out.txt"
-check "Selected card: gold double frame, ❯ at the far left of the first row" across "38;2;226;178;74m╔═[^╝]*❯[^╝]*Frontend" "$tmp/out.ansi"
-check "Squad with someone waiting: name in orange (selected or not)" grep -qE "1;38;2;240;160;80mStudio" "$tmp/out.ansi"
-check "Unselected card: dim thin frame (a waiting card keeps its orange frame), dimmed name" \
-  across "38;2;240;160;80m╭─[^╯]*38;2;138;143;168m審查員" "$tmp/out.ansi"
-check "HP: 14-column value area = heart icon + label + right-aligned value (176k left / 200k max)" grep -qE "║ .HP  176k/200k " "$tmp/out.txt"
-check "SP: minutes left / 60m, on the line right after HP" next_line_has "HP  *176k/200k" "SP  *42/60m "
-check "HP row right side: chip icon + space + model base name (no version or effort)" grep -qE "HP +176k/200k +. Opus ║" "$tmp/out.txt"
-check "SP row right side: number of summoned subagents (no longer listed one per line)" grep -qE "SP +42/60m +.1 ║" "$tmp/out.txt"
-check "No subagent detail lines in the card" lacks "executor" "$tmp/out.txt"
-check "Name from the Claude session name; stale pane cache with another session is dropped, HP estimated from transcript (140k)" \
-  across "審查員.*! wait.*HP +140k/200k" "$tmp/out.txt"
-check "HP threshold color: 88% teal (bar = colored underline)" grep -qE "4m.\[58;2;126;214;168m" "$tmp/out.ansi"
-
-# Selecting a member of another squad: the viewed squad and the cards follow
-python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
-print(render.render(collect.collect(sys.argv[2])["towns"], 33, "%4"))' "$party" "$tmp/fixture.json" >"$tmp/sel.ansi"
-sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' "$tmp/sel.ansi" >"$tmp/sel.txt"
-bar_only_server() { grep -qE "^│▌ .* Server" "$1" && ! grep -qE "^│▌ .* Studio" "$1"; }
-check "Select %4 -> Server has the gold bar, Studio doesn't" bar_only_server "$tmp/sel.txt"
-check "Select %4 -> only Server's 1 card" test "$(grep -cE '^[╭╔][─═] claude [─═]' "$tmp/sel.txt")" = 1
-check "Select %4 -> Studio members not listed" lacks "審查員" "$tmp/sel.txt"
-check "Idle with expired cache -> z asleep; no statusline cache -> HP 50k estimated from transcript, SP 0" \
-  across "一個很.*z zzz.*HP +50k/200k +║.*SP +0/60m +║" "$tmp/sel.txt"
-check "HP threshold color: 25% yellow, value turns yellow too" across "58;2;226;178;74m.*1;38;2;226;178;74m5" "$tmp/sel.ansi"
-check "Viewed squad with nothing to flag: gold name; unviewed squad with someone waiting: orange ! on the left" \
-  across "38;2;240;160;80m!.*Studio.*38;2;226;178;74mServer" "$tmp/sel.ansi"
-check "Select %4 -> every box line is 33 wide" widths_ok "$tmp/sel.txt"
-python3 -c 'import os,sys
-sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
-t=collect.collect(sys.argv[2])["towns"]; e=t+[dict(t[1],name="Empty",agents=[])]
-print(render.render(e,33,"%1",focus="squad",squad=2))' "$party" "$tmp/fixture.json" \
-  | sed $'s/\x1b\\[[0-9;?]*[a-zA-Z]//g' >"$tmp/squad.txt"
-check "Empty squad selected -> every box line is 33 wide" widths_ok "$tmp/squad.txt"
+fixture="$root/tests/fixtures/sidebar.json"
 
 # Sidebar: sidebar pane not a squad member, peek, key hints, row highlight, key handling
 ui_ok() {
-  python3 - "$party" "$tmp/fixture.json" <<'EOF'
+  python3 - "$party" "$fixture" "$tmp" <<'EOF'
 import os, re, sys
 sys.path.insert(0, os.path.dirname(sys.argv[1])); from party_hud import art, claude_log, codex_log, collect, common, markdown, processes, render, sidebars, ui
 snap = collect.collect(sys.argv[2]); towns = snap["towns"]
@@ -122,46 +37,7 @@ strip = lambda x: re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", x)
 fails = []
 def ok(cond, msg):
     if not cond: fails.append(msg)
-ok(snap["panes"]["%9"]["window_panes"] == 0 and "%9" not in [a["pane"] for a in agents], "Sidebar pane is not a squad member")
-peek = strip(render.render(towns, 33, "%1", ["line1", "", "最後一行", "", ""], "sidebar"))
-ok("Peek · Frontend" in peek and "最後一行" in peek and "│ HP" not in peek, "v peek: pane output replaces the status box")
-hint = strip(render.render(towns, 34, "%1", None, "sidebar")).splitlines()[-1]
-ok("? keys" in hint and "q hide" in hint and not re.search(r"[一-鿿]", hint), "Sidebar key hints are in English")
-ok(any(common.bg("view") in l and "Server" in l for l in render.render(towns, 33, "%1", focus="squad", squad=1).splitlines()), "Selected squad row gets the warm-gold background")
-tall = strip(render.render(towns, 33, "%1", [f"L{i}" for i in range(100)], "sidebar", 40)).splitlines()
-ok(len(tall) == 40 and any("L99" in l for l in tall) and sum(l.startswith("│L") for l in tall) > 12, "v peek fills the remaining height")
-ok(len(tall) == 40 and "q hide" in tall[-1], "v peek: key hints stay on the last line; q still fits at width 33")
-low = strip(render.render(towns, 33, "%1", None, "sidebar", 40)).splitlines()
-ok(len(low) == 40 and "q hide" in low[-1], "Key hints pinned to the last line (blank gap when content is short)")
 empty = towns + [dict(towns[1], name="Empty", agents=[])]
-eq = strip(render.render(empty, 33, "%1", focus="squad", squad=2))
-ok(re.search(r"Empty +\(empty\) │", eq) and "no agents ⏎ open session" in eq and "╭─ claude" not in eq,
-   "Squad without agents: row says (empty), plus one info card: no agents, Enter opens the session")
-import unicodedata
-wd = lambda l: sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in 'WF' else 1 for c in l)
-e3 = towns + [dict(towns[1], name=f"E{k}", agents=[]) for k in range(4)] + [towns[0]]
-for art_on in (False, True):
-    ec = strip(render.render(e3, 33, "%1", art=art_on)).splitlines()
-    ecur = strip(render.render(e3, 33, "%1", focus="squad", squad=3, art=art_on)).splitlines()
-    e1 = strip(render.render(e3[:3] + e3[-1:], 33, "%1", art=art_on)).splitlines()
-    ev = strip(render.render(e3[2:5] + e3[:1], 33, "%zz", art=art_on))
-    ok(sum("+4 empty" in l for l in ec) == 1 and not any("E0" in l or "(empty)" in l for l in ec) and all(wd(l) == 33 for l in ec if l[:1] in "╭│╰")
-       and sum("+1 empty" in l for l in ecur) == 0 and sum("+" in l and "empty" in l for l in ecur) == 1 and "+2 empty" in "".join(ecur)
-       and "".join(ecur).count("(empty)") == 2 and "E0" in "".join(ecur),
-       f"2+ consecutive empty squads collapse into one dim +N empty row; the squad under the cursor stays and splits the run, a lone one stays as a (empty) row (art={art_on})")
-    ok("+2 empty" in ev and "+3 empty" not in ev and "E0" in ev and "no agents" in ev,
-       f"The viewed squad is not folded even with no cursor on it, so its info card has a visible row (art={art_on})")
-    ok("E0" in "".join(e1) and "(empty)" in "".join(e1) and "+1 empty" not in "".join(e1),
-       f"A single empty squad is never folded into +1 empty (art={art_on})")
-noSP = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card({**agents[0], "sp": None, "fresh": False}, 33, True)]
-ok(len(noSP) == 4 and not any("SP" in l for l in noSP) and any("HP" in l for l in noSP) and all(wd(l) == 33 for l in noSP),
-   "No SP data: the card has no SP row (one row fewer), lines still exactly 33 wide")
-noSPa = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card({**agents[0], "sp": None, "fresh": False}, 33, False, True)]
-ok(len(noSPa) == render.PORTRAIT_CELLS[1] + 2 and not any("SP" in l for l in noSPa) and all(wd(l) == 33 for l in noSPa),
-   "Art card without SP: blank row pads the text so the card is as tall as the portrait, lines exactly 33 wide")
-rm3 = []
-st3 = strip(render.render(towns, 33, "%1", row_map=rm3)).splitlines()
-ok(all(rm3[i] == ("agent", "%2") for i, l in enumerate(st3) if "Thief" in l or "140k" in l), "Clicking a row of a member's status box selects that member")
 
 done = dict(agents[0], status="done", hp_left=410000, hp_max=1000000)
 rep = {"text": "## 結果\n完成了報告畫面\n" + "很長的一行中文" * 20, "start": 100, "end": 860}
@@ -1189,8 +1065,6 @@ ok(sj.count("\x1b[H") == 2 and "L1" in sj[sj.rindex("\x1b[H"):] and "EXITED" in 
 fit = report_session([b"j", b"q"], rows=40, lines=3, draws=[1, 1])
 ok(fit.count("\x1b[H") == 1, "report pane: a report that fits the pane does not redraw on j")
 ok("EXITED" in twice, "report pane: q ends the program, which closes the pane")
-ok(render.sp_points({"sp": (10.0, 300)}) == 1 and render.sp_points({"sp": (3600.0, 3600)}) == 60 and render.sp_points({"sp": None}) is None,
-   "SP = cache minutes left (rounded up, max 60); unknown is --")
 for t in towns:
     for a in t["agents"]:
         a["window"] = "@" + a["pane"][1:]  # in the fixture every member has its own window
@@ -1279,82 +1153,10 @@ ok(seq.startswith("\x1bPtmux;\x1b\x1b_Ga=T,U=1,f=100,i=7,c=6,r=3,q=2,m=1;") and 
    "Image upload: base64 in 4096-char chunks, wrapped in tmux passthrough, last chunk m=0")
 ok(art.kitty_delete(5) == "\x1bPtmux;\x1b\x1b_Ga=d,d=I,i=5,q=2\x1b\x1b\\\x1b\\",
    "Image delete: a=d,d=I for the id, wrapped in tmux passthrough, so a resend with new cells is not shown at the old size")
-aw = strip(render.render(towns, 33, "%1", row_map=(arm := []), art=True)).splitlines()
-w = lambda l: sum(0 if unicodedata.combining(c) else 2 if unicodedata.east_asian_width(c) in "WF" else 1 for c in l)
-ok(all(w(l) == 33 for l in aw if l[:1] in "╭│╰"), "Art: every box line is 33 wide")
-ok(re.search(r"Studio +!1 ⠋1 │\n│▌\U0010EEEE.{8}\U0010EEEE.{2} 2 members · 1 waiting +\U000F034E │", "\n".join(aw))
-   and re.search(r"Server +zzz 1 │\n│ \U0010EEEE.{8}\U0010EEEE.{2} 1 member · 1 asleep +│", "\n".join(aw)),
-   "Art: two rows per squad (crest + name + summary; row 2 N members, plus · N waiting or · N asleep)")
-ok(strip(render.squad_summary([{"status": s} for s in ("sleep", "idle", "idle", "done")])[0]) == "✓1 ·2 zzz 1",
-   "Squad summary counts idle members (·N) between done and asleep")
-hr = render.render(towns, 33, "%4", art=True, here="Studio").splitlines()
-tinted = [strip(l) for l in hr if common.bg("view") in l]
-ok(len(tinted) == 2 and "Server" in tinted[0] and "member" in tinted[1] and all(t.startswith("│▌") for t in tinted)
-   and any("Studio" in strip(l) for l in hr) and sum(render.PIN_ICON in strip(l) for l in hr) == 1
-   and render.PIN_ICON in strip(hr[hr.index(next(l for l in hr if "Studio" in strip(l))) + 1]),
-   "Viewed squad (select %4 -> Server): both rows warm-gold + gold bar; own squad Studio only gets the pin")
-ok(sum(1 for t in arm if t == ("squad", 0)) == 2 and sum(1 for t in arm if t == ("squad", 1)) == 2,
-   "Art: both squad rows map to that squad (mouse)")
-fr = next(i for i, l in enumerate(aw) if "Frontend" in l)
-ok(aw[fr].startswith("║❯") and re.search(f"{common.class_icon(next(a for a in agents if a['pane'] == '%1'))} Frontend +⠋ busy ║", aw[fr])
-   and re.search(f"\U0010EEEE.{{2}} {render.HP_ICON}HP  176k/200k +{render.MODEL_ICON} Opus ║", aw[fr + 1])
-   and re.search(f"SP +42/60m +{common.SUMMON_ICON}1 ║", aw[fr + 2])
-   and aw[fr + 3].startswith("╚") and aw[fr - 1].startswith("╔═ claude"),
-   "Art: card = 3-row portrait (class icon + name + status, HP + model, SP + subagent count), no detail lines")
-ok(render.model_badge({"model": "Opus 5.5"}, 7) == render.MODEL_ICON + " Opus" and render.model_badge({"model": "Sonnet 5.5"}, 7) == "Sonnet"
-   and render.model_badge({}, 7) == "", "Model: chip icon + space + base name; name only if it doesn't fit (icon would overlap); blank without data")
-nar = {"hp": 100, "hp_left": 1_000_000, "hp_max": 1_000_000, "model": "Opus 5.5", "sp": None}
-n31, n30 = (re.sub(r"\033\[[0-9;:]*m", "", render.stat_rows(nar, w)[0]) for w in (20, 19))
-nar2 = dict(nar, hp_left=890_000, hp_max=1_200_000)
-n30b = re.sub(r"\033\[[0-9;:]*m", "", render.stat_rows(nar2, 19)[0])
-ok(n31.endswith(f"HP     1M/1M {render.MODEL_ICON} Opus") and n30.endswith(f"HP    1M/1M {render.MODEL_ICON} Opus") and common.cw(n30) == 19
-   and n30b.endswith("HP 890k/1.2M  Opus"),
-   "Narrow sidebar: the HP value (left/max) stays whole and the model badge yields; 1.0M as 1M; the max is dropped only if the row is still too narrow")
-n17, n13 = (re.sub(r"\033\[[0-9;:]*m", "", render.stat_rows(nar2, w)[0]) for w in (17, 11))
-ok(n17.rstrip().endswith("HP 890k/1.2M") and "Op" not in n17 and common.cw(n17) == 17 and n13.endswith("890k") and "/" not in n13 and common.cw(n13) == 11,
-   "Narrow sidebar: badge dropped (no stub) before the value is cut; max dropped only when the row cannot hold it")
-long_a = dict(nar2, name="party-hud-long-name", cls=0, kind="claude", status="working", sp=(600.0, 3600))
-nc = [re.sub(r"\033\[[0-9;:]*m", "", l) for l in render.card(long_a, 28, True, True)]
-ok(all(w(l) == 28 for l in nc) and "890k/1.2M" in nc[2] and "…" in nc[1] and "party-hud-long-name" not in nc[1],
-   "Narrow art card: name truncated with … while the HP value stays whole; every line exactly 28 wide")
-text = render.render(towns, 33, "%1", hints="sidebar") + render.render(towns, 33, "%1", art=True) + render.render(towns, 33, "%1", ["x"], "sidebar")
-en_lv = {"live": True, "text": "", "start": 1000, "end": None, "tool": "Bash: ls", "said": "thinking",
-         "prev": {"text": "## Earlier\nold report", "start": 1, "end": 2}, "task": {"ask": "do it", "files": [], "cmds": 2, "agents": 0, "dir": "~/x", "branch": "main", "cwd": "/x"}}
-en_rep = {"text": "## Result\nall done", "start": 100, "end": 860}
-en_sub = {"type": "executor", "desc": "Execute ticket 001", "text": "## Result\nsub said hi"}
-en_busy = dict(done, summons=[{"type": "executor", "desc": "Branch"}, {"type": "executor", "desc": "Branch 2"}])
-en_pages = [render.render_report(dict(done, status="working"), "Studio", en_lv, [], 60, now=1723),
-            render.render_report(dict(done, status="working", summons=[{"type": "executor", "desc": "Branch"}]), "Studio", en_lv, [], 60, now=1723),
-            render.render_report(en_busy, "Studio", dict(en_rep, subagents=[en_sub]), [], 60),
-            render.render_report(en_busy, "Studio", en_rep, [], 60, art=True, banner=(40, 5)),
-            render.render_report(dict(done, status="working", summons=[{"type": "executor", "desc": "Branch"}]), "Studio", en_lv, [], 150, art=True, banner=(118, 15), portrait=(24, 14), now=1723),
-            render.render_report(en_busy, "Studio", en_rep, [], 150, art=True, banner=(118, 15), portrait=(24, 14))]
-text += "".join(en_pages)
-for nm in [t["name"] for t in towns] + [a["name"] for a in agents] + [s["desc"] for a in agents for s in a.get("summons", [])]:
-    text = text.replace(nm, "")
-ok(not re.search(r"[一-鿿＀-￯]", text), "UI text is all English (only session / member names may be CJK)")
-low = {"hp": 8, "hp_left": 16000, "hp_max": 200000, "sp": None, "fresh": False}
-red, dim = "\x1b[1;38;2;208;96;90m", "\x1b[1;38;2;138;143;168m"
-render._tick = 0; on = render.stat_rows(low, 22)[0]
-render._tick = 1; off = render.stat_rows(low, 22)[0]
-render._tick = 0
-mid = render.stat_rows(dict(low, hp=30, hp_left=60000), 22)[0]
-ok(red in on and red not in off and dim in off and "\x1b[1;38;2;226;178;74m" in mid and red not in mid,
-   "HP <= 10%: value and bar blink red / dim every second; 30% is yellow, no blink")
-w22 = lambda s: len(strip(s)) == 22
-ok(all(w22(r) for a in (low, {"hp": None, "sp": None}, {"hp": 100, "sp": None, "fresh": True}) for r in render.stat_rows(a, 22)),
-   "HP / SP rows are exact width (with max, unknown, percent only)")
-mr = render.meter_row("HP", "hp", "124k", "fg", "/200k", 50, "hp", 22)
-ok(strip(mr) == "HP" + " " * 11 + "124k/200k" and mr.count(render.ul("hp")) == 11 and mr.count(render.ul("line")) == 11,
-   "Value row: label left, value right; full-row underline, first 50% in bar color, rest dim")
-ok(render.meter_row("SP", "sp", "--", "fg", "", None, "dim", 22).count(render.ul("line")) == 22, "Unknown value: whole underline is dim")
 nw = [{"pane": p, "status": s} for p, s in (("%1", "idle"), ("%2", "done"), ("%3", "waiting"), ("%4", "done"))]
 ok(ui.next_waiting(nw, "%1") == "%3" and ui.next_waiting(nw, "%3") == "%3"
    and ui.next_waiting([dict(a, status="idle") if a["status"] == "waiting" else a for a in nw], "%2") == "%4",
    "n / prefix a: jump to waiting first, then cycle unseen done")
-dt = [dict(towns[1], agents=[dict(towns[1]["agents"][0], status="done")])]
-dw = strip(render.render(dt, 33, None, art=True))
-ok(render.squad_alert(dt[0]["agents"]) == "done" and re.search(r"1 member · 1 done", dw), "Squad with unseen done member: row 2 says · N done")
 lead_idle = {"pane": "%1", "status": "idle"}
 crew_done = {"pane": "%2", "status": "done", "lead": "%1"}
 solo_done = {"pane": "%3", "status": "done"}
@@ -1366,9 +1168,6 @@ ok([m["pane"] for _, m in ui.report_queue([{"name": "A", "agents": [lead_idle, c
 ok(ui.next_waiting([lead_idle, crew_done, solo_done], "%1") == "%3" and ui.next_waiting([lead_idle, crew_done], "%1") is None
    and ui.next_waiting([lead_idle, crew_done, crew_wait], "%1") == "%4",
    "crew done: prefix a skips it; a waiting crew still counts")
-ok(render.squad_alert([lead_idle, crew_done]) is None and render.squad_alert([lead_idle, crew_done, crew_wait]) == "waiting"
-   and render.squad_alert([lead_idle, crew_done, solo_done]) == "done",
-   "crew done: squad stays dark; a waiting crew or a plain done member still lights it")
 cr = art.crest_ids(["dotfiles", "homelab", "notes", "projects", "scratch"])
 ok(len(set(cr.values())) == 5, "Crests: unique for up to 8 squads (real collisions: notes/projects, dotfiles/scratch)")
 ok(len(set(art.crest_ids(f"s{i}" for i in range(8)).values())) == 8 and len(art.crest_ids(f"s{i}" for i in range(9))) == 9,
@@ -1479,47 +1278,6 @@ ok(f"\x1b[38;2;{pid >> 16 & 255};{pid >> 8 & 255};{pid & 255}m" in render.render
    and pid == art.PORTRAIT_ID + fe["cls"], "Portrait chosen by class")
 ok(all(len({a["cls"] for a in t["agents"]}) == len(t["agents"]) for t in towns)
    and len(set(common.spread([f"sess-{i}" for i in range(6)], 8).values())) == 6, "Classes: unique within a squad (6 agents -> 6 classes)")
-ok("\U0010EEEE" not in render.render(towns, 29, "%1", art=True), "Sidebar too narrow (< 30): falls back to text")
-rm = []
-lines = strip(render.render(towns, 33, "%1", row_map=rm)).splitlines()
-ok(len(rm) <= len(lines), "Mouse row map is no longer than the screen")
-ok(all(rm[i] == ("agent", "%2") for i, l in enumerate(lines) if "審查員" in l) and
-   all(rm[i] == ("agent", "%1") for i, l in enumerate(lines) if "Frontend" in l) and
-   all(rm[i] == ("squad", 1) for i, l in enumerate(lines) if "Server" in l), "Mouse rows -> member / squad")
-many = [dict(towns[0], agents=[dict(agents[0], pane=f"%{i}", summons=[]) for i in range(100, 140)])]
-short = strip(render.render(many, 33, "%130", None, "sidebar", 24, rm2 := [])).splitlines()
-ok(len(short) <= 24 and len(rm2) <= len(short) and ("agent", "%130") in rm2, "Too many members: output fits the height, selected member stays visible")
-up = next((l for l in short if "▲" in l), ""); down = next((l for l in short if "▼" in l), "")
-shown = len({p for p in rm2 if p and p[0] == "agent"})
-ok(re.fullmatch(r" *▲ \d+ more *", up) and re.fullmatch(r" *▼ \d+ more *", down)
-   and int(up.split()[1]) + int(down.split()[1]) + shown == 40, "Cards don't fit: ▲ / ▼ N more above and below, summing to the hidden count")
-ok(not any("more" in l for l in lines), "Everything fits: no ▲ / ▼ hints")
-crowd = [dict(towns[0], name=f"Sq{k}", agents=[dict(agents[0], pane=f"%{200 + 2 * k + j}", summons=[], focus=False) for j in range(2)]) for k in range(12)]
-for use_art in (True, False):
-    for k, pane in ((0, "%200"), (11, "%222")):
-        cm = []
-        cl = strip(render.render(crowd, 33, pane, None, "sidebar", 24, cm, art=use_art)).splitlines()
-        ok(len(cl) == 24 and cl[-1].lstrip().startswith("⏎") and sum(l.startswith("╔") for l in cl) == 1 and any(l.startswith("║❯") for l in cl)
-           and any(l.startswith("╚") for l in cl) and ("agent", pane) in cm and ("squad", k) in cm,
-           f"12 squads at 33x24 (art={use_art}, squad {k}): selected card fully visible with ❯, viewed squad listed, hint row last")
-cm = []
-cl = strip(render.render(crowd, 33, "%222", None, "sidebar", 24, cm, art=True)).splitlines()
-box_end = next(i for i, l in enumerate(cl) if l.startswith("╰"))
-shown = {p[1] for p in cm if p and p[0] == "squad"}
-ok(re.fullmatch(r"│ *▲ \d+ more *│", cl[1]) and int(cl[1].strip("│ ").split()[1]) == 12 - len(shown) and 11 in shown and 0 not in shown
-   and not any("▼" in l for l in cl[:box_end]), "Squads don't fit, last squad viewed: ▲ N more in the frame, N = hidden squads, no ▼")
-cm = []
-cl = strip(render.render(crowd, 33, "%200", None, "sidebar", 24, cm, art=True)).splitlines()
-ok(cm[0] is None and cm[1] == ("squad", 0) and cm[box_end - 1] is None and cm[box_end] is None and "▼" in cl[box_end - 1]
-   and all(cm[i] == ("squad", (i - 1) // 2) for i in range(1, box_end - 1)) and int(cl[box_end - 1].strip("│ ").split()[1]) == 12 - len({p[1] for p in cm if p and p[0] == "squad"}),
-   "Squads don't fit: the ▼ more row maps to None, squad rows map to their own index")
-cm = []
-cl = strip(render.render(crowd[:3], 33, "%200", None, "sidebar", 24, cm, art=True)).splitlines()
-ok(not any("more" in l for l in cl) and cl[0].startswith("╭─ Squads 3") and cl[7].startswith("╰") and cm[:8] == [None, *[("squad", k // 2) for k in range(6)], None],
-   "Squads all fit: no more rows, frame holds every squad row")
-sq = strip(render.render(towns, 33, "%1", focus="squad", squad=1)).splitlines()
-ok(any(l.startswith("│▌") and "Server" in l for l in sq) and not any(l.startswith("╔") for l in sq),
-   "Squad focus (Server): gold bar on the squad row, no card gets the selected gold frame")
 pi = ui.parse_input
 ok(pi("\x1b[<0;5;7M\x1b[<0;5;7m") == [("click", 6)], "Left mouse press -> click row 7 (release ignored)")
 ok(pi("\x1b[<35;5;3M") == [("hover", 2)], "Mouse move -> hover row 3")
@@ -1770,17 +1528,12 @@ ok(pt["focus"] == "party" and pt["sel"] == "%2", "Mouse over a card -> select th
 ok(ui.next_waiting(agents, "%1") == "%2" and ui.next_waiting(agents, "%2") == "%2"
    and ui.next_waiting([a for a in agents if a["status"] != "waiting"], "%1") is None,
    "\"Next waiting\" for prefix a: searches forward, returns self if alone, None if none")
-common.CURSOR = sys.argv[2] + ".cursor"
+common.CURSOR = os.path.join(sys.argv[3], "fixture.cursor")
 a = {"focus": "squad", "sel": "%4", "squad": 1, "peek": True}
 b = {"focus": "party", "sel": "%1", "squad": None, "peek": False}
 common.save_cursor(a); common.load_cursor(b)
 ok(b == {"focus": "squad", "sel": "%4", "squad": 1, "peek": False}, "Shared cursor: one sidebar writes, another reads the same cursor (peek not shared)")
 ok(hk("q")[1] == "hide" and hk("\x1b")[1] == "back" and hk("P")[1] == "back", "Sidebar: q hides, Esc and P return to the previous pane")
-many = [dict(towns[0], name=f"s{i}") for i in range(12)]
-rm = []
-tall = render.render(many, 33, "%1", height=24, hints="sidebar", row_map=rm, art=True)
-ok(len(tall.split("\n")) == 24 and len(rm) == 23,
-   "Squad list taller than the pane: the row map is cut with the frame, the hint row maps to nothing")
 print("\n".join(fails), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
@@ -2301,7 +2054,7 @@ check "party.py imports only what it needs: resident sub-commands skip argparse,
 
 # the resident sub-commands leave through ui.leave_without_teardown, and only when their screen returns
 leaves_ok() {
-  python3 - "$party" "$tmp/fixture.json" <<'EOF'
+  python3 - "$party" "$fixture" <<'EOF'
 import fcntl, io, os, pty, select, struct, subprocess, sys, termios, time
 root = os.path.dirname(sys.argv[1])
 sys.path.insert(0, root)

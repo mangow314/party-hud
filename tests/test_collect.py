@@ -9,14 +9,11 @@ import time
 import unicodedata
 
 import pytest
+from screen import strip
 
 from party_hud import claude_log, codex_log, collect, common, render, sidebars
 
 FIXTURES = os.path.join(os.path.dirname(__file__), "fixtures")
-
-
-def strip(x):
-    return re.sub(r"\x1b\[[0-9;?]*[a-zA-Z]", "", x)
 
 
 def fixture_text(name):

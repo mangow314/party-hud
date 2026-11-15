@@ -29,9 +29,11 @@ the last batch lands.
 ## Shared pieces (first batch that needs them adds them)
 
 - `tests/conftest.py`: sets `XDG_RUNTIME_DIR` and `XDG_STATE_HOME` to a temp folder before `party_hud` is imported
-  (`common.PARTY_DIR` is computed at import), `LC_COLLATE=C`, and the `strip` helper for ANSI escapes.
-- `tests/fixtures/sidebar.json`: the fixture now written inline at the top of `party-test.sh` (lines 27-50).
-- `widths_ok` (every box line exactly 33 columns) becomes a helper in `conftest.py`.
+  (`common.PARTY_DIR` is computed at import) and `LC_COLLATE=C`.
+- `tests/fixtures/sidebar.json`: the two-squad fixture, read by `test_render_sidebar.py` and by `party-test.sh`.
+- `tests/screen.py`: `strip` (ANSI escapes), `width` (CJK = 2, combining = 0), `widths_ok` (every box line exactly
+  33 columns) and `has_line` (a `grep -E` on one line). Test modules import it like `records.py`, not from
+  `conftest.py`.
 - An autouse fixture in `conftest.py` clears the module-level memos between tests: `claude_log._long_turns`,
   `_cache_memo`, `_transcript_memo`, `codex_log._tail_memo`, `_rollout_meta`, `processes._ps_memo`. In bash they
   carried over from one assert to the next; a test that checks a memo builds it up inside that one test.
@@ -43,8 +45,8 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on) batch 2 removed 274 more and batch 3 214, so they are only a guide; each batch recounts
-by prefix when it starts.
+removed 441 lines (from about line 1237 on); batches 2, 3 and 4 removed 274, 214 and 247 more. They are only a guide;
+each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
 |---|---|---|---|---|
@@ -52,7 +54,7 @@ by prefix when it starts.
 | 1 | Collector readers (done) | see "Batch 1" below | `test_claude_log.py`, `test_codex_log.py`, `test_processes.py`, `test_report_for.py` | 63 |
 | 2 | Collect and snapshot (done) | see "Batch 2" below | `test_collect.py`, `test_codex_log.py` | 53 |
 | 3 | `--report-text` (done) | see "Batch 3" below | `test_report_text.py` | 37 |
-| 4 | Sidebar rendering | fixture cards and widths (52-113), squads, peek, fit (117-170, 2116-2163, 2333-2427) | `test_render_sidebar.py` | 76 |
+| 4 | Sidebar rendering (done) | see "Batch 4" below | `test_render_sidebar.py` | 70 |
 | 5 | Report page | report rows, live page, banners, queue (171-458) | `test_render_report.py` | 76 |
 | 6 | Select screen | roster, cards, preview, time ticks (459-812) | `test_render_select.py` | 48 |
 | 7 | Panes and keys | pane widths, fit, open/close, Tidy, key handling (813-1213, 2264-2332) | `test_ui.py`, `test_sidebars.py` | 101 |
@@ -121,6 +123,24 @@ waiting-for-input screen tail 27, `party.ask` 9, `common.tmux_run`'s timeout 1, 
   at `tmp_path`, so each starts with no `bells.json`.
 - The file turns off basedpyright's `reportArgumentType`: `report_text`'s `timeout` is inferred as `int` from its
   default, and the tests pass a float as `--timeout` does.
+
+## Batch 4: sidebar rendering (done)
+
+70 bash asserts became 76 tests in `test_render_sidebar.py` (three that looped over art on / off and one over four
+squad / art cases are `parametrize` cases): the 26 top-level `check` lines on the `--fixture` output and the selected
+%4 / empty squad renders, and 44 `ok(` calls in `ui_ok` on `render.render`, `render.card`, `stat_rows`, `meter_row`,
+`model_badge`, `squad_summary`, `squad_alert`, `sp_points` and the render row map: peek, key hints, empty squads,
+cards without SP, art cards and squad rows, narrow widths, HP colours, crowded sidebars and the `UI text is all
+English` check.
+
+The prefix ranges in the table above did not hold: they also covered keys, mouse input, `--restore-*`, report and
+select asserts. Those stay for batches 5-8, as do `Portrait chosen by class`, `Classes`, `Class icon fixed`, and the
+`ui` asserts on `crew done`.
+
+- `party.py --fixture` runs once per module in a subprocess, as the bash `check` lines ran it.
+- `render._tick` is set with `monkeypatch`; bash set it by hand and reset it to 0.
+- `party-test.sh` reads the fixture from `tests/fixtures/sidebar.json` instead of writing it to `$tmp`; `ui_ok` gets
+  `$tmp` as a third argument for its cursor file, which used to sit next to the fixture.
 
 ## Gates
 
