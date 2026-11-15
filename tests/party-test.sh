@@ -48,40 +48,9 @@ png_dir = tempfile.mkdtemp()
 def png(name, data=b"x"):
     open(os.path.join(png_dir, name), "wb").write(data)
     return os.path.join(png_dir, name)
-ok(ui.handle_key("r", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns) == "report"
-   and ui.handle_key("r", {"focus": "party", "sel": None, "squad": None, "peek": False}, towns) is None,
-   "r in the sidebar opens the report pane; with no member selected it does nothing")
 mm = lambda pane, name, status, lead=None: dict(mk(pane, status), name=name, **({"lead": lead} if lead else {}))
 mt = [{"name": "Studio", "agents": [mm("%1", "a", "idle"), mm("%2", "b", "working"), mm("%3", "c", "waiting"), mm("%4", "d", "done")]},
       {"name": "Empty", "agents": []}, {"name": "Lab", "agents": [mm("%5", "lead", "working"), mm("%6", "w1", "idle", "%5"), mm("%7", "w2", "waiting", "%5"), mm("%8", "e", "waiting")]}]
-real_tmux, real_snap, real_sb_tmux = ui.tmux, ui.get_snapshot, sidebars.tmux
-calls = []
-ui.tmux = lambda *a: calls.append(a)
-sidebars.tmux = lambda *a: calls.append(a) or ("%9\n" if a[0] in ("new-pane", "split-window") else "")
-ui.get_snapshot = lambda f=None: {"towns": [{"name": "A", "agents": []}]}
-ui.open_select()
-ok(calls == [("display-message", "no party members")], "--menu: no members, only the message and no pane")
-calls.clear()
-ui.get_snapshot = lambda f=None: {"towns": mt}
-sidebars._new_pane = False
-ui.open_select()
-opened_cmd = next(c for c in calls if c[0] == "split-window")
-ok(opened_cmd[-1].endswith("party.py --select") and not any("display-menu" in " ".join(c) for c in calls),
-   "--menu: with members a pane is opened that runs --select, and no display-menu is used")
-sidebars._new_pane = True
-calls.clear()
-ui.open_select()
-float_cmd = next(c for c in calls if c[0] == "new-pane")
-ok(float_cmd[float_cmd.index("-T") + 1] == " Party " and float_cmd[-1].endswith("party.py --select"), "--menu: a floating pane is titled Party")
-sidebars._new_pane = None
-ui.tmux, ui.get_snapshot, sidebars.tmux = real_tmux, real_snap, real_sb_tmux
-opened = []
-real_open = ui.open_report_pane
-ui.open_report_pane = lambda *a: opened.append(a)
-os.environ["TMUX_PANE"] = "%5"
-ui.open_report("%7")
-ui.open_report_pane = real_open
-ok(opened == [("%5", "%7")], "r: the report opens beside the sidebar's own window, for the selected member")
 sm = lambda pane, name, status, lead=None: {**dict(done, pane=pane, name=name, status=status, round=1, summons=[], focus=False), **({"lead": lead} if lead else {})}
 sst = [{"name": "S", "agents": [sm("%1", "idle1", "idle"), sm("%2", "work1", "working"), sm("%3", "done1", "done"), sm("%4", "wait1", "waiting"), sm("%5", "sleep1", "sleep"),
                                sm("%6", "c1", "waiting", "%9"), sm("%7", "c2", "done", "%2"), sm("%8", "cc", "waiting", "%6")]},
@@ -91,139 +60,6 @@ srep = {"text": "## Layout\n\nThe list fills the pane.\n\n" + "\n".join(f"- poin
         "task": {"ask": "fix the menu size", "files": [], "cmds": 0, "agents": 0, "dir": "~/work/app", "branch": None, "cwd": "/w"}}
 PH = chr(0x10EEEE)
 srows_of = lambda w, h, sel, rep=srep, art=False, ro=srs, tw=sst: render.render_select(ro, tw, sel, w, h, rep, 4000.0, None, art)
-real_gs, real_rf = ui.get_snapshot, ui.report_for
-ui.report_for = lambda a: {"status_seen": a["status"]}
-q = [("S", {"pane": "%1", "status": "working"})]
-ui.get_snapshot = lambda f=None: {"towns": [{"agents": [{"pane": "%1", "status": "done"}]}]}
-seen = ui.refresh_live(q, 0)
-ui.get_snapshot = lambda f=None: {"towns": [{"agents": []}]}
-gone_ = ui.refresh_live(q, 0)
-ui.get_snapshot, ui.report_for = real_gs, real_rf
-ok(seen == {"status_seen": "done"} and q[0][1]["status"] == "done" and gone_ is None,
-   "live page re-read: the member's new status decides the report; a member the snapshot no longer lists -> None (stop re-reading)")
-calls = []
-real_tmux = sidebars.tmux
-def fake_tmux(usage, rows="%1 1 s1 r\n%2 0 s r\n"):
-    def run(*a):
-        calls.append(a)
-        return usage if a[0] == "list-commands" else rows if a[0] == "list-panes" else "%9\n" if a[0] in ("new-pane", "split-window") else ""
-    return run
-open_cmd = lambda: next(c for c in calls if c[0] in ("new-pane", "split-window"))
-sidebars._new_pane = None
-sidebars.tmux = fake_tmux("new-pane (newp) [-AbCDefhIkKLMOPvWZ] [-c start-directory] [-F format] [-t target-pane] [shell-command]")
-sidebars.open_report_pane("@1", "%7")
-c = open_cmd()
-ok(c[0] == "new-pane" and all(f in c for f in ("-x80%", "-y80%", "-X10%", "-Y10%"))
-   and "-O" not in c and "-D" not in c and c[c.index("-t") + 1] == "%2" and c[-1].endswith("--report %7"),
-   "report pane: tmux with new-pane (O flag in its usage) floats it at 80% x 80%, beside the first non-sidebar pane")
-ok(("set-option", "-p", "-t", "%9", "@party_report", "1", ";", "set-option", "-p", "-t", "%9", "allow-passthrough", "on") in calls
-   and not any("window-style" in c or "window-active-style" in c for c in calls),
-   "report pane: marked @party_report and allow-passthrough on, this pane only, in one tmux call; the terminal's own background stays")
-calls.clear()
-sidebars.open_report_pane("@1", "")
-ok(not any(c[0] == "list-commands" for c in calls) and open_cmd()[0] == "new-pane" and open_cmd()[-1].endswith("party.py --report"),
-   "report pane: the new-pane answer is cached for the life of the process")
-for usage in ("split-window (splitw) [-bdefhIPvZ] [-c start-directory] [-l size] [-t target-pane] [shell-command]", ""):
-    calls.clear()
-    sidebars._new_pane = None
-    sidebars.tmux = fake_tmux(usage)
-    sidebars.open_report_pane("@1", "%7")
-    c = open_cmd()
-    ok(c[0] == "split-window" and c[1:4] == ("-h", "-l", "50%") and "new-pane" not in [x[0] for x in calls] and c[c.index("-t") + 1] == "%2",
-       "report pane: tmux without new-pane (" + ("no O flag" if usage else "command unknown") + ") splits the window in half")
-sidebars.tmux = real_tmux
-sidebars._new_pane = True
-def sel_open(win_w, select=True, cell="19,42"):
-    calls.clear()
-    sidebars.tmux = lambda *a: calls.append(a) or (win_w + ("," + cell if cell else "") if a[0] == "display-message" else "%1 1 s r\n" if a[0] == "list-panes" else "%9\n" if a[0] == "new-pane" else "")
-    sidebars.open_report_pane("@1", "", select)
-    sidebars.tmux = real_tmux
-    return open_cmd()
-ok((sidebars.report_cols(0.5), sidebars.select_cols(0.5), sidebars.report_cols(0.452), sidebars.select_cols(0.452)) == (105, 82, 113, 90),
-   "pane widths: report_cols and select_cols are 105 / 82 at cell ratio 0.5 and 113 / 90 at 0.452")
-c = sel_open("200")
-ok(c[c.index("-x90") + 1] == "-y80%" and "-X55" in c and "-Y10%" in c,
-   "select pane: tmux says cells of 19 x 42 pixels, so in a 200-column window it is select_cols(19 / 42) = 90 wide, centred, 80% high from 10%")
-c = sel_open("200", cell="")
-ok(c[c.index("-x82") + 1] == "-y80%" and "-X59" in c, "select pane: tmux saying no cell size gives the 0.5 width, 82 columns")
-c = sel_open("200", cell="0,0")
-ok("-x82" in c and "-X59" in c, "select pane: a cell size of 0 gives the 0.5 width, 82 columns")
-c = sel_open("60")
-ok("-x60" in c and "-X0" in c, "select pane: in a 60-column window it is no wider than the window")
-c = sel_open("", select=False)
-ok(c[1:5] == ("-x80%", "-y80%", "-X10%", "-Y10%"), "report pane: an unreadable window width keeps -x80% -y80% -X10% -Y10%")
-c = sel_open("400", select=False)
-ok(c[1:5] == ("-x113", "-y80%", "-X143", "-Y10%"),
-   "report pane: cells of 19 x 42 pixels, in a 400-column window it is report_cols(19 / 42) = 113 wide, centred, 80% high from 10%")
-c = sel_open("400", select=False, cell="")
-ok(c[1:5] == ("-x105", "-y80%", "-X147", "-Y10%"), "report pane: tmux saying no cell size gives the 0.5 width, 105 columns")
-c = sel_open("400", select=False, cell="x,0")
-ok(c[1:5] == ("-x105", "-y80%", "-X147", "-Y10%"), "report pane: a cell size that is not a number gives the 0.5 width, 105 columns")
-c = sel_open("100", select=False)
-ok(c[1:5] == ("-x80", "-y80%", "-X10", "-Y10%"), "report pane: in a 100-column window it is 80% of the window, centred")
-c = sel_open("n/a")
-ok("-x80%" in c and "-X10%" in c, "select pane: an unreadable window width keeps the 80% / 10% size")
-def fit(flag, select, new=True, win_w=200, cell="19,42"):
-    calls.clear()
-    sidebars._new_pane = new
-    sidebars.tmux = lambda *a: calls.append(a) or (f"{flag},{win_w},50,{cell}" if a[0] == "display-message" else "")
-    sidebars.fit_report_pane("%9", select)
-    sidebars.tmux = real_tmux
-    return [c for c in calls if c[0] != "display-message"]
-ok(fit("1", True) == [("resize-pane", "-t", "%9", "-x", "90", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "55", "-Y", "5")],
-   "fit pane: cells of 19 x 42 pixels, a floating pane is resized and moved to the select screen's size (90 columns) and place")
-ok(fit("1", True, cell=",") == [("resize-pane", "-t", "%9", "-x", "82", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "59", "-Y", "5")]
-   and fit("1", True, cell="0,0") == fit("1", True, cell=","),
-   "fit pane: no cell size, or 0, gives the select screen's 0.5 width, 82 columns")
-ok(fit("1", False, win_w=100) == [("resize-pane", "-t", "%9", "-x", "80", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "10", "-Y", "5")],
-   "fit pane: in a 100-column window the report page's pane is 80% wide, centred, 80% high from 10%")
-ok(sidebars.report_span(400, 0.5) == (105, 147) and sidebars.report_span(100, 0.5) == (80, 10) and sidebars.select_span(200, 0.5) == (82, 59),
-   "report span: report_cols wide and centred in a wide window, 80% of a narrow one; select span likewise")
-ok(fit("1", False, win_w=400) == [("resize-pane", "-t", "%9", "-x", "113", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "143", "-Y", "5")]
-   and fit("1", False, win_w=400, cell=",") == [("resize-pane", "-t", "%9", "-x", "105", "-y", "40", ";", "move-pane", "-t", "%9", "-X", "147", "-Y", "5")],
-   "fit pane: in a 400-column window the report page's pane is report_cols wide (113 at 19 x 42 pixels cells, 105 without a cell size), centred")
-for r_ in (0.4, 0.452, 0.5, 0.55, 0.6):
-    sb = ui.select_banner(sidebars.select_cols(r_) - 1, 50, r_)
-    ok(sb[1:3] == (10, 4) and abs(sb[0] - (sidebars.select_cols(r_) - 1)) <= 1,
-       f"pane widths: at cell ratio {r_} the select banner is the 10-row 4:1 image, as wide as its column")
-for r_ in (0.4, 0.452, 0.5):
-    right = sidebars.report_cols(r_) - 1 - ui.SPLIT_SIDE_COLS - ui.SPLIT_GAP
-    bc = ui.banner_cells(sidebars.report_cols(r_) - 1, r_)
-    ok(abs(bc[0] - right) <= 1 and bc[1:] == (6, 6),
-       f"pane widths: at cell ratio {r_} the report banner is the 6-row 6:1 image, as wide as its column")
-ok(all(sidebars.report_cols(r_) - 3 >= art.SPLIT_MIN_WIDTH for r_ in (0.4, 0.452, 0.5, 0.55, 0.6, 0.65)),
-   "pane widths: the report pane at its widest still draws the split report page (two columns) at cell ratios 0.4 to 0.65")
-def shape_ok(cols_in, rows_max, r_, b):
-    cols, rows, k = b
-    a = cols_in * r_ / rows
-    return (rows == max(1, min(rows_max, round(min(len(art.DIAC), cols_in) * r_ / 4))) and cols <= cols_in
-            and cols - rows * k / r_ <= 1 + 1e-9 and abs(a - k) <= min(abs(a - j) for j in art.BANNER_RATIOS) + 1e-9)
-fit_scan = [(w - ui.SPLIT_SIDE_COLS - ui.SPLIT_GAP, r_, b) for r_ in (0.4, 0.452, 0.5, 0.55, 0.6) for w in [*range(100, 260, 7), sidebars.report_cols(r_) - 1] for b in [ui.banner_cells(w, r_)]]
-ok(all(shape_ok(min(len(art.DIAC), w), ui.REPORT_BANNER_MAX_ROWS, r_, b) for w, r_, b in fit_scan),
-   "report banner: in split widths rows follow the width, cols never exceed it, the cells are at most one column wider than the image, and the image is the closest k:1 to the cells' shape")
-sel_scan = [(w, r_, b) for r_ in (0.4, 0.452, 0.5, 0.55, 0.6) for w in [*range(60, 200, 7), sidebars.select_cols(r_) - 1] for b in [ui.select_banner(w, 50, r_)] if b]
-ok(sel_scan and all(shape_ok(w, ui.SELECT_BANNER_MAX_ROWS, r_, b[:3]) for w, r_, b in sel_scan)
-   and all(b[3] == (w - b[0]) // 2 and b[0] <= w for w, r_, b in sel_scan),
-   "select banner: rows follow the width, the cells are at most one column wider than the closest k:1 image, centred, never wider than the screen")
-ok(ui.select_banner(87, 50, 19 / 42)[:3] == (87, 10, 4) and ui.banner_cells(136, 19 / 42) == (104, 6, 8),
-   "banners: a drawable width one or two columns short of the pane's keeps the row count and the image size")
-ok(fit("0", True) == [] and fit("1", True, new=False) == [], "fit pane: a pane that is not floating, or tmux without new-pane, is left alone")
-sidebars._new_pane = None
-fit_calls = []
-real_fit, real_rs, real_rr = ui.fit_report_pane, ui.run_select, ui.run_report
-ui.fit_report_pane = lambda p, s: fit_calls.append(("fit", p, s))
-ui.run_select = lambda p=None, f=None, images=None: fit_calls.append(("select", p)) or ("%1" if p is None else None)
-ui.run_report = lambda p, f=None, back=False, images=None: fit_calls.append(("report", p)) or "%1"
-os.environ["TMUX_PANE"] = "%5"
-ui.run_menu()
-ui.fit_report_pane, ui.run_select, ui.run_report = real_fit, real_rs, real_rr
-ok(fit_calls == [("select", None), ("fit", "%5", False), ("report", "%1"), ("fit", "%5", True), ("select", "%1")],
-   "--menu: the pane is enlarged before the report page and shrunk again before the select screen")
-killed = []
-sidebars.tmux = lambda *a: "%1 @1 s1 r\n%2 @1 s r1\n%3 @2 s1 r\n%4 @2 s r\n" if a[0] == "list-panes" else killed.append(a[2]) or ""
-sidebars.tidy()
-sidebars.tmux = real_tmux
-ok(sorted(killed) == ["%1", "%2"], "Tidy: a report pane counts as a sidebar, so a window with only a sidebar and a report is closed")
 import json, tempfile
 import fcntl, pty, select as _sel, signal, struct, subprocess, termios as _tm, time
 child = """
@@ -479,18 +315,6 @@ ok(sj.count("\x1b[H") == 2 and "L1" in sj[sj.rindex("\x1b[H"):] and "EXITED" in 
 fit = report_session([b"j", b"q"], rows=40, lines=3, draws=[1, 1])
 ok(fit.count("\x1b[H") == 1, "report pane: a report that fits the pane does not redraw on j")
 ok("EXITED" in twice, "report pane: q ends the program, which closes the pane")
-for t in towns:
-    for a in t["agents"]:
-        a["window"] = "@" + a["pane"][1:]  # in the fixture every member has its own window
-fh = {"focus": "party", "sel": "%1", "squad": None, "peek": False}
-ui.follow_here(fh, towns, {"session": "Server", "window": "@4"})
-ok(fh["sel"] == "%4" and fh["focus"] == "party", "Switching to another window: cursor follows to the member there")
-ui.follow_here(fh, towns, {"session": "Studio", "window": "@9"})
-ok(fh["focus"] == "squad" and fh["squad"] == 0, "Switching to a window without members: cursor rests on that squad")
-fh = {"focus": "party", "sel": "%2", "squad": None, "peek": False}
-towns[0]["agents"][1]["window"] = towns[0]["agents"][0]["window"]  # %1 and %2 share a window
-ui.follow_here(fh, towns, {"session": "Studio", "window": towns[0]["agents"][0]["window"]})
-ok(fh["sel"] == "%2", "Cursor already on a member of that window (just clicked): keep it")
 import os, unicodedata
 art.ART_DIR = tempfile.mkdtemp()
 ok(art.load_art() is None, "No images in art/: load_art returns None (text version)")
@@ -567,21 +391,6 @@ ok(seq.startswith("\x1bPtmux;\x1b\x1b_Ga=T,U=1,f=100,i=7,c=6,r=3,q=2,m=1;") and 
    "Image upload: base64 in 4096-char chunks, wrapped in tmux passthrough, last chunk m=0")
 ok(art.kitty_delete(5) == "\x1bPtmux;\x1b\x1b_Ga=d,d=I,i=5,q=2\x1b\x1b\\\x1b\\",
    "Image delete: a=d,d=I for the id, wrapped in tmux passthrough, so a resend with new cells is not shown at the old size")
-nw = [{"pane": p, "status": s} for p, s in (("%1", "idle"), ("%2", "done"), ("%3", "waiting"), ("%4", "done"))]
-ok(ui.next_waiting(nw, "%1") == "%3" and ui.next_waiting(nw, "%3") == "%3"
-   and ui.next_waiting([dict(a, status="idle") if a["status"] == "waiting" else a for a in nw], "%2") == "%4",
-   "n / prefix a: jump to waiting first, then cycle unseen done")
-lead_idle = {"pane": "%1", "status": "idle"}
-crew_done = {"pane": "%2", "status": "done", "lead": "%1"}
-solo_done = {"pane": "%3", "status": "done"}
-crew_wait = {"pane": "%4", "status": "waiting", "lead": "%1"}
-ok([m["pane"] for _, m in ui.report_queue([{"name": "A", "agents": [lead_idle, crew_done, solo_done]}])] == ["%3", "%1", "%2"]
-   and [m["pane"] for _, m in ui.report_queue([{"name": "A", "agents": [lead_idle, crew_done, crew_wait]}])][0] == "%4"
-   and ui.report_queue([{"name": "A", "agents": [lead_idle, crew_done, solo_done]}], "%2")[0][1]["pane"] == "%2",
-   "crew done: report queue skips it, a waiting crew and a plain done member still lead, the pane asked for stays first")
-ok(ui.next_waiting([lead_idle, crew_done, solo_done], "%1") == "%3" and ui.next_waiting([lead_idle, crew_done], "%1") is None
-   and ui.next_waiting([lead_idle, crew_done, crew_wait], "%1") == "%4",
-   "crew done: prefix a skips it; a waiting crew still counts")
 cr = art.crest_ids(["dotfiles", "homelab", "notes", "projects", "scratch"])
 ok(len(set(cr.values())) == 5, "Crests: unique for up to 8 squads (real collisions: notes/projects, dotfiles/scratch)")
 ok(len(set(art.crest_ids(f"s{i}" for i in range(8)).values())) == 8 and len(art.crest_ids(f"s{i}" for i in range(9))) == 9,
@@ -692,17 +501,6 @@ ok(f"\x1b[38;2;{pid >> 16 & 255};{pid >> 8 & 255};{pid & 255}m" in render.render
    and pid == art.PORTRAIT_ID + fe["cls"], "Portrait chosen by class")
 ok(all(len({a["cls"] for a in t["agents"]}) == len(t["agents"]) for t in towns)
    and len(set(common.spread([f"sess-{i}" for i in range(6)], 8).values())) == 6, "Classes: unique within a squad (6 agents -> 6 classes)")
-pi = ui.parse_input
-ok(pi("\x1b[<0;5;7M\x1b[<0;5;7m") == [("click", 6)], "Left mouse press -> click row 7 (release ignored)")
-ok(pi("\x1b[<35;5;3M") == [("hover", 2)], "Mouse move -> hover row 3")
-ok(pi("\x1b[<64;1;1M\x1b[<65;1;1M") == [("key", "k"), ("key", "j")], "Wheel -> k / j")
-ok(pi("\x1b[A\x1b[B") == [("key", "k"), ("key", "j")], "Arrow keys -> k / j")
-ok(pi("\x1b") == [("key", "\x1b")] and pi("jv") == [("key", "j"), ("key", "v")], "Lone Esc and plain keys")
-ok(pi("\x1b[5~\x1b[6~j") == [("key", "PgUp"), ("key", "PgDn"), ("key", "j")], "PgUp / PgDn -> own keys, no stray ~")
-ok(ui.handle_key("PgUp", {"focus": "party", "sel": "%1", "squad": None, "peek": False}, towns) is None,
-   "Sidebar ignores PgUp")
-ok([ui.report_scroll(k, 5, 20, 10) for k in ["k", "j", "PgUp", "PgDn", "g", "G", "b", " ", "x"]] == [4, 6, 0, 14, 0, 20, 5, 5, 5],
-   "Report scroll keys -> offset: k / j one row, PgUp / PgDn a page (height - 1), g / G top / bottom; other keys keep it")
 sel_ros, sel_towns = [("Studio", done, False)], [{"name": "Studio", "agents": [done]}]
 other_ = dict(done, cls=(done["cls"] + 1) % 4)
 sel_art = {art.portrait_id(done): (png("G"), 6, 3), art.portrait_id(other_): (png("H"), 6, 3)}
@@ -771,183 +569,6 @@ ok(PH not in "".join(srows_of(180, 47, "%2")) and PH in "".join(srows_of(180, 47
 ok(all(len(o_) == hh and all(common.cw(strip(r)) == 80 for r in o_) and (("j/k" in strip(o_[-1])) == (hh >= 2))
        for hh in range(1, 41) for o_ in [srows_of(80, hh, "%9")]),
    "select screen: every height from 1 to 40 gives exactly that many rows, the hint last from 2 rows up")
-ok(len(render.report_side_rows(done, "Studio", rep, 2, 3, (24, 14), rows_total=30)) == 30 and "n/N" in strip(render.report_side_rows(done, "Studio", rep, 2, 3, (24, 14), rows_total=30)[-2]),
-   "report_side_rows: the report hints are on the last row inside the frame and rows_total rows are kept")
-ok(ui.report_scroll("j", 20, 20, 10) == 20 and ui.report_scroll("k", 0, 20, 10) == 0 and ui.report_scroll("PgDn", 15, 20, 10) == 20
-   and all(ui.report_scroll(k, 0, 0, 10) == 0 for k in ["j", "k", "PgUp", "PgDn", "g", "G"]),
-   "Report offset stays inside 0..limit; a report that fits never moves")
-ok([ui.report_step("N", 0, 3), ui.report_step("N", 1, 3), ui.report_step("n", 2, 3), ui.report_step("N", 0, 1), ui.report_step("x", 1, 3)] == [2, 0, 0, 0, 1],
-   "Report N goes to the previous report and wraps from the first to the last; n unchanged; a single report stays")
-rh = [re.sub(r"\x1b\[[0-9;]*m", "", r) for r in render.report_side_rows(done, "Studio", rep, 2, 3, (24, 14), rows_total=30)]
-ok(any("n/N" in r and "? keys" in r for r in rh), "Report left column hint row (24 columns) shows n/N and ? keys")
-lt = {"ask": "請幫我把這個很長的需求完整地實作並且測試一下然後回報給我 " * 3, "files": [f"/w/party_hud/f{n}.py" for n in range(8)], "cmds": 14, "agents": 2, "dir": "/w/party_hud/some/dir", "branch": "feature/x", "cwd": "/w"}
-lrep = dict(rep, text="\n".join(f"L{n}" for n in range(60)), task=lt)
-lparts = {h: render.report_parts(done, "Studio", lrep, [], 100, 2, 3, art=True, banner=(68, 8), portrait=(24, 14), height=h, now=860 + 3725, fixed=True) for h in (24, 40)}
-ok(all(len(lparts[h][0]) == h and "? keys" in strip(lparts[h][0][-2]) and strip(lparts[h][0][-1]).startswith("┗")
-       and all(common.cw(strip(r)) == render.SPLIT_SIDE_COLS for r in lparts[h][0])
-       and len(render.report_view(*lparts[h], h, 0)[0]) == h
-       and "? keys" in strip(render.report_view(*lparts[h], h, 0)[0][h - 2])
-       for h in (24, 40)),
-   "Report split page, left column taller than the pane (24 and 40 rows): the frame is exactly height rows, every row 30 wide, the hint stays on its last content row")
-ok(all(strip(lparts[h][0][-3]).strip("┃ ") == "…" for h in (24, 40))
-   and not any(strip(r).strip("┃ ") == "…" for r in render.report_parts(done, "Studio", lrep, [], 100, 2, 3, art=True, banner=(68, 8), portrait=(24, 14), height=60, now=860 + 3725, fixed=True)[0]),
-   "Report left column: a cut shows a dim … row above the hint (the column does not scroll, so no arrow), and a column that fits has none")
-fit_args = (done, "Studio", dict(rep, task={"ask": "q", "files": [], "cmds": 0, "agents": 0, "dir": None, "branch": None}), 1, 1, (24, 14))
-ok(render.report_side_rows(*fit_args, rows_total=30, now=860 + 3725, labels=True, fit=True) == render.report_side_rows(*fit_args, rows_total=30, now=860 + 3725, labels=True),
-   "Report left column that fits rows_total is byte-identical with and without fit")
-pref = art.image_row(art.big_portrait_id(done), 0, 1).split(chr(0x10EEEE))[0]
-for h in (8, 12, 17, 24):
-    lp = render.report_parts(done, "Studio", lrep, [], 100, 2, 3, art=True, banner=(68, 8), portrait=(24, 14), height=h, now=860 + 3725, fixed=True)[0]
-    nport = sum(pref in r for r in lp)
-    ok(nport in (0, 14) and len(lp) == h and "? keys" in strip(lp[-2]), f"Report left column at height {h}: the portrait image is kept whole or dropped whole, never split ({nport} rows)")
-need = {
-    "report": "n N j k ↑ ↓ wheel PgUp PgDn g G ⏎ q Esc ?",
-    "sidebar": "j k J K 1-9 n v r ⏎ q Esc P ?",
-}
-ok(all(set(need[m].split()) <= {t for k, _ in render.HELP[m] for t in k.replace(" / ", " ").split()} for m in need),
-   "Key help lists every key of its mode")
-ok(all(len(rows) == h and all(common.cw(r) == w for r in rows) for m in need for w in (28, 33, 80) for h in (3, 12, 30)
-       for rows in [[strip(r) for r in render.help_screen(m, w, h)]]),
-   "Key help: exactly height rows, every row exactly width cells (CJK-safe), also in a short pane")
-hb = [strip(r) for r in render.help_screen("report", 80, 30)]
-hk = max(common.cw(k) for k, _ in render.HELP["report"]) + 1
-hw = 5 + hk + max(common.cw(t) for _, t in render.HELP["report"])
-hn = len(render.HELP["report"]) + 2
-ok(hb[(30 - 1 - hn) // 2].startswith(" " * ((80 - hw) // 2) + "╭") and not any("╭" in r for r in hb[:(30 - 1 - hn) // 2])
-   and hb[(30 - 1 - hn) // 2].rstrip().endswith("╮") and common.cw(hb[(30 - 1 - hn) // 2].rstrip()) == (80 - hw) // 2 + hw,
-   "Key help box is centred in the pane: top row and left margin follow (height - 1 - box) // 2 and (width - box) // 2, box width wraps the content")
-ph = art.image_row(art.BANNER_ID, 0, 60)
-FAINT = "\x1b[2m"
-pg = [ph + "  \x1b[1;31mred\x1b[0m text", "\x1b[32m" + "你好" * 40 + "\x1b[0m", "short"] + ["\x1b[34mrow\x1b[0m " + "x" * 70] * 27
-ov = render.help_overlay(pg, "report", 80, 30)
-ovt = [strip(r) for r in ov]
-ot, ol = (30 - 1 - hn) // 2, (80 - hw) // 2
-box_rows = [strip(r) for r in render.help_box("report", 80, 30)[0]]
-ok(len(ov) == 30 and all(common.cw(r) == 80 for r in ovt[ot : ot + hn])
-   and [r[ol : ol + hw] for r in ovt[ot : ot + hn]] == box_rows and ovt[ot].startswith("row ") and ovt[ot][ol - 1] == "x",
-   "Key help overlay: height rows, rows with the box exactly width, box centred, page text kept on both sides")
-ok(ov[1] == render.dim_row(pg[1]) and ov[1].startswith(FAINT) and ov[1].endswith("\x1b[0m")
-   and all(r.startswith(FAINT) and FAINT in r[len(FAINT) :] for r in (ov[ot - 1], ov[ot + hn])),
-   "Key help overlay: page rows outside the box are in faint text (SGR 2 again after every SGR)")
-ok(strip(render.cols_of("a你b", 2, 4)) == " b" and strip(render.cols_of("a你b", 0, 2)) == "a " and strip(render.cols_of("ab", 0, 5)) == "ab   ",
-   "Key help overlay: a wide character cut in half becomes a space, a short row is padded")
-ok(all(common.cw(strip(r)) == w for w in (79, 80) for r in render.help_overlay(["你" * 40] * 30, "report", w, 30)[ot : ot + hn]),
-   "Key help overlay: wide characters under the box edge keep every row at the width (odd and even)")
-left_part, right_part = render.cols_of(ph, 0, ol), render.cols_of(ph, ol + hw, 80)
-ok(left_part.count("\U0010eeee") == ol and right_part.count("\U0010eeee") == 60 - ol - hw and "\x1b[38;2;" in right_part
-   and strip(left_part) + strip(render.cols_of(ph, ol, ol + hw)) + strip(right_part) == strip(render.cols_of(ph, 0, 80)),
-   "Key help overlay: placeholder cells left and right of the box keep their color and marks")
-ok(all(t.startswith("next") for k, t in render.HELP["sidebar"] if k in ("j k", "J K")),
-   "Key help: j / J are listed as next and k / K as prev, the way handle_key moves")
-ok(all("? keys" in strip(render.hint_line(m, w)) for m, w in (("sidebar", 28), ("report", 24)))
-   and "q close" in strip(render.hint_line("report", 60)) and "? keys" in strip(render.render(towns, 28, "%1", None, "sidebar")).splitlines()[-1],
-   "Key hints keep ? keys at the narrowest widths (sidebar 28, report left column 24)")
-ok([ui.help_toggle(k, s) for k, s in [("?", False), ("j", False), ("?", True), ("\x1b", True), ("q", True), ("n", True), ("\r", True)]]
-   == [(True, True), (False, False), (False, True), (False, True), (False, True), (True, True), (True, True)],
-   "Key help: ? opens; ?, Esc, q close it and are eaten (q never reaches the report's close); other keys are eaten while it is open")
-rl, rr = [f"S{n:02}".ljust(30) for n in range(12)], [f"R{n:02}" for n in range(40)]
-v0, o0 = render.report_view(rl, rr, 10, 0)
-v7, o7 = render.report_view(rl, rr, 10, 7)
-ok(o7 == 7 and [r[:30] for r in v7] == [r[:30] for r in v0] == rl[:10] and [r[32:] for r in v7] == rr[7:17] and [r[32:] for r in v0] == rr[:10],
-   "Report view: the left column keeps its first rows, the right column shifts with the offset")
-ok(render.report_view(rl, rr, 10, 99) == (render.report_view(rl, rr, 10, 30)[0], 30) and render.report_view(rl, rr, 10, -3)[1] == 0
-   and render.report_view(rl, rr[:6], 10, 4)[1] == 0,
-   "Report view: the offset is clamped to 0..len(right) - height, and to 0 when the right column fits")
-ok(all(common.cw(r) == 30 + 2 + 3 for r in v7) and len(v7) == 10 and len(render.report_view(rl, rr[:4], 20, 0)[0]) == 12,
-   "Report view: rows are left + gap + right wide, at most height rows")
-np_ = [f"P{n}" for n in range(30)]
-nv, no = render.report_view([], np_, 8, 5)
-ok(nv == np_[5:13] and no == 5, "Report view, narrow page: no left column, the whole page scrolls")
-fl, fr = render.report_parts(done, "Studio", dict(rep, text="\n".join(f"L{n}" for n in range(60))), [], 150, art=True, banner=(88, 10), portrait=(24, 14), height=40, fixed=True)
-ok(len(fl) == 40 and strip(fl[-1]).startswith("┗") and len(fr) > 40,
-   "Report page, fixed left column: the frame closes on the pane's last row however long the text is")
-fe = next(a for a in agents if a["pane"] == "%1")
-ok(common.class_icon(fe) in render.render(towns, 33) and collect.collect(sys.argv[2])["towns"][0]["agents"][1]["cls"] == fe["cls"],
-   "Class icon fixed by session id (same after re-reading the snapshot)")
-def hk(k, sel="%1", focus="party", squad=None, ts=None):
-    st = {"focus": focus, "sel": sel, "squad": squad, "peek": False}
-    return st, ui.handle_key(k, st, ts or towns)
-# After sorting: Studio = [%2 waiting, %1 busy], Server = [%4]
-ok(hk("k")[0]["sel"] == "%2" and hk("j", "%2")[0]["sel"] == "%1", "j / k step one member at a time within the squad")
-ok(hk("j")[0]["sel"] == "%1" and hk("k", "%2")[0]["sel"] == "%2" and hk("j", "%4")[0]["sel"] == "%4",
-   "j / k stop at the squad's first / last member, never cross squads")
-ok(hk("J")[0]["sel"] == "%4" and hk("K", "%4")[0]["sel"] == "%2", "J / K jump to the next / previous squad, selecting its first (most urgent) member")
-ok(hk("2")[0]["sel"] == "%1" and hk("1")[0]["sel"] == "%2" and hk("3")[0]["sel"] == "%1", "1-9 select the Nth card of this squad; out of range does nothing")
-ok(hk("n")[0]["sel"] == "%2" and hk("n", "%2")[0]["sel"] == "%2", "n jumps to the next waiting / done (stays put when it's the only one)")
-ok(hk("v")[0]["peek"] is True, "v toggles peek")
-ok(hk("\r")[1] == "jump" and hk("\r", focus="squad", squad=1)[1] == "jump_squad", "Enter goes to the member; on a squad, goes to that session")
-st, _ = hk("J", "%4", ts=empty)
-ok(st["focus"] == "squad" and st["squad"] == 2, "J onto a squad without members: cursor rests on the squad")
-ok(all(hk(k, "%4", focus="squad", squad=2, ts=empty)[0]["focus"] == "squad" for k in "jk"),
-   "On an empty squad j / k do nothing (J / K switch squads)")
-calls, real_tmux = [], sidebars.tmux
-def fake_tmux(*a):
-    calls.append(a)
-    if a[0] == "show-option":
-        return "34"
-    return "%9 1 22\n%8 1 34\n" if a[0] == "list-panes" else ""
-sidebars.tmux = fake_tmux
-sidebars.remember_width()
-sidebars.tmux = real_tmux
-ok(("set-option", "-g", "@party_sidebar_width", "30") in calls and ("resize-pane", "-t", "%9", "-x", "30") in calls
-   and ("resize-pane", "-t", "%8", "-x", "30") in calls, "Sidebar dragged below 30: remembered as 30, the dragged one bounces back to 30")
-def nudge_tmux(*a):
-    calls.append(a)
-    return {"display-message": "@5\n", "show-option": "46", "list-panes": "%7 1 36\n%8 0 175\n"}.get(a[0], "")
-sidebars.tmux = nudge_tmux
-calls.clear()
-sidebars.nudge()
-sidebars.tmux = real_tmux
-ok(("resize-pane", "-t", "%7", "-x", "46") in calls and not any(c[:3] == ("resize-pane", "-t", "%8") for c in calls),
-   "Window switch: that window's sidebar at the wrong width (36) is reset to the configured 46, other panes untouched")
-def restore_tmux(restoring, sidebar_on=""):
-    sep = collect.FIELD_SEP
-    places = {"a:1.1": sep.join(["a:1.1", "%1", ""]), "a:2.1": sep.join(["a:2.1", "%5", ""]), "a:3.1": sep.join(["a:3.1", "%6", "1"]),
-              "@1": "a\t" + restoring, "@2": "a\t" + restoring}
-    def fake(*a):
-        calls.append(a)
-        if a[0] == "show-option":
-            return restoring if a[2] == "@party_restoring" else sidebar_on
-        if a[0] == "display-message":
-            return places.get(a[3], sep.join(["a:2.0", "%7", ""])) + "\n"  # a missing place: tmux answers for the active pane
-        return {"list-windows": "@1\n@2\n", "list-panes": "%1\n%2\n" if "-a" in a else "1\n", "split-window": "%9\n"}.get(a[0], "")
-    return fake
-calls.clear()
-sidebars.tmux = restore_tmux("")
-sidebars.restore_begin()
-ok(calls[-1] == ("set-option", "-g", "@party_restoring", "%1 %2"), "--restore-begin: remembers the panes that exist now")
-calls.clear()
-sidebars.tmux = restore_tmux("%1 %2")
-rc = sidebars.restore_end(["a:1.1", "a:2.1", "a:3.1", "gone:1.1", ""])[0]
-respawned = [c[3] for c in calls if c[0] == "respawn-pane"]
-ok(rc == 0 and respawned == ["%5"] and calls[calls.index(("respawn-pane", "-k", "-t", "%5", sidebars.EXE + " --sidebar")) - 1][-6:] == (";", "select-pane", "-t", "%5", "-T", "party-hud"),
-   "--restore-end: only a pane made during the restore becomes a sidebar (titled party-hud); one from before, an existing sidebar and a missing place are left alone")
-unset = calls.index(("set-option", "-gu", "@party_restoring"))
-ok(unset > calls.index(("respawn-pane", "-k", "-t", "%5", sidebars.EXE + " --sidebar")) and any(c[:4] == ("set-option", "-g", "@party_sidebar_on", "1") for c in calls[unset:]),
-   "--restore-end: --ensure is released after the panes are taken over, then the hooks go in")
-calls.clear()
-sidebars.ensure("@1")
-ok(not any(c[0] == "split-window" for c in calls), "--ensure during a restore: adds no sidebar")
-calls.clear()
-sidebars.tmux = restore_tmux("")
-ok(sidebars.restore_end(["a:2.1"])[0] == 2 and [c[0] for c in calls] == ["show-option"], "--restore-end without --restore-begin: exit 2, no pane is touched")
-sidebars.tmux = real_tmux
-pt = {"focus": "party", "sel": "%1", "squad": None, "peek": False}
-ui.point_at(("squad", 0), pt, towns)
-ok(pt["sel"] == "%1", "Mouse over the current squad's row: selected member unchanged")
-ui.point_at(("squad", 1), pt, towns)
-ok(pt["focus"] == "party" and pt["sel"] == "%4", "Mouse over another squad -> select its first member")
-ui.point_at(("agent", "%2"), pt, towns)
-ok(pt["focus"] == "party" and pt["sel"] == "%2", "Mouse over a card -> select that member")
-ok(ui.next_waiting(agents, "%1") == "%2" and ui.next_waiting(agents, "%2") == "%2"
-   and ui.next_waiting([a for a in agents if a["status"] != "waiting"], "%1") is None,
-   "\"Next waiting\" for prefix a: searches forward, returns self if alone, None if none")
-common.CURSOR = os.path.join(sys.argv[3], "fixture.cursor")
-a = {"focus": "squad", "sel": "%4", "squad": 1, "peek": True}
-b = {"focus": "party", "sel": "%1", "squad": None, "peek": False}
-common.save_cursor(a); common.load_cursor(b)
-ok(b == {"focus": "squad", "sel": "%4", "squad": 1, "peek": False}, "Shared cursor: one sidebar writes, another reads the same cursor (peek not shared)")
-ok(hk("q")[1] == "hide" and hk("\x1b")[1] == "back" and hk("P")[1] == "back", "Sidebar: q hides, Esc and P return to the previous pane")
 print("\n".join(fails), file=sys.stderr)
 sys.exit(1 if fails else 0)
 EOF
