@@ -45,7 +45,7 @@ the last batch lands.
 
 Line ranges are approximate: assert topics are interleaved, so a batch picks its asserts by the message prefix (the
 text before the first `:`), not by line number. Ranges and counts for batches 2-10 were measured before batch 1
-removed 441 lines (from about line 1237 on); batches 2-8 and the pty batch removed 274, 214, 247, 274, 313, 379, 276 and 273 more. They are only a guide;
+removed 441 lines (from about line 1237 on); batches 2-9 and the pty batch removed 274, 214, 247, 274, 313, 379, 276, 273 and 330 more. They are only a guide;
 each batch recounts by prefix when it starts.
 
 | # | Batch | Source in `party-test.sh` | New file | Asserts |
@@ -60,7 +60,7 @@ each batch recounts by prefix when it starts.
 | 7 | Panes and keys (done) | see "Batch 7" below | `test_ui.py`, `test_sidebars.py` | 96 |
 | 8 | Art and images (done) | see "Batch 8" below | `test_art.py`, `test_animation.py`, `test_render_select.py` | 54 |
 | 8b | Report pane on a pty (done) | see "Pty batch" below | `test_report_pane.py` | 46 |
-| 9 | Crew sub-commands | `summon_ok`, `dismiss_ok`, `crew_ok` (2718-3047) | `test_crew.py` | 67 |
+| 9 | Crew sub-commands (done) | see "Batch 9" below | `test_crew.py` | 61 |
 | 10 | The rest | transcript TTL, statusline script, `cw`, imports per sub-command, `leave_without_teardown` (3048-3330) | `test_common.py`, `test_party_cli.py` | 18 |
 | 11 | Remove bash runner | delete `party-test.sh`, its CI step and this file; update CLAUDE.md and CONTRIBUTING | | |
 
@@ -227,6 +227,18 @@ and `check`.
 - A session read by several tests (`once`, `twice`, the resize burst, the select screen) runs once per module.
 - Bash shared one `seen.json` and removed it between sessions; each session that reads it now gets its own
   `XDG_RUNTIME_DIR` under `tmp_path`, so no test depends on the order.
+
+## Batch 9: crew sub-commands (done)
+
+The three heredocs `summon_ok`, `dismiss_ok` and `crew_ok` (61 asserts) became 69 tests in `test_crew.py`: the
+read-only plan modes (3), the crew-caller refusals (4) and the card widths (4) are `parametrize` cases. The functions
+and their `check` lines are gone, so the bash count dropped by 67.
+
+- Each heredoc built its state step by step (the fake tmux flags, `os.environ`, the crew round dirs, `seen.json`);
+  the `tm`, `dm` and `crew` fixtures give every test a fresh fake and a fresh `XDG_STATE_HOME` / `PARTY_DIR` under
+  `tmp_path`, and each test makes the rounds it reads.
+- `time.monotonic` / `time.sleep`, `os.environ`, `sys.argv`, `sys.stdout` and the `party` / `sidebars` / `collect`
+  functions go through `monkeypatch`; bash set them by hand and never put some back.
 
 ## Gates
 
