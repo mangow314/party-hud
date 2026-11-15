@@ -85,4 +85,5 @@ If a pane has the tmux option `@workmux_pane_status` set by [workmux](https://gi
 1. Add the command name to `AGENT_CMDS` in `party_hud/collect.py`.
 2. If the agent writes a log with token usage, add a module for it like `party_hud/codex_log.py` (`codex_usage`) and
    call it in `collect()`.
-3. Add a fixture case to `tests/party-test.sh` (see the `"codex"` key in the fixtures).
+3. Add tests as for Codex: the log module in a file like `tests/test_codex_log.py`, the collected member in
+   `tests/test_collect.py`.
