@@ -631,3 +631,59 @@ def test_ask_whose_save_fails_is_rc_5_and_still_prints_the_send_time(crew, monke
     assert rc == 5
     assert out
     assert "could not save" in err
+
+
+def saved(root, session, n, *, lead="%1", asked="20261101T000000Z", replied=None, cwd="/work", question="fix it\n"):
+    path = root / session / f"round-{n:03d}"
+    path.mkdir(parents=True)
+    (path / "question.md").write_text(question, encoding="utf-8")
+    m = {"asked_at": asked, "pane": "%5", "agent": "codex", "cwd": cwd, "lead": lead}
+    if replied:
+        m.update(replied_at=replied, rc=0)
+        (path / "reply.md").write_text("answer\n", encoding="utf-8")
+    (path / "meta.json").write_text(json.dumps(m), encoding="utf-8")
+    return path
+
+
+def test_history_is_the_newest_5_rounds_of_that_lead_newest_first(crew):
+    for n in range(1, 7):
+        saved(crew, "20261101T000000Z-5", n, asked=f"20261101T00000{n}Z", question=f"q{n}\n")
+    saved(crew, "20261101T000000Z-6", 1, lead="%2", asked="20261101T000009Z")
+    saved(crew, "20261101T000000Z-7", 1, lead="", asked="20261101T000009Z")
+    rounds, _ = sidebars.crew_history("%1", [])
+    assert [r["task"] for r in rounds] == ["q6", "q5", "q4", "q3", "q2"]
+
+
+def test_history_names_a_round_by_its_worktree_else_by_the_questions_first_line(crew):
+    saved(crew, "s-5", 1, cwd="/r/.git/harness/wt/fix-login/sub", asked="20261101T000002Z")
+    saved(crew, "s-5", 2, question="\n  review the diff  \nmore\n", asked="20261101T000001Z")
+    rounds, _ = sidebars.crew_history("%1", [])
+    assert [r["task"] for r in rounds] == ["fix-login", "review the diff"]
+
+
+def test_history_gives_the_times_and_rc_of_a_round(crew):
+    saved(crew, "s-5", 1, asked="20261101T000000Z", replied="20261101T000130Z")
+    saved(crew, "s-5", 2, asked="20261101T000200Z")
+    new, old = sidebars.crew_history("%1", [])[0]
+    assert (old["replied_at"] - old["asked_at"], old["rc"], old["agent"]) == (90, 0, "codex")
+    assert (new["replied_at"], new["rc"], new["dir"]) == (None, None, str(crew / "s-5" / "round-002"))
+
+
+def test_history_skips_rounds_with_missing_or_broken_files(crew):
+    saved(crew, "s-5", 1, question="good\n")
+    (saved(crew, "s-5", 2) / "meta.json").write_text("{not json", encoding="utf-8")
+    (saved(crew, "s-5", 3) / "question.md").unlink()
+    (saved(crew, "s-5", 4) / "meta.json").write_text('{"lead": "%1", "asked_at": "yesterday"}', encoding="utf-8")
+    (saved(crew, "s-5", 5) / "meta.json").write_text("[]", encoding="utf-8")
+    assert [r["task"] for r in sidebars.crew_history("%1", [])[0]] == ["good"]
+
+
+def test_worktrees_left_are_existing_ones_no_live_pane_is_in(crew, tmp_path):
+    wt = tmp_path / "r" / ".git" / "harness" / "wt"
+    for name in ("left", "busy", "deep"):
+        (wt / name / "src").mkdir(parents=True)
+    for n, name in enumerate(("left", "left", "busy", "deep", "gone"), 1):
+        saved(crew, "s-5", n, cwd=str(wt / name), asked=f"20261101T00000{n}Z")
+    saved(crew, "s-6", 1, lead="%2", cwd=str(wt / "deep"))
+    towns = [{"agents": [{"cwd": str(wt / "busy")}, {"cwd": str(wt / "deep" / "src")}]}]
+    assert sidebars.crew_history("%1", towns)[1] == [("left", str(wt / "left"))]

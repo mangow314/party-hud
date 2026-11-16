@@ -399,6 +399,84 @@ def crew_asked(pane, text, sent, agent, cwd, lead):
     return _crew_run(_crew_asked, pane, text, sent, agent, cwd, lead)
 
 
+CREW_HISTORY_ROWS = 5
+WT_MARK = "/.git/harness/wt/"
+
+
+def _crew_epoch(stamp):
+    return datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+
+def _crew_worktree(cwd):
+    """The task worktree root that cwd is in, or None."""
+    head, mark, rest = cwd.partition(WT_MARK)
+    name = rest.split("/")[0]
+    return head + mark + name if mark and name else None
+
+
+def _crew_round(path):
+    with open(os.path.join(path, "meta.json"), encoding="utf-8") as f:
+        meta = json.load(f)
+    with open(os.path.join(path, "question.md"), encoding="utf-8") as f:
+        question = f.read()
+    cwd = meta.get("cwd") or ""
+    wt = _crew_worktree(cwd)
+    first = next((l.strip() for l in question.splitlines() if l.strip()), "")
+    return {
+        "lead": meta.get("lead") or "",
+        "task": wt.rpartition("/")[2] if wt else first,
+        "agent": str(meta.get("agent") or ""),
+        "asked_at": _crew_epoch(meta["asked_at"]),
+        "asked": meta["asked_at"],
+        "replied_at": _crew_epoch(meta["replied_at"]) if meta.get("replied_at") else None,
+        "rc": meta.get("rc"),
+        "dir": path,
+        "worktree": wt,
+    }
+
+
+def crew_history(lead, towns):
+    """(rounds, worktrees left) of a lead pane from the saved crew rounds whose meta.json "lead" is lead.
+    rounds: the newest CREW_HISTORY_ROWS, newest first, as dicts task, agent, asked_at / replied_at (epoch; replied_at None
+    without a reply), asked (the meta stamp), rc (None without a reply), dir, worktree (None outside one). worktrees left: [(task, path)] of the task
+    worktrees any of its rounds ran in that still exist and no agent in towns has its current directory in.
+    A round whose meta.json or question.md is missing or broken is left out."""
+    root = _crew_root()
+    rounds = []
+    for session in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+        path = os.path.join(root, session)
+        if not os.path.isdir(path):
+            continue
+        for rnd in _crew_rounds(path):
+            try:
+                r = _crew_round(os.path.join(path, rnd))
+            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                continue
+            if r["lead"] == lead:
+                rounds.append(r)
+    rounds.sort(key=lambda r: (r["asked_at"], r["dir"]), reverse=True)
+    cwds = [a.get("cwd") or "" for t in towns for a in t["agents"]]
+    left = []
+    for r in rounds:
+        wt = r["worktree"]
+        if not wt or (r["task"], wt) in left or any(c == wt or c.startswith(f"{wt}/") for c in cwds):
+            continue
+        if os.path.isdir(wt):
+            left.append((r["task"], wt))
+    return rounds[:CREW_HISTORY_ROWS], left
+
+
+def crew_round_text(path):
+    """(question, reply) of a saved round directory; reply is None when it has none. Raises OSError."""
+    with open(os.path.join(path, "question.md"), encoding="utf-8") as f:
+        question = f.read()
+    try:
+        with open(os.path.join(path, "reply.md"), encoding="utf-8") as f:
+            return question, f.read()
+    except FileNotFoundError:
+        return question, None
+
+
 def mark_seen(pane, rnd):
     """Record in seen.json that the report of round rnd of pane was read; never lowers a value. Raises OSError."""
     os.makedirs(PARTY_DIR, exist_ok=True)
