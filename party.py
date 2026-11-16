@@ -82,7 +82,7 @@ def ask(pane, text):
         rc, _, err = tmux_run(["send-keys", "-t", pane, "Enter"])
     if rc != 0:
         return 2, "", err or f"tmux could not send to {pane}\n"
-    err = crew_asked(pane, text, sent, agent["kind"], cwd)
+    err = crew_asked(pane, text, sent, agent["kind"], cwd, agent.get("lead", ""))
     return (5 if err else 0), f"{sent}\n", err
 
 

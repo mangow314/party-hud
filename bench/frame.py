@@ -333,6 +333,7 @@ def child_main(data_path, rec_path, exit_mode):
 class Scene:
     def __init__(self, data):
         self.data = data
+        self.hist = (None, None)
         self.ui, self.render = install_fakes(data)
         self.art = self.ui.load_art()
         self.towns = data["towns"]
@@ -370,6 +371,8 @@ class Scene:
         body_h = ui.select_layout(ROWS, head_rows)[3]
         lw, preview = ui.select_widths(width)
         report = None
+        cur = next((m for _, m, _ in roster if m["pane"] == sel), None)
+        self.hist, history = ui.select_history_cache(self.hist, sel, cur, preview, towns)
         if sel and preview:
             a = next(m for _, m, _ in roster if m["pane"] == sel)
             if ui.select_reread(cached, a, time.monotonic()):
@@ -379,7 +382,9 @@ class Scene:
             report = cached[1]
         view = ui.select_view(roster, sel, lw, body_h, True)
         plan += ui.select_image_plan(ui.select_cards(roster, view), self.art)
-        rows = ui.render_select(roster, towns, sel, width, ROWS, report, now, title, True, cached[2], view)
+        rows = ui.render_select(
+            roster, towns, sel, width, ROWS, report, now, title, True, cached[2], view, history, None
+        )
         t = time.perf_counter()
         frame = "\n".join(rows)
         anchors = (
@@ -484,6 +489,7 @@ def part1(sc, sink, emit):
             if fresh:
                 clear()
                 state["cached"] = (None, None, [], 0.0)
+                sc.hist = (None, None)
             state["cached"] = sc.loop_frame(sel, now, state["cached"], sink, marks)
 
         for _ in range(3):
@@ -617,6 +623,7 @@ def part7(sc, sink, emit):
 
     def k_press():
         clear_markdown_cache()
+        sc.hist = (None, None)
         state["cached"] = sc.loop_frame(unseen, now, (None, None, [], 0.0), sink, {})
 
     cases = [

@@ -360,13 +360,13 @@ def _crew_summoned(pane):
     _crew_new_session(pane, time.time())
 
 
-def _crew_asked(pane, text, sent, agent, cwd):
+def _crew_asked(pane, text, sent, agent, cwd, lead):
     session = _crew_session(pane, sent)
     rounds = _crew_rounds(session)
     path = os.path.join(session, f"round-{int(rounds[-1][6:]) + 1 if rounds else 1:03d}")
     os.mkdir(path)
     _crew_write(os.path.join(path, "question.md"), text)
-    meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd}
+    meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd, "lead": lead}
     _crew_write(os.path.join(path, "meta.json"), json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -394,9 +394,120 @@ def crew_summoned(pane):
     return _crew_run(_crew_summoned, pane)
 
 
-def crew_asked(pane, text, sent, agent, cwd):
-    """Save a sent question as the next round. Returns "" or an error message."""
-    return _crew_run(_crew_asked, pane, text, sent, agent, cwd)
+def crew_asked(pane, text, sent, agent, cwd, lead):
+    """Save a sent question as the next round; lead is the asked member's lead pane ("" without one). Returns "" or an error message."""
+    return _crew_run(_crew_asked, pane, text, sent, agent, cwd, lead)
+
+
+CREW_HISTORY_ROWS = 5
+WT_MARK = "/.git/harness/wt/"
+
+
+def _crew_epoch(stamp):
+    return datetime.strptime(stamp, "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc).timestamp()
+
+
+def _crew_worktree(cwd):
+    """The task worktree root that cwd is in, or None."""
+    head, mark, rest = cwd.partition(WT_MARK)
+    name = rest.split("/")[0]
+    return head + mark + name if mark and name else None
+
+
+_meta_memo: dict[str, tuple[tuple[int, int], dict]] = {}
+
+
+def _crew_meta(path):
+    """A round's meta.json as a dict, remembered while its mtime and size stay the same. Raises OSError, ValueError or TypeError."""
+    file = os.path.join(path, "meta.json")
+    st = os.stat(file)
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _meta_memo.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    with open(file, encoding="utf-8") as f:
+        meta = json.load(f)
+    if not isinstance(meta, dict):
+        raise TypeError(f"{file}: not an object")
+    _meta_memo[path] = (key, meta)
+    return meta
+
+
+def _crew_round(path, meta):
+    wt = _crew_worktree(str(meta.get("cwd") or ""))
+    return {
+        "lead": meta["lead"],
+        "task": wt.rpartition("/")[2] if wt else None,
+        "agent": str(meta.get("agent") or ""),
+        "asked_at": _crew_epoch(meta["asked_at"]),
+        "asked": meta["asked_at"],
+        "replied_at": _crew_epoch(meta["replied_at"]) if meta.get("replied_at") else None,
+        "rc": meta.get("rc"),
+        "dir": path,
+        "worktree": wt,
+    }
+
+
+def _crew_first_line(path):
+    with open(os.path.join(path, "question.md"), encoding="utf-8") as f:
+        return next((l.strip() for l in f if l.strip()), "")
+
+
+def crew_history(lead, towns):
+    """(rounds, worktrees left) of a lead pane from the saved crew rounds whose meta.json "lead" is lead.
+    rounds: the newest CREW_HISTORY_ROWS, newest first, as dicts lead, task, agent, asked_at / replied_at (epoch; replied_at None
+    without a reply), asked (the meta stamp), rc (None without a reply), dir, worktree (None outside one). task is the
+    worktree's name, else the first non-empty line of question.md. worktrees left: [(task, path)] of the task
+    worktrees any of its rounds ran in that still exist and no agent in towns has its current directory in.
+    A round whose meta.json or question.md is missing or broken is left out."""
+    root = _crew_root()
+    try:
+        sessions = os.listdir(root)
+    except OSError:
+        sessions = []
+    found = []
+    for session in sessions:
+        path = os.path.join(root, session)
+        if not os.path.isdir(path):
+            continue
+        try:
+            names = _crew_rounds(path)
+        except OSError:
+            continue
+        for rnd in names:
+            try:
+                meta = _crew_meta(os.path.join(path, rnd))
+                if meta.get("lead") == lead:
+                    found.append(_crew_round(os.path.join(path, rnd), meta))
+            except (OSError, ValueError, KeyError, TypeError):
+                continue
+    found.sort(key=lambda r: (r["asked_at"], r["dir"]), reverse=True)
+    cwds = [a.get("cwd") or "" for t in towns for a in t["agents"]]
+    rounds, left = [], []
+    for r in found:
+        try:
+            first = _crew_first_line(r["dir"])
+        except (OSError, ValueError):
+            continue
+        if len(rounds) < CREW_HISTORY_ROWS:
+            rounds.append(dict(r, task=r["task"] or first))
+        wt = r["worktree"]
+        if not wt or (r["task"], wt) in left or any(c == wt or c.startswith(f"{wt}/") for c in cwds):
+            continue
+        if os.path.isdir(wt):
+            left.append((r["task"], wt))
+    return rounds, left
+
+
+def crew_round_text(path):
+    """(question, reply) of a saved round directory; reply is None when it has none. Raises OSError, or ValueError for text that is not UTF-8."""
+    with open(os.path.join(path, "question.md"), encoding="utf-8") as f:
+        question = f.read()
+    try:
+        with open(os.path.join(path, "reply.md"), encoding="utf-8") as f:
+            return question, f.read()
+    except FileNotFoundError:
+        return question, None
 
 
 def mark_seen(pane, rnd):

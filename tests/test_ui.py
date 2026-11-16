@@ -397,6 +397,8 @@ def test_report_left_column_keeps_or_drops_the_portrait_whole(done, lrep, h):
 NEED = {
     "report": "n N j k ↑ ↓ wheel PgUp PgDn g G ⏎ q Esc ?",
     "sidebar": "j k J K 1-9 n v r ⏎ q Esc P ?",
+    "select": "j k 1-9 [ ] ⏎ l q Esc ?",
+    "saved": "j k ↑ ↓ wheel PgUp PgDn g G h q Esc ?",
 }
 
 
@@ -685,3 +687,74 @@ def test_sidebar_q_hides_esc_and_p_go_back(hk):
     assert hk("q")[1] == "hide"
     assert hk("\x1b")[1] == "back"
     assert hk("P")[1] == "back"
+
+
+DIRS = ["/s/round-003", "/s/round-002", "/s/round-001"]
+
+
+def test_brackets_move_the_round_highlight_and_stop_at_the_ends():
+    at, seen = None, []
+    for key in "]]]][":
+        _, at, action = ui.select_round_key(key, ["%1", "%2"], "%1", at, DIRS)
+        seen.append(at)
+        assert action is None
+    assert seen == [DIRS[0], DIRS[1], DIRS[2], DIRS[2], DIRS[1]]
+    assert ui.select_round_key("[", ["%1"], "%1", None, DIRS)[1] == DIRS[2]
+    assert ui.select_round_key("]", ["%1"], "%1", None, [])[1] is None
+
+
+def test_enter_on_a_highlighted_round_opens_it_and_without_one_opens_the_report():
+    assert ui.select_round_key("\r", ["%1", "%2"], "%1", DIRS[1], DIRS) == ("%1", DIRS[1], "round")
+    assert ui.select_round_key("\r", ["%1", "%2"], "%1", None, DIRS) == ("%1", None, "open")
+
+
+def test_moving_to_another_member_drops_the_round_highlight():
+    assert ui.select_round_key("j", ["%1", "%2"], "%1", DIRS[0], DIRS) == ("%2", None, None)
+
+
+def test_saved_round_page_enter_does_nothing_h_goes_back_q_closes():
+    assert ui.saved_key("\r", 3, 10, 20) == (3, None)
+    assert ui.saved_key("j", 3, 10, 20) == (4, None)
+    assert ui.saved_key("h", 3, 10, 20) == (3, "back")
+    assert ui.saved_key("q", 3, 10, 20) == (3, "close")
+
+
+def test_menu_opens_a_picked_round_on_its_own_page_and_h_returns_to_its_lead(monkeypatch):
+    calls = []
+    rnd = {"dir": "/s/round-001", "lead": "%1"}
+    monkeypatch.setattr(ui, "fit_report_pane", lambda p, s: None)
+    monkeypatch.setattr(
+        ui,
+        "run_select",
+        lambda p=None, f=None, images=None: calls.append(("select", p)) or (rnd if p is None else None),
+    )
+    monkeypatch.setattr(ui, "run_saved", lambda r: calls.append(("saved", r["dir"])) or r["lead"])
+    monkeypatch.setattr(ui, "run_report", lambda *a, **k: calls.append(("report",)))
+    ui.run_menu()
+    assert calls == [("select", None), ("saved", "/s/round-001"), ("select", "%1")]
+
+
+def test_saved_round_page_shows_the_question_and_the_reply():
+    rnd = {"task": "fix", "agent": "codex", "asked": "20261101T093000Z", "asked_at": 0.0, "replied_at": 95.0, "rc": 7}
+    rows = [strip(r) for r in render.saved_round_rows(rnd, "please fix\n", "# Done\n\nall good\n", 60)]
+    assert rows[0] == "Saved round · codex · asked 2026-11-01 09:30 UTC"
+    assert rows[2] == "took 1m 35s  exit 7"
+    assert rows.index("ASKED") < rows.index("  please fix") < next(i for i, r in enumerate(rows) if "all good" in r)
+    assert "go" not in rows[-1]
+
+
+def test_saved_round_with_text_that_is_not_utf8_goes_back_to_its_lead(tmp_path, monkeypatch):
+    (tmp_path / "question.md").write_text("q\n", encoding="utf-8")
+    (tmp_path / "reply.md").write_bytes(b"\xff\xfe broken")
+    monkeypatch.setattr(ui, "log_error", lambda: None)
+    assert ui.run_saved({"dir": str(tmp_path), "lead": "%1"}) == "%1"
+
+
+def test_history_is_read_again_after_the_cursor_visits_a_member_without_preview(monkeypatch):
+    reads = []
+    monkeypatch.setattr(ui, "crew_history", lambda pane, towns: reads.append(pane) or ([], []))
+    lead_a, member_b = {"pane": "%1"}, {"pane": "%2"}
+    cache = (None, None)
+    for sel, a, preview in (("%1", lead_a, 60), ("%1", lead_a, 60), ("%2", member_b, 0), ("%1", lead_a, 60)):
+        cache, _ = ui.select_history_cache(cache, sel, a, preview, [])
+    assert reads == ["%1", "%1"]

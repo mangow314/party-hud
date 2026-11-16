@@ -60,8 +60,15 @@ Beside the list you see the member under the cursor: its time and directory, the
 asked, and a preview of its report. A working member's preview shows what it is doing now and keeps updating. A member
 with no finished report yet shows the last lines of its pane. Previewing does not mark a report as read.
 
+For a lead whose crew you used, the preview also lists its last 5 saved rounds, newest first: the task, the agent and how
+long it took to reply ("no reply" when no reply was fetched), then `wt left: <task>` for each task worktree
+(`<repo>/.git/harness/wt/<task>`) that one of its rounds ran in, still exists, and has no agent pane in it. `[` and `]`
+pick a round and `Enter` opens it: what was asked and the saved reply, laid out like a report. `h` goes back; `Enter`
+there does nothing, since the member is gone. Rounds saved before party-hud recorded the lead are not listed.
+
 Move with `j`/`k` or the arrow keys, open a report with `1`–`9`, `Enter` or `l`, close with `q`/`Esc`; `?` shows the
-keys. To go to a member's pane, open its report and press `Enter` there.
+keys. To go to a member's pane, open its report and press `Enter` there. With a past round picked, `Enter` and `l` open
+that round instead; moving to another member drops the pick.
 
 <img src="docs/img/select.svg" width="780" alt="The Party Select screen of `prefix R`: a pixel-art Party Select banner on top; on the left numbered member cards with portraits, a waiting codex crew member as one indented row under auth-refactor; on the right the time and directory, the crew state, the ASKED text and a cut-off preview of the working member under the cursor; key hints on the last row">
 
@@ -94,6 +101,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 ```
 
 `--summon` opens the member in a background tmux session, listed under its lead in the sidebar.
+Every round is saved; after `--dismiss` you can still read a lead's last rounds in Party Select (`[`, `]`, `Enter`).
 `--read-only` makes codex read-only through its sandbox; claude, grok and agy use their own plan mode, which the agent enforces itself.
 
 To let Claude Code use it for you, link the bundled `party-crew` skill once:
