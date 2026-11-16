@@ -214,7 +214,8 @@ HINTS = {
     "report": [("⏎", "go"), ("n/N", "report"), ("?", "keys"), ("q", "close")],
     "report_back": [("⏎", "go"), ("n/N", "report"), ("h", "back"), ("?", "keys"), ("q", "close")],
     "help": [("?/Esc/q", "back")],
-    "select": [("j/k", "move"), ("1-9", "open"), ("⏎", "report"), ("q", "close")],
+    "select": [("j/k", "move"), ("1-9", "open"), ("⏎", "report"), ("q", "close"), ("[/]", "round")],
+    "saved": [("j/k", "scroll"), ("h", "back"), ("?", "keys"), ("q", "close")],
 }
 
 HELP = {
@@ -244,7 +245,17 @@ HELP = {
     "select": [
         ("j k ↑ ↓", "move"),
         ("1-9", "open that member's report"),
-        ("⏎ l", "open the report"),
+        ("[ ]", "pick a past round of the lead"),
+        ("⏎ l", "open the report or picked round"),
+        ("q Esc", "close"),
+        ("?", "this help"),
+    ],
+    "saved": [
+        ("j k ↑ ↓", "scroll"),
+        ("wheel", "scroll"),
+        ("PgUp PgDn", "page"),
+        ("g / G", "top / bottom"),
+        ("h", "back to select"),
         ("q Esc", "close"),
         ("?", "this help"),
     ],
@@ -726,6 +737,29 @@ def report_parts(
     return [], rows + ["", hint_line(hints, width)]
 
 
+def saved_round_rows(r, question, reply, width):
+    """Page of a saved crew round r (as crew_history gives it): title with the agent and the time asked (UTC), the task, how long it took and its exit code, ASKED with the question, then the reply (None: none saved) laid out as a report, hint."""
+    width = max(28, width)
+    t = r["asked"]
+    when = f"{t[:4]}-{t[4:6]}-{t[6:8]} {t[9:11]}:{t[11:13]} UTC"
+    facts = [f"took {fmt_took(r['replied_at'] - r['asked_at'])}"] if r["replied_at"] is not None else ["no reply"]
+    if r["rc"] is not None:
+        facts.append(f"exit {r['rc']}")
+    rows = [
+        fg("gold", True) + clip(f"Saved round · {printable(r['agent'])} · asked {when}", width) + RESET,
+        fg("fg", True) + clip(printable(r["task"]), width) + RESET,
+        fg("dim") + clip("  ".join(facts), width) + RESET,
+        "",
+        fg(LABEL_COLOR["asked"], True) + LABEL_TEXT["asked"] + RESET,
+        *(f"  {fg('fg', True)}{l}{RESET}" for l in wrap_lines(question, width - 2)),
+        "",
+        fg("line") + "─" * width + RESET,
+        "",
+    ]
+    rows += report_rows({"text": reply}, [], [], width) if reply is not None else [fg("dim") + "no reply saved" + RESET]
+    return rows + ["", hint_line("saved", width)]
+
+
 def render_no_report(width, height):
     width = max(28, width)
     text = clip("No party members.", width - 4)
@@ -804,6 +838,31 @@ def select_crew_line(member, towns, width):
         out += f"  {fg('fg')}{a['name']}{RESET} {fg(STATUS_TAG[a['status']][2])}{a['status']}{RESET}"
         used += w
     return out + " " * (width - used)
+
+
+def select_history_row(r, width, lit):
+    """One saved round of a lead as "task · agent · took" ("no reply" without one), exactly width cells."""
+    end = fmt_took(r["replied_at"] - r["asked_at"]) if r["replied_at"] is not None else "no reply"
+    agent = clip(printable(r["agent"]), max(0, width - cw(end) - 6))
+    task = clip(printable(r["task"]), max(0, width - cw(agent) - cw(end) - 6))
+    dot = fg("dim") + " · " + RESET
+    row = f"{fg('fg')}{task}{RESET}{dot}{fg('fg')}{agent}{RESET}{dot}{fg('fg' if r['replied_at'] is not None else 'dim')}{end}{RESET}"
+    row = pad_to(row, width)
+    return highlight(row) if lit else row
+
+
+def select_history(history, width, at):
+    """Rows of a lead's saved rounds (history as crew_history gives it), the one whose dir is at highlighted, then its worktrees left; [] without rounds."""
+    rounds, left = history
+    if not rounds and not left:
+        return []
+    rows = [fg("dim") + "past rounds" + RESET]
+    rows += [select_history_row(r, width, r["dir"] == at) for r in rounds]
+    rows += [
+        pad_to(fg("dim") + "wt left: " + RESET + fg("fg") + clip(printable(t), width - 9) + RESET, width)
+        for t, _ in left
+    ]
+    return rows
 
 
 def select_summary(roster, towns, width):
@@ -900,8 +959,8 @@ def select_card(n, rows, cursor):
     return [(select_key_cell(n, cursor) if r == 0 else " " * SELECT_KEYS) + l for r, l in enumerate(rows)]
 
 
-def select_preview(roster, towns, at, width, height, report, now, peek=()):
-    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… more" row; only the part of the report that shows is laid out."""
+def select_preview(roster, towns, at, width, height, report, now, peek=(), history=None, hist_at=None):
+    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, a lead's past rounds (history, see select_history), the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… more" row; only the part of the report that shows is laid out."""
     _, a, _ = roster[at]
     task = (report or {}).get("task") or {}
     rows = []
@@ -926,6 +985,8 @@ def select_preview(roster, towns, at, width, height, report, now, peek=()):
     crew = select_crew_line(lead, towns, width) if lead else None
     if crew:
         rows.append(crew)
+    if history and not a.get("lead"):
+        rows += select_history(history, width, hist_at)
     ask = [r for r in wrap(task["ask"], width - 2) if r.strip()] if task.get("ask") else []
     if ask:
         if len(ask) > SELECT_ASK_ROWS:
@@ -946,8 +1007,22 @@ def select_preview(roster, towns, at, width, height, report, now, peek=()):
     return [pad_to(r, width) for r in (rows + body)[:height]] + [" " * width] * (height - len(rows) - len(body))
 
 
-def render_select(roster, towns, sel, width, height, report=None, now=None, title=None, art=False, peek=(), view=None):
-    """Exactly height rows of width cells: title, summary, the member cards (crew as a row under their lead) with the preview of the member under the cursor beside them when the width allows, hint. Blocks that do not fit are left out; the list scrolls by whole items to keep the cursor in view. view: the select_view of this frame when the caller has built it already."""
+def render_select(
+    roster,
+    towns,
+    sel,
+    width,
+    height,
+    report=None,
+    now=None,
+    title=None,
+    art=False,
+    peek=(),
+    view=None,
+    history=None,
+    hist_at=None,
+):
+    """Exactly height rows of width cells: title, summary, the member cards (crew as a row under their lead) with the preview of the member under the cursor beside them when the width allows, hint. Blocks that do not fit are left out; the list scrolls by whole items to keep the cursor in view. view: the select_view of this frame when the caller has built it already. history, hist_at: see select_preview."""
     if height <= 0:
         return []
     head = (
@@ -974,7 +1049,7 @@ def render_select(roster, towns, sel, width, height, report=None, now=None, titl
         left[body_h // 2] = pad_to(" " * ((lw - cw(empty)) // 2) + fg("dim") + empty + RESET, lw)
     if rw and roster:
         at = next((i for i, (_, a, _) in enumerate(roster) if a["pane"] == sel), 0)
-        right = select_preview(roster, towns, at, rw, body_h, report, now, peek)
+        right = select_preview(roster, towns, at, rw, body_h, report, now, peek, history, hist_at)
         left = [left[j] + " " * SPLIT_GAP + right[j] for j in range(body_h)]
     out = [pad_to(t, width) for t in head] if show_title else []
     if show_sum:

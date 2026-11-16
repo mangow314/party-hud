@@ -397,6 +397,8 @@ def test_report_left_column_keeps_or_drops_the_portrait_whole(done, lrep, h):
 NEED = {
     "report": "n N j k ↑ ↓ wheel PgUp PgDn g G ⏎ q Esc ?",
     "sidebar": "j k J K 1-9 n v r ⏎ q Esc P ?",
+    "select": "j k 1-9 [ ] ⏎ l q Esc ?",
+    "saved": "j k ↑ ↓ wheel PgUp PgDn g G h q Esc ?",
 }
 
 

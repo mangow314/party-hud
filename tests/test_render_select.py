@@ -965,3 +965,49 @@ def test_select_screen_every_height_gives_that_many_rows():
         for hh in range(1, 41)
         for o_ in [srows_of(80, hh, "%9")]
     )
+
+
+def hround(n, task, replied=True):
+    return {
+        "task": task,
+        "agent": "codex",
+        "asked_at": 1000.0,
+        "replied_at": 1095.0 if replied else None,
+        "asked": "20261101T000000Z",
+        "rc": 0 if replied else None,
+        "dir": f"/s/round-{n:03d}",
+    }
+
+
+hist = ([hround(1, "修好登入頁面的錯誤訊息顯示"), hround(2, "review", False)], [("清理工作樹的長名稱任務", "/r/wt/x")])
+
+
+def hpreview(pane, w, history=hist, at=None):
+    i = next(i for i, (_, a, _) in enumerate(srs) if a["pane"] == pane)
+    return render.select_preview(srs, sst, i, w, 30, srep, 4000.0, [], history, at)
+
+
+def test_select_preview_history_rows_are_exactly_the_preview_width_with_cjk_tasks():
+    for w in range(18, 61):
+        rows = render.select_history(hist, w, "/s/round-001")
+        assert {common.cw(strip(r)) for r in rows[1:]} == {w}, w
+        assert strip(rows[3]).startswith("wt left: ")
+
+
+def test_select_preview_history_shows_task_agent_took_or_no_reply():
+    rows = [strip(r) for r in hpreview("%1", 60)]
+    at = rows.index("past rounds".ljust(60))
+    assert rows[at + 1].startswith("修好登入頁面的錯誤訊息顯示 · codex · 1m 35s")
+    assert rows[at + 2].startswith("review · codex · no reply")
+    assert rows[at + 3].startswith("wt left: 清理工作樹的長名稱任務")
+
+
+def test_select_preview_highlights_only_the_picked_round():
+    rows = hpreview("%1", 60, at="/s/round-002")
+    at = next(i for i, r in enumerate(rows) if strip(r).startswith("past rounds"))
+    assert [r.startswith(render.bg("sel")) for r in rows[at + 1 : at + 3]] == [False, True]
+
+
+def test_select_preview_has_no_history_for_crew_or_a_lead_without_rounds():
+    assert not any("past rounds" in strip(r) for r in hpreview("%10", 60))
+    assert hpreview("%1", 60, ([], [])) == hpreview("%1", 60, None)
