@@ -82,7 +82,7 @@ def cw(s):
     return sum(map(_char_width, s))
 
 
-CONTROL = re.compile("[\x00-\x1f\x7f-\x9f]")  # exactly Unicode category Cc, checked over every code point in the tests
+CONTROL = re.compile("[\x00-\x1f\x7f-\x9f]")  # exactly Unicode category Cc
 
 
 def printable(s):
@@ -113,8 +113,7 @@ CLASS_NAMES = [
 
 
 def spread(keys, n):
-    """Assign keys to 0..n-1, starting from their hash and taking the next free slot.
-    Unique up to n keys; adding or removing a key moves at most the key after it."""
+    """{key: slot in 0..n-1}, unique up to n keys; adding or removing a key moves at most the key after it."""
     taken, out = set(), {}
     for key in sorted(set(keys)):
         k = zlib.crc32(key.encode()) % n
@@ -139,7 +138,7 @@ def tmux(*args):
 
 
 def tmux_run(args, timeout=None):
-    """(returncode, stdout, stderr) of a tmux call; subprocess.run ends the child at the timeout and the rc is None."""
+    """(returncode, stdout, stderr) of a tmux call; returncode is None on a timeout."""
     try:
         r = subprocess.run(["tmux", *args], capture_output=True, text=True, timeout=timeout, check=False)
     except subprocess.TimeoutExpired:

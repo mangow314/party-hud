@@ -528,7 +528,9 @@ def report_side_rows(
     fit=False,
     hints: str = "report",
 ):
-    """Left column of the split report: framed portrait (portrait = cols, rows; centered), name, status tag, kind · squad, TOOK (RUNNING while it works), how long it has waited (when now is given), the prompt, work done, directory and branch, key hints on the last row. Every row is SPLIT_SIDE_COLS wide; the frame is padded down to rows_total rows and takes its color from the status. Headings are pixel label images (labels=True) or colored text. With fit, content taller than rows_total is cut from the bottom to a dim … row above the hint (a portrait the cut would split is dropped whole)."""
+    """Left column of the split report: rows SPLIT_SIDE_COLS wide, framed portrait (cols, rows) on top, key hints on the
+    last row, the frame padded to rows_total rows. labels=True draws headings as images; with fit, taller content is cut
+    from the bottom to a dim … row above the hint."""
     w = SPLIT_PORTRAIT_COLS
     hot = a["status"] == "waiting"
 
@@ -645,8 +647,9 @@ CODE_ROW = fg("green")
 
 
 def report_frames(right, height, steps=5, tail=0):
-    """Opening animation of a fresh page as successive versions of the right column, the last one being right itself.
-    Rows before the first blank-row-separated paragraph (banner, head) are in every frame; the paragraphs that start inside the first `height` rows appear in at most `steps` groups, the rest stays blank. The last `tail` rows are always shown. A code block is never cut. Fewer than 2 such paragraphs, or frames that look the same in the first `height` rows, give [right]."""
+    """Opening animation of a fresh page: successive versions of right, the last one right itself ([right] when nothing
+    animates). Rows before the first paragraph and the last `tail` rows are in every frame; paragraphs that start in the
+    first `height` rows appear in at most `steps` groups."""
     n = len(right) - tail
     cuts = [0]
     for i in range(1, n):
@@ -695,10 +698,8 @@ def report_parts(
     fixed=False,
     hints="report",
 ):
-    """(left, right) rows of the report page; left is empty unless the page splits. With fixed the left frame is exactly height rows instead of growing with the text.
-    Report pane text: who, how long, HP, then the whole report as Markdown, or the pane's last lines (peek) when there is no report.
-    With art a banner (banner = cols, rows[, k of the k:1 image]) opens the page in place of the title row, and the portrait stands left of the first three rows.
-    With art and width >= SPLIT_MIN_WIDTH the page splits: a framed side column (portrait = cols, rows) left, banner and text right, and the frame reaches the last row, or row height - 1 when the report is shorter."""
+    """(left, right) rows of the report page; left is empty unless the page splits (art and width >= SPLIT_MIN_WIDTH).
+    With fixed the left frame is exactly height rows. banner = (cols, rows[, k of the k:1 image]), portrait = (cols, rows)."""
     width = max(28, width)
     if art and width >= SPLIT_MIN_WIDTH:
         return report_split_parts(
@@ -899,7 +900,9 @@ def select_widths(width):
 
 
 def select_view(roster, sel, lw, body_h, art=False):
-    """(compact, spans, top, shown, cards) of the list: spans[i] is the (start, end) row of roster[i] in the whole list; rows from top on are on screen, whole items only, the cursor's included; shown = indexes of those items; cards[i] = the rows of roster[i]'s card, built once here (None for a one-row item). Cards need SELECT_LIST columns and SELECT_CARD_ROWS rows of room, else every item is one row. Not every card has the same height (a card without art and without SP is shorter)."""
+    """(compact, spans, top, shown, cards) of the list: spans[i] = (start, end) row of roster[i]; rows from top on are on
+    screen (whole items, the cursor's included), shown = their indexes; cards[i] = roster[i]'s card rows, None for a
+    one-row item (every item when compact)."""
     compact = lw < SELECT_LIST or body_h < SELECT_CARD_ROWS
     spans, cards, n = [], [], 0
     for _, a, is_crew in roster:
@@ -960,7 +963,9 @@ def select_card(n, rows, cursor):
 
 
 def select_preview(roster, towns, at, width, height, report, now, peek=(), history=None, hist_at=None):
-    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, a lead's past rounds (history, see select_history; when the highlighted one, hist_at, would fall below the last row, the rows scroll up until it is the last), the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… more" row; only the part of the report that shows is laid out."""
+    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, a lead's past rounds
+    (scrolled so that hist_at shows), the question, then the report as the report page draws it (peek without a report),
+    cut to a dim "… more" row."""
     _, a, _ = roster[at]
     task = (report or {}).get("task") or {}
     rows = []
@@ -1026,7 +1031,9 @@ def render_select(
     history=None,
     hist_at=None,
 ):
-    """Exactly height rows of width cells: title, summary, the member cards (crew as a row under their lead) with the preview of the member under the cursor beside them when the width allows, hint. Blocks that do not fit are left out; the list scrolls by whole items to keep the cursor in view. view: the select_view of this frame when the caller has built it already. history, hist_at: see select_preview."""
+    """Exactly height rows of width cells: title, summary, the member cards with the preview of the cursor's member beside
+    them when the width allows, hint; blocks that do not fit are left out. view: this frame's select_view when already
+    built. history, hist_at: see select_preview."""
     if height <= 0:
         return []
     head = (

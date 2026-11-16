@@ -29,8 +29,8 @@ def find_codex(pane_pid):
 
 
 def codex_rollout(pane_pid, cwd="", panes=()):
-    """The pane's codex rollout file, or None: the one a process in the pane holds open, else the rollout paired with it.
-    `panes` (tmux panes) lets codex processes in the same cwd each take a different rollout."""
+    """The pane's codex rollout file, or None. `panes` (tmux panes) lets codex processes in the same cwd each take a
+    different rollout."""
     codex_pid = None
     for pid in processes.proc_tree(pane_pid):
         if codex_pid is None and is_codex_proc(processes.proc_args(pid)):
@@ -93,8 +93,8 @@ def newest_rollout(cwd, since, root=CODEX_SESSIONS):
 
 
 def paired_rollout(cwd, start, peer_starts, root=CODEX_SESSIONS):
-    """Codex processes in one cwd, ordered by start time, take rollouts ordered by session_meta.timestamp one to one;
-    a rollout taken by an earlier process is not reused. The rollout for the process started at `start`, or None."""
+    """The rollout for the codex process started at `start`, or None: codex processes in one cwd, by start time, take
+    rollouts by session_meta.timestamp one to one."""
     starts = sorted([start, *peer_starts])
     rolls = sorted((t, p) for t, _, p in rollouts_since(cwd, starts[0] - 1, root) if t is not None)
     taken = set()
@@ -231,9 +231,9 @@ def codex_task(path):
 
 
 def codex_live(path):
-    """The turn in progress -> {"live": True, "task", "start", "end": None, "tool", "said", "prev"}, or None when the newest turn event is not a task_started.
-    Same shape as claude_live: start = task_started's started_at, tool = newest tool call as one row, said = newest agent message, prev = codex_report-shaped answer of the turn before (or None).
-    Only the last LIVE_TAIL bytes are read; a turn that began before that has no ask or start."""
+    """The turn in progress, shaped like claude_live (start = task_started's started_at, said = newest agent message), or
+    None when the newest turn event is not a task_started. A turn that began before the last LIVE_TAIL bytes has no ask
+    or start."""
     lines = _tail_lines(path, LIVE_TAIL)
     if not lines:
         return None

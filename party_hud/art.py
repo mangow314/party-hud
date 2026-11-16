@@ -52,7 +52,8 @@ ART_MIN_WIDTH = 30
 
 
 def load_art():
-    """art/ -> {image id: (PNG path, cols, rows)}; banners have only (PNG path,), or None if any of the 56 images is missing or unreadable. The files are opened, not read: send_image reads one when it sends it."""
+    """art/ -> {image id: (PNG path, cols, rows)} (banners: (PNG path,)), or None if any of the 56 images is missing or
+    unreadable."""
     art = {}
     for base, prefix, names, cells in (
         (PORTRAIT_ID, "portrait", PORTRAIT_FILES, PORTRAIT_CELLS),
@@ -78,7 +79,7 @@ ART_TERMS = ("ghostty", "kitty")
 
 
 def art_supported(option, termname):
-    """Use images? @party_art on/off wins; else the outer terminal (client_termname, carried over SSH) must be Ghostty or Kitty. Others lack Unicode placeholders and would show garbage."""
+    """@party_art on/off wins; else True when the outer terminal (client_termname) is Ghostty or Kitty."""
     if option in ("on", "off"):
         return option == "on"
     return any(t in termname for t in ART_TERMS)
@@ -117,8 +118,8 @@ def crest_ids(names):
 
 
 def kitty_image(img_id, data, cols, rows):
-    """Send one PNG: a=T transmit, U=1 virtual placement of cols x rows cells, q=2 no reply, 4096-byte base64 chunks.
-    Wrapped in tmux passthrough. tmux forwards it only for visible panes, so resend when one becomes visible."""
+    """Escape sequence sending one PNG as a virtual placement of cols x rows cells, wrapped in tmux passthrough.
+    tmux forwards it only for visible panes, so resend when one becomes visible."""
     b64 = base64.b64encode(data).decode()
     chunks = [b64[i : i + 4096] for i in range(0, len(b64), 4096)]
     out = ""
@@ -132,7 +133,7 @@ def kitty_image(img_id, data, cols, rows):
 
 
 def send_image(art, img_id, cols, rows):
-    """kitty_image of the file art holds for img_id, read now and not kept. A file that cannot be read is logged and sends nothing."""
+    """kitty_image of art's file for img_id, or "" when the file cannot be read (logged)."""
     try:
         with open(art[img_id][0], "rb") as f:
             data = f.read()
@@ -143,7 +144,7 @@ def send_image(art, img_id, cols, rows):
 
 
 def kitty_delete(img_id):
-    """Delete an image and its placements (d=I) so a resend with other c/r is not shown at the old size; Ghostty may keep the old virtual placement for an id it already has."""
+    """Delete an image and its placements (d=I): Ghostty may keep an id's old virtual placement on a resend with other c/r."""
     seq = f"\x1b_Ga=d,d=I,i={img_id},q=2\x1b\\"
     if os.environ.get("TMUX"):
         seq = "\x1bPtmux;" + seq.replace("\x1b", "\x1b\x1b") + "\x1b\\"

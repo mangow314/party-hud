@@ -166,9 +166,8 @@ def _records_backwards(f, limit=None):
 
 
 def claude_report(path, sidechain=False):
-    """Final answer of the last answered turn -> {"text", "start", "end"} (epoch seconds, start may be None), or None.
-    The answer is the text after the turn's last tool call. A prompt nobody answered (a `!` command, /cost) is skipped.
-    A subagent's own log is all sidechain records: pass sidechain=True to read it."""
+    """Final answer (text after the last tool call) of the last answered turn -> {"text", "start", "end"} (epoch seconds,
+    start may be None), or None. Pass sidechain=True to read a subagent's own log."""
     try:
         with open(path, "rb") as f:
             return _claude_answer(_records_backwards(f), sidechain)
@@ -246,8 +245,8 @@ PASTED_OPEN = re.compile(r"<pasted_content\b[^>]*>[ \t]*\n?")
 
 
 def claude_typed(rec, text):
-    """The text the user typed in a type-user record, or None when Claude Code injected it (task notification, peer or plugin message, hook output, ! command, interrupt marker, compact summary) or nothing is left after removing system reminders.
-    A slash command comes back as "/name args"."""
+    """The text the user typed in a type-user record, or None when Claude Code injected it or nothing is left after
+    removing system reminders. A slash command comes back as "/name args"."""
     origin = rec.get("origin")
     if (isinstance(origin, dict) and origin.get("kind") != "human") or rec.get("isCompactSummary"):
         return None
@@ -278,9 +277,9 @@ def tool_summary(name, args):
 
 
 def _claude_turn(records, live=False):
-    """Walk records (newest first) back to the user's last typed prompt and stop there; records stays positioned just before it.
-    -> ({"ask", "files", "cmds", "agents"}, start, tool, said): start = the prompt's epoch seconds, tool = summary of the newest tool call, said = the newest assistant text.
-    Without live a prompt counts only once something answered it."""
+    """(task, start, tool, said) of the turn from the user's last typed prompt on; records stays positioned just before
+    it. task = {"ask", "files", "cmds", "agents"}, start = the prompt's epoch seconds, tool = newest tool call summary,
+    said = newest assistant text. Without live a prompt counts only once something answered it."""
     steps, cmds, agents, replied = [], 0, 0, False
     ask = start = tool = said = None
     for rec, content in records:
@@ -320,7 +319,8 @@ def _claude_turn(records, live=False):
 
 
 def claude_task(path):
-    """Turn of the last answer, from the user's last typed prompt on -> {"ask", "files", "cmds", "agents"}: the prompt's text and what its tool calls did (files = distinct file_path of edit tools, in the order first edited)."""
+    """Turn of the last answer -> {"ask", "files", "cmds", "agents"}; files = distinct file_path of edit tools, in the
+    order first edited."""
     try:
         with open(path, "rb") as f:
             return _claude_turn(_records_backwards(f))[0]
@@ -347,8 +347,8 @@ _long_turns: dict[str, tuple] = {}
 
 
 def _search_long_turn(f, lo):
-    """Look for the prompt of the turn that began before byte lo -> ((start, ask, prev), anchor offset), or (None, 0) when not within LONG_TURN_LOOKBACK.
-    Only lines that contain a user type are parsed, and _claude_turn decides which one is."""
+    """((start, ask, prev), anchor offset) of the prompt of the turn that began before byte lo, or (None, 0) when it is
+    not within LONG_TURN_LOOKBACK."""
     floor = max(0, lo - LONG_TURN_LOOKBACK)
     lines = _lines_backwards(f, floor, lo, complete=True)
     at = [0]
@@ -385,8 +385,7 @@ def _complete_end(f, end):
 
 
 def _long_turn(f, path, end, lo):
-    """(start, ask, prev) of a turn that began before the LIVE_TAIL window, or None.
-    Remembered per log: the entry says no later prompt exists before byte `seen`, so it holds only while the window parses every line from `seen` on (a line cut by the window start is dropped, so lo < seen), the file only grew (same inode) and the line at the anchor is unchanged."""
+    """(start, ask, prev) of a turn that began before the LIVE_TAIL window, or None; remembered per log."""
     st = os.fstat(f.fileno())
     hit = _long_turns.pop(path, None)
     if hit:
@@ -405,9 +404,10 @@ def _long_turn(f, path, end, lo):
 
 
 def claude_live(path):
-    """The turn in progress -> {"live": True, "task", "start", "end": None, "tool", "said", "prev"}, or None when the log is unreadable.
-    start = when the prompt was typed (epoch seconds), tool = newest tool call as one row, said = newest assistant text, prev = claude_report-shaped answer of the turn before (or None).
-    A turn that began before the last LIVE_TAIL bytes is searched for up to LONG_TURN_LOOKBACK further back (remembered per log): ask and start come from there, but files, cmds and agents count only the tail, and prev is None when its answer is not within LONG_TURN_PREV before the prompt. Past the lookback the turn has no ask, start or prev."""
+    """The turn in progress -> {"live": True, "task", "start", "end": None, "tool", "said", "prev"}, or None when the log
+    is unreadable. start = the prompt's epoch seconds, tool = newest tool call row, said = newest assistant text, prev =
+    the turn before's claude_report or None; task is {} when no prompt is found. Turns older than LIVE_TAIL:
+    docs/integrations.md."""
     try:
         with open(path, "rb") as f:
             end = f.seek(0, os.SEEK_END)

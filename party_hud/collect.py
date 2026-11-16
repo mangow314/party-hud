@@ -74,8 +74,8 @@ PERMISSION_MARKS = {"agy": "Requesting permission for:", "codex": "Press enter t
 
 
 def screen_changed(panes, now):
-    """{pane: screen changed recently; (changed, {agent kinds whose permission prompt is on the screen}) when there is one}, for agents without a status file.
-    Only a CRC32 of each screen is kept, in activity.json."""
+    """{pane: screen changed recently, or (changed, {agent kinds whose permission prompt is on the screen}) when there
+    is one}, for agents without a status file."""
     path = os.path.join(PARTY_DIR, "activity.json")
     try:
         with open(path) as f:
@@ -245,9 +245,8 @@ def unwrap(para):
 
 
 def screen_report(pane):
-    """Whole last reply of the screen, without the input box and status bar below it (agy, grok write no log).
-    The bottom block is cut from the lowest border line (a line starting with a box-drawing corner or rule) up through the lines directly above it that also start with a box-drawing character, or up to the previous plain rule.
-    The reply starts after the last prompt line (agy "> ", grok "\u276f "); grok replies are indented as far as the prompt and its notices less."""
+    """{"text", "start": None, "end": None} of the last reply on an agy or grok screen (they write no log), without the
+    input box and status bar below it, or None."""
     lines = [
         GROK_TIME.sub("", ln.replace("\u2588", "").rstrip())
         for ln in tmux("capture-pane", "-p", "-J", "-S", "-200", "-t", pane).split("\n")
@@ -285,9 +284,9 @@ def screen_report(pane):
 
 
 def report_for(a) -> dict | None:
-    """The member's last report (shape of claude_report, Claude Code's with "subagents" added), or None. Claude Code and Codex write one; agy and grok are read off the screen.
-    Claude Code and Codex reports also carry "task": {"ask", "files" (list of paths; Codex has none), "cmds", "agents", "dir", "branch", "cwd"} for the left column.
-    A Claude Code or Codex member whose status is "working" gets the turn in progress instead (claude_live shape, "live": True, "prev" = the report above or None), when its log shows one."""
+    """The member's last report (claude_report shape, plus "subagents" for Claude Code), or None; agy and grok are read off
+    the screen. Claude Code and Codex reports carry "task" ({"ask", "files", "cmds", "agents", "dir", "branch", "cwd"});
+    a working one gets its turn in progress instead (claude_live shape, "prev" = the report)."""
     rep, path, cwd = None, None, ""
     working = a.get("status") == "working"
     if a["kind"] == "claude":
@@ -325,12 +324,9 @@ def wait_channel(pane):
 
 
 def report_text(pane, wait=False, timeout=600, after=None, read=None):
-    """(rc, stdout, stderr) for party.py --report-text. rc: 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent, 7 waiting for input.
-    While the member works, sleep in tmux wait-for (woken by the collector) for up to 2 s, then read the snapshot again.
-    With after (epoch seconds, from --ask) it also keeps waiting until the snapshot is newer than after + SNAP_MAX_AGE
-    and, for Claude and Codex, the report ends after after. If the member is waiting for input by then and has no such
-    report (agy and grok never have one), it returns 7 at once with the last 20 non-empty lines of its screen.
-    A dict passed as read gets read["round"] = the round of the member data the returned report came from."""
+    """(rc, stdout, stderr) for party.py --report-text; rc 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent, 7
+    waiting for input (wait and after: docs/crew.md). A dict passed as read gets read["round"] = the round of the
+    returned report."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
     if not math.isfinite(timeout):
@@ -585,8 +581,9 @@ def read_seen():
 
 
 def mark_unseen(towns, state, seen=None):
-    """Mark members "done" when they stop working while you are not looking, until you look or read the report of that round.
-    state = last round's {pane: {"status", "unseen", "round"}} (older files lack round: 0); seen = {pane: round}. Changes towns in place; returns the new state."""
+    """Mark members "done" when they stop working while you are not looking, until you look or read that round's report.
+    state = last round's {pane: {"status", "unseen", "round"}}; seen = {pane: round}. Changes towns in place; returns the
+    new state."""
     seen = seen or {}
     out = {}
     for t in towns:
@@ -621,8 +618,8 @@ def unread_count(statuses, quiet):
 
 
 def bell_panes(prev, agents, panes):
-    """Members that just started waiting or finished, out of sight -> (panes to ring, new state).
-    prev None = first round, no bells. The collector rings for all: hidden windows have no sidebar process."""
+    """Members that just started waiting or finished, out of sight -> (panes to ring, new state); prev None = first round,
+    no bells."""
     cur = {a["pane"]: a["status"] for a in agents}
     alert = ("waiting", "done")
     quiet = {a["pane"] for a in agents if a["status"] == "done" and a.get("lead")}

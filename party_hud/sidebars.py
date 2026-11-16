@@ -39,9 +39,6 @@ SIDEBAR_TITLE = "party-hud"
 
 
 def mark_sidebar(pane):
-    """Mark a pane as a sidebar. remain-on-exit keeps a stopped (hidden) sidebar's pane so wake can respawn it; the empty format hides "Pane is dead".
-    allow-passthrough lets the images reach the outer terminal; set on this pane only, a global setting would let any program bypass tmux.
-    The pane title is the one mark a layout saver such as tmux-resurrect keeps, so its restore hook can name the sidebars to --restore-end."""
     tmux(
         "set-option",
         "-p",
@@ -80,8 +77,6 @@ def mark_sidebar(pane):
 
 
 def mark_report(pane):
-    """Mark a pane as the quest report. allow-passthrough, on this pane only, lets the images reach the outer terminal.
-    No remain-on-exit: the pane closes when the report ends."""
     tmux(
         "set-option",
         "-p",
@@ -140,7 +135,8 @@ def select_span(win_w, ratio):
 
 
 def report_cols(ratio):
-    """Widest floating pane of the report page: the right column holds the 6:1 banner at its full height (8:1 cuts too much of the scene), and the pane is never narrower than the split layout needs (the border takes 2 columns, run_report 1 more)."""
+    """Widest floating pane of the report page: the right column holds the 6:1 banner at its full height, and the pane is
+    never narrower than the split layout needs."""
     return max(SPLIT_MIN_WIDTH + 3, SPLIT_SIDE_COLS + SPLIT_GAP + round(REPORT_BANNER_MAX_ROWS * 6 / ratio) + 1)
 
 
@@ -201,12 +197,9 @@ SUMMON_POLL = 1.0
 
 
 def summon(agent, cwd, window, timeout, read_only=False, here=False):
-    """(rc, stdout, stderr) for party.py --summon. rc: 0 ready (stdout: pane id), 2 bad arguments, tmux failure or the new pane closed before it was ready, 3 timeout,
-    6 the caller is crew of a lead whose pane still exists (it reports to the lead instead).
-    Default: a window in the detached session crew-<caller pane number> (created at the caller's window size);
-    window: a new window in the caller's session; here: a split beside the caller.
-    Ready = the pane's agent is recognised, two polls in a row see the same screen (CRC32), and the snapshot lists the pane
-    (so --ask and --report-text, which read the snapshot, accept it right away)."""
+    """(rc, stdout, stderr) for party.py --summon; rc 0 ready (stdout: pane id, already in the snapshot), 2 bad arguments,
+    tmux failure or the new pane closed before it was ready, 3 timeout, 6 the caller is crew of a lead whose pane still
+    exists. Where the pane goes (default, window, here): docs/crew.md."""
     if agent not in AGENT_CMDS:
         return 2, "", f"unknown agent: {agent} (one of {', '.join(AGENT_CMDS)})\n"
     if read_only and agent not in READ_ONLY_CMDS:
@@ -454,13 +447,9 @@ def _crew_first_line(path):
 
 
 def crew_history(lead, towns, server):
-    """(rounds, worktrees left) of a lead pane from the saved crew rounds whose meta.json "lead" is lead and "server_start" is server
-    (the current tmux server's #{start_time}; pane ids restart with the server). Nothing when server is "".
-    rounds: the newest CREW_HISTORY_ROWS, newest first, as dicts lead, task, agent, asked_at / replied_at (epoch; replied_at None
-    without a reply), asked (the meta stamp), rc (None without a reply), dir, worktree (None outside one). task is the
-    worktree's name, else the first non-empty line of question.md. worktrees left: [(task, path)] of the task
-    worktrees any of its rounds ran in that still exist and no agent in towns has its current directory in.
-    A round whose meta.json or question.md is missing or broken is left out."""
+    """(rounds, worktrees left) of lead from the saved rounds of the tmux server whose #{start_time} is server (nothing
+    when server is ""). rounds: the newest CREW_HISTORY_ROWS round dicts, newest first; worktrees left: [(task, path)]
+    of their task worktrees still on disk with no agent in them. Rules: docs/architecture.md, Crew history."""
     root = _crew_root()
     try:
         sessions = os.listdir(root) if server else []
@@ -583,8 +572,8 @@ def install_hooks():
 
 
 def nudge(window_id=""):
-    """After a session/window switch: drop the snapshot, touch the cursor file so every sidebar wakes, restart this window's sidebar, fix its width
-    (a window that was not resized gets no window-resized hook)."""
+    """After a session/window switch: drop the snapshot, wake every sidebar, restart this window's sidebar and fix its
+    width (a window that was not resized gets no window-resized hook)."""
     window_id = window_id or tmux("display-message", "-p", "#{window_id}").strip()
     if window_id:
         wake(window_id)
@@ -691,10 +680,9 @@ RESTORE_FIELDS = FIELD_SEP.join(["#{session_name}:#{window_index}.#{pane_index}"
 
 
 def restore_end(places):
-    """(rc, stdout, stderr) for party.py --restore-end. Each place is session:window.pane (indexes) where the saved layout had a
-    sidebar; the pane there becomes a sidebar unless it existed before restore_begin or is one already. With a pane taken over, or
-    sidebars already on, the hooks go in and every window still without a sidebar gets one. rc 2: restore_begin did not run,
-    nothing is touched."""
+    """(rc, stdout, stderr) for party.py --restore-end; rc 2 when restore_begin did not run (nothing is touched). The pane at
+    each place (session:window.pane) becomes a sidebar unless it existed before restore_begin or is one already; then, if
+    one was taken over or sidebars are on, the hooks go in and every window without a sidebar gets one."""
     before = set(tmux("show-option", "-gqv", "@party_restoring").split())
     if not before:
         return 2, "", "--restore-end: run --restore-begin before the restore\n"
