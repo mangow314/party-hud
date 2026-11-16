@@ -333,6 +333,7 @@ def child_main(data_path, rec_path, exit_mode):
 class Scene:
     def __init__(self, data):
         self.data = data
+        self.hist = (None, None)
         self.ui, self.render = install_fakes(data)
         self.art = self.ui.load_art()
         self.towns = data["towns"]
@@ -373,7 +374,9 @@ class Scene:
         if sel and preview:
             a = next(m for _, m, _ in roster if m["pane"] == sel)
             if not a.get("lead"):
-                history = ui.crew_history(sel, towns)
+                if self.hist[0] != sel:
+                    self.hist = (sel, ui.crew_history(sel, towns))
+                history = self.hist[1]
             if ui.select_reread(cached, a, time.monotonic()):
                 report = ui.report_for(a)
                 peek = ui.report_peek({}, a["pane"], report, None, lambda p: ui.capture(p, color=True))
@@ -488,6 +491,7 @@ def part1(sc, sink, emit):
             if fresh:
                 clear()
                 state["cached"] = (None, None, [], 0.0)
+                sc.hist = (None, None)
             state["cached"] = sc.loop_frame(sel, now, state["cached"], sink, marks)
 
         for _ in range(3):
@@ -621,6 +625,7 @@ def part7(sc, sink, emit):
 
     def k_press():
         clear_markdown_cache()
+        sc.hist = (None, None)
         state["cached"] = sc.loop_frame(unseen, now, (None, None, [], 0.0), sink, {})
 
     cases = [

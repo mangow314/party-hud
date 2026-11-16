@@ -379,7 +379,7 @@ def run_select(sel=None, fixture=None, images=None):
     signal.signal(signal.SIGWINCH, lambda *_: None)
     signal.set_wakeup_fd(wake_w)
     last_frame, helping, cached = None, False, (None, None, [], 0.0)
-    read_history: tuple[float, dict] = (-1.0, {})
+    read_history = (None, None)
     hist_at = None
     towns, fetched, spin = [], -1.0, None
     try:
@@ -408,12 +408,12 @@ def run_select(sel=None, fixture=None, images=None):
             history = None
             if sel and preview:
                 a = next(m for _, m, _ in roster if m["pane"] == sel)
-                if not a.get("lead"):
-                    if read_history[0] != fetched:
-                        read_history = (fetched, {})
-                    if sel not in read_history[1]:
-                        read_history[1][sel] = crew_history(sel, towns)
-                    history = read_history[1][sel]
+                if a.get("lead"):
+                    read_history = (None, None)
+                else:
+                    if read_history[0] != sel:
+                        read_history = (sel, crew_history(sel, towns))
+                    history = read_history[1]
                 if select_reread(cached, a, time.monotonic()):
                     report = None if fixture else report_for(a)
                     peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
