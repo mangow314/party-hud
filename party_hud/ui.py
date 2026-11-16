@@ -283,14 +283,14 @@ def saved_key(key, offset, limit, height):
     return report_scroll(key, offset, limit, height), None
 
 
-def select_history_cache(cache, sel, a, preview, towns):
+def select_history_cache(cache, sel, a, preview, towns, server):
     """(new cache, history to show or None). cache: (pane, history) of the lead the cursor last landed on, dropped once the cursor is on another member, preview or not; a: the member under the cursor. crew_history runs when the cursor is on a lead, the preview shows and the cache holds no other pane."""
     if cache[0] != sel:
         cache = (None, None)
     if not (a and preview) or a.get("lead"):
         return cache, None
     if cache[0] != sel:
-        cache = (sel, crew_history(sel, towns))
+        cache = (sel, crew_history(sel, towns, server))
     return cache, cache[1]
 
 
@@ -381,6 +381,7 @@ def run_select(sel=None, fixture=None, images=None):
     """Select screen (prefix R): the member cards beside the report preview of the member under the cursor. Returns the pane whose report to open, or None when it was closed.
     With images, the banner and the portraits of the cards on screen are sent once the window size has settled; they stay in the terminal on exit, since another pane may still show them under the same id."""
     art, sent = images or load_images(fixture)
+    server = tmux("display-message", "-p", "#{start_time}").strip()
     queue: list = []
     last_winch = 0.0
     fd = sys.stdin.fileno()
@@ -419,7 +420,7 @@ def run_select(sel=None, fixture=None, images=None):
             body_h = select_layout(size.lines, head_rows)[3]
             lw, preview = select_widths(width)
             cur = next((m for _, m, _ in roster if m["pane"] == sel), None)
-            read_history, history = select_history_cache(read_history, sel, cur, preview, towns)
+            read_history, history = select_history_cache(read_history, sel, cur, preview, towns, server)
             if sel and preview:
                 a = next(m for _, m, _ in roster if m["pane"] == sel)
                 if select_reread(cached, a, time.monotonic()):

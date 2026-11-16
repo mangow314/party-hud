@@ -291,7 +291,7 @@ def fake_ask(monkeypatch, pane):
 
     def tmux_run(args, timeout=None):
         calls.append(("tmux", tuple(args)))
-        return (0, f"{pane}{FS}/w\n", "") if args[0] == "display-message" else (0, "", "")
+        return (0, f"{pane}{FS}/w{FS}1700000000\n", "") if args[0] == "display-message" else (0, "", "")
 
     monkeypatch.setattr(party, "get_snapshot", lambda: {"towns": [{"agents": [{**agent("waiting"), "pane": pane}]}]})
     monkeypatch.setattr(party, "tmux_run", tmux_run)
@@ -351,8 +351,8 @@ def test_ask_a_name_that_is_not_a_pane_id_gives_2():
 
 def test_ask_pane_that_is_no_known_agent_gives_4(monkeypatch):
     monkeypatch.setattr(party, "get_snapshot", lambda: {"towns": []})
-    monkeypatch.setattr(party, "tmux_run", lambda args, timeout=None: (0, f"%5{FS}/w\n", ""))
-    monkeypatch.setattr(collect, "tmux_run", lambda args, timeout=None: (0, f"%5{FS}/w\n", ""))
+    monkeypatch.setattr(party, "tmux_run", lambda args, timeout=None: (0, f"%5{FS}/w{FS}1700000000\n", ""))
+    monkeypatch.setattr(collect, "tmux_run", lambda args, timeout=None: (0, f"%5{FS}/w{FS}1700000000\n", ""))
     assert party.ask("%5", "x")[0] == 4
 
 

@@ -335,6 +335,7 @@ class Scene:
         self.data = data
         self.hist = (None, None)
         self.ui, self.render = install_fakes(data)
+        self.server = self.ui.tmux("display-message", "-p", "#{start_time}").strip()
         self.art = self.ui.load_art()
         self.towns = data["towns"]
         self.roster = self.render.select_roster(self.towns)
@@ -372,7 +373,7 @@ class Scene:
         lw, preview = ui.select_widths(width)
         report = None
         cur = next((m for _, m, _ in roster if m["pane"] == sel), None)
-        self.hist, history = ui.select_history_cache(self.hist, sel, cur, preview, towns)
+        self.hist, history = ui.select_history_cache(self.hist, sel, cur, preview, towns, self.server)
         if sel and preview:
             a = next(m for _, m, _ in roster if m["pane"] == sel)
             if ui.select_reread(cached, a, time.monotonic()):
