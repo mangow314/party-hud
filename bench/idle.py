@@ -3,16 +3,8 @@
   python3 bench/idle.py              # offline, no tmux, about 60 s, stdlib only
   python3 bench/idle.py --live [N]   # inside your real tmux, N seconds (default 30), read only
 
-Offline: the real `run_ui` runs in a pty (34 x 60) with fake tmux replies and a fixed 5-agent snapshot served through the
-real `get_snapshot` (snapshot.json in a private state folder), once with one working member, once with none, once more
-under cProfile. Only the measuring process patches product functions. A wake is one return of `select.select` in the loop:
-the loop polls every 0.1 s and does its once-a-second work when the second is up. CPU is `time.process_time` (this process
-only, children excluded); `RUSAGE_CHILDREN` is read where a child is spawned.
-
---live runs the real `collect()` and `get_snapshot()` in this process and converts what it sees into the CPU a resident
-sidebar spends per second. It opens no pane, sends no key, writes no agent file and uses no network. `get_snapshot` writes
-snapshot.json by the product's own rules, and it competes with the running sidebars for snapshot.lock. Run it from the
-same checkout the sidebars run from, or SNAP_VERSION differs and the copies keep overwriting each other's snapshot.
+--live writes snapshot.json by the product's rules: run it from the checkout the sidebars run from, or SNAP_VERSION
+differs and the copies keep overwriting each other's snapshot.
 """
 
 import argparse
@@ -54,8 +46,7 @@ def med(xs):
 
 
 def isolate():
-    """A private state folder and home: PARTY_DIR and the agent roots (~/.claude, ~/.codex) are read from
-    XDG_RUNTIME_DIR and HOME when party_hud.common and party_hud.collect are first imported."""
+    """A private state folder and home; call before party_hud.common and party_hud.collect are first imported."""
     tmp = tempfile.mkdtemp(prefix="party-idle-xdg-")
     atexit.register(shutil.rmtree, tmp, ignore_errors=True)
     os.environ["XDG_RUNTIME_DIR"] = tmp
@@ -337,8 +328,8 @@ def report_run(label, res, out):
 
 
 def profile_table(path, out, title=None, top=15):
-    st = pstats.Stats(path).stats  # type: ignore[attr-defined]
-    rows = sorted(st.items(), key=lambda kv: kv[1][3], reverse=True)  # type: ignore[union-attr]
+    st = pstats.Stats(path).stats  # type: ignore[attr-defined]  # typeshed does not declare Stats.stats
+    rows = sorted(st.items(), key=lambda kv: kv[1][3], reverse=True)
     rows = [r for r in rows if not any(s in r[0][2] for s in SKIP)][:top]
     out.append(
         title
@@ -475,8 +466,7 @@ def owner(name):
 
 
 def disk_world(collect):
-    """5 agents whose files sit on disk under the private HOME: 3 Claude (sessions, 2-3 MB transcripts, one with
-    subagents), 1 codex (a 2.5 MB rollout), 1 judged by its screen. tmux and /proc are fakes; the files are real."""
+    """5 agents (3 Claude, 1 codex, 1 judged by its screen) with real files under the private HOME; tmux and /proc are fakes."""
     from party_hud import codex_log, common
 
     home = os.path.expanduser("~")
@@ -767,9 +757,6 @@ def offline():
     return 0
 
 
-# ---------------------------------------------------------------- --live
-
-
 class CountedFile:
     """A read-only file object that counts what it returns and the CPU its reads take, into each stat list [n, bytes, cpu_ns]."""
 
@@ -955,8 +942,7 @@ LIVE_WATCHED = (
 
 
 def live_breakdown(collect, cn, out, runs=10):
-    """Where one real collect() goes: exclusive CPU per function, spawn CPU, /proc reads, the biggest files, cProfile.
-    Two more batches of collects: one with the functions wrapped, one under cProfile."""
+    """Where one real collect() goes: exclusive CPU per function, spawn CPU, /proc reads, the biggest files, cProfile."""
     from party_hud import codex_log, common
 
     roots = (common.CLAUDE_SESSIONS, common.CLAUDE_PROJECTS, codex_log.CODEX_SESSIONS, collect.PARTY_DIR)

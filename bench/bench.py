@@ -1,22 +1,4 @@
-"""Offline benchmark: how long party.py spends building and drawing one frame, with fake data.
-
-No tmux needed. For each team size it times `collect` (turn raw pane data into squads) and one frame of each
-screen, and reports the median of 200 runs (20 for select and report, which cost far more):
-  render  the sidebar (33 x 60, image version)
-  select  the select screen (`render_select`, 179 x 47, cursor on the first member, no images, 70-line report)
-  report  the report page (`report_parts`, 179 x 47, split layout with art, fixed frame, same report)
-select and report draw the same report again and again, so the Markdown layout is reused: that is a redraw of
-unchanged content, the usual frame. select_cold and report_cold clear the layout cache before every frame: that is
-the frame where the report text or the width has just changed.
-Real runs also pay for `tmux list-panes` and reading files; measure those with bench/live.sh.
-
-  python3 bench/bench.py            # table for 1, 5, 10, 20, 50 agents
-  python3 bench/bench.py --json     # same data as JSON, plus the "use" object
-  python3 bench/bench.py --no-use   # skip the in-use run below
-
-After the table, "in use" plays a fixed 30 s key script on the select screen and report page in a pty (bench/use.py,
-3 runs, median) and reports CPU as a share of one core, per step. The target is under 1 %.
-"""
+"""Offline benchmark: time to collect and draw one frame of each screen with fake data, then CPU in use (bench/use.py)."""
 
 import json
 import os
@@ -84,7 +66,7 @@ REPORT = {
 }
 W, H = 179, 47
 NOW = 10000
-SLOW_RUNS = 20  # a select or report frame costs ~10 ms; 200 runs would slow CI
+SLOW_RUNS = 20
 
 
 def cold(fn):

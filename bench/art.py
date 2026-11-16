@@ -2,22 +2,8 @@
 
   python3 bench/art.py
 
-Runs the real `ui.run_report` / `ui.run_menu` in a pty (179 x 47) as a child process and reads what it writes with a
-timestamp per read. Three scenarios, RUNS runs each, every number is the median in milliseconds:
-  (a) the report page opened directly, opening animation on
-  (b) the same with the animation off
-  (c) `run_menu`: select screen, wait until its images are out, Enter, the report page (only the report page is timed)
-Segments (first frame = first `\\x1b[H`, first image = first `a=T`, last image = end of the last image chunk):
-  start -> first frame, first frame -> last animation frame (draws within ANIM_TOTAL + 100 ms of it), first image -> last image, and the headline number
-  first frame -> first image. The images are sent right after the first frame, so the first image can come before the
-  later animation frames. `load_art()` and `import party_hud.ui` are timed on their own.
-
-What it measures: time inside the program. `load_art`, `kitty_image`, the wait constants and the animation are the real
-ones. Replaced in the child only: the snapshot, the report source, `capture`, `art_supported` (images forced on) and tmux
-(no reply, no delay). It cannot measure what tmux spends forwarding the passthrough or what the terminal spends decoding
-and drawing the images. In scenario (c) `fit_report_pane` is not called (it needs TMUX_PANE), so its two tmux round
-trips are not included; in (c) `load_art` runs before the select screen, so it is not part of the report segment.
-The child sees TMUX set, so images are wrapped in the tmux passthrough as they are in use.
+Runs the real `ui.run_report` / `ui.run_menu` in a pty (179 x 47) with fake outside data; every number is the median of
+RUNS runs in ms. Scenarios: (a) the report page, animation on; (b) animation off; (c) `run_menu`, Enter, the report page.
 """
 
 import bisect

@@ -1,16 +1,13 @@
 """Compare animation CPU in a real Ghostty + tmux: redraw placeholders every frame vs. Kitty animation protocol.
 
-Run it inside the tmux pane you want to test; it only measures, it does not pick a winner.
+Run it inside the tmux pane you want to test:
 
   python3 bench/anim.py --mode redraw --fps 8 --term-pid <pid>
   python3 bench/anim.py --mode kitty  --fps 8 --term-pid <pid>
   python3 bench/anim.py --mode event  --fps 10 --term-pid <pid>
 
-event: text-only card, HP tween (1 s, --fps frames) then 3 border flashes (1 s), repeated every 4 s and idle in between.
-The report adds this process's own CPU (stand-in for party.py) and bytes written to stdout per second.
-
-Find <pid> with: ps -o pid,pcpu,comm -p "$(pgrep -d, ghostty)"
-Take the Ghostty with the highest %CPU, the one drawing this window.
+event: a text-only card with an HP tween and 3 border flashes, every 4 s.
+Find <pid> with: ps -o pid,pcpu,comm -p "$(pgrep -d, ghostty)"; take the Ghostty with the highest %CPU.
 """
 
 import argparse
@@ -85,7 +82,7 @@ def card_frame(hp, flash):
 
 
 def event_schedule(old, new, fps):
-    """(offset seconds, frame text) for one event: HP tween over 1 s at fps, then FLASHES border flashes over 1 s."""
+    """(offset seconds, frame text) for one event: an HP tween at fps, then FLASHES border flashes, 1 s each."""
     n = max(1, round(fps))
     steps = [(k / n, card_frame(round(old + (new - old) * k / n), False)) for k in range(1, n)]
     half = 1.0 / (2 * FLASHES)
