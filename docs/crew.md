@@ -82,7 +82,10 @@ Exit 0 closed (nothing is saved), 2 not in tmux, not a pane id, pane does not ex
 Each member has one lead. A member does only what it was asked; when it needs help it says so in its report and the lead brings someone in or asks the user. The rules for both sides are in `skills/party-crew/SKILL.md`.
 
 Every round is saved for later reference under `~/.local/state/party-hud/crew/` (`$XDG_STATE_HOME/party-hud/crew/` when `XDG_STATE_HOME` is set), one directory `<start time UTC>-<pane number>/round-NNN/` (the pane id without the `%`, for example `20260101T120000Z-12` for `%12`)
-(`question.md`, `reply.md`, `meta.json`). `--summon` removes sessions untouched for 14 days. If saving fails, `--ask`,
+(`question.md`, `reply.md`, `meta.json`). `meta.json` holds `asked_at`, `pane`, `agent`, `cwd` and `lead` (the asked
+member's lead pane, `""` when it has none) from `--ask`, and `replied_at` and `rc` once `--report-text` saves a reply.
+Party Select lists a lead's last 5 rounds from these files (see the README); rounds without `lead` are not listed.
+`--summon` removes sessions untouched for 14 days. If saving fails, `--ask`,
 `--report-text` and `--summon` exit 5 after doing their job and say why on stderr (an exit 7 stays 7; the failure is only on stderr).
 
 ## Claude Code skill (party-crew)
