@@ -1,20 +1,4 @@
-"""Render the README demo, an animated SVG of the whole tool, from a fixture and a script of steps.
-
-  python3 scripts/demo.py scripts/demo.json docs/img/demo.svg
-
-Every screen is drawn by the same functions as the other README images (scripts/screenshot.py): the sidebar beside a pane,
-the select screen and the report page as floating panes over the window, sized and placed by the rules of sidebars.py.
-The animation is CSS @keyframes inside the SVG (no script, no external file): each screen is a group that is visible only in its
-time slice. The first screen is what a viewer without animation shows. Images and repeated screens are stored once.
-Needs Pillow and the fonts of screenshot.py.
-
-demo.json: "fixture" (screenshot.json format, with its "reports" by name), "screens" (text beside the sidebar and
-status line, by name), and "steps". A step is one screen shown for "dur" seconds; keys not given stay as in the step before, except
-"flash", "reveal" (step of the report's opening animation) and "set" (a patch of the fixture: "panes" is merged by pane id, a
-dict is merged, anything else replaced), which count for their step only. "sidebar": false draws the window without the sidebar (a crew session has none; stays until set to true);
-"view" is window, select or report; "sel" is the
-sidebar selection or the select cursor; "report" the entry of "reports" the select preview or report page shows; "caption" is
-[key, text]. The clock of the fixture runs with the animation, so RUNNING times count up."""
+"""Render the README demo, an animated SVG of the whole tool, from a fixture and a script of steps."""
 
 import json
 import os
@@ -88,7 +72,7 @@ def write_state(state, tmp, name):
 
 
 def render_step(cur, state, under, tick, tmp):
-    """Layers of one step. The window below a floating pane keeps the clock it had when the pane opened, so those steps share one window layer."""
+    """Layers of one step; steps under one floating pane share the window layer of the step that opened it."""
     now = state["now"]
     path = write_state(state, tmp, "state.json")
     data = {"now": now}

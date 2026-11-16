@@ -1,8 +1,4 @@
-"""Turn the black-on-white silhouettes in raw/crest-<name>.png into squad crests.
-
-The shield, colors and drop shadow are drawn here; only the silhouette comes from the model.
-Output: art/crest-<name>.png, 128x144 RGBA, transparent outside the shield.
-"""
+"""Turn the black-on-white silhouettes in raw/crest-<name>.png into the squad crests in art/."""
 
 import os
 import sys
@@ -55,11 +51,11 @@ def compose(name):
     w, h = W * SS, H * SS
     img = Image.new("RGBA", (w, h), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    d.polygon(shield(w, h, 2 * SS), fill=(*GOLD, 255))  # gold rim
-    d.polygon(shield(w, h, 7 * SS), fill=(20, 18, 24, 255))  # dark line inside the rim
+    d.polygon(shield(w, h, 2 * SS), fill=(*GOLD, 255))
+    d.polygon(shield(w, h, 7 * SS), fill=(20, 18, 24, 255))
     d.polygon(shield(w, h, 9 * SS), fill=(*field, 255))
     m = silhouette(os.path.join(RAW, f"crest-{name}.png"))
-    bw, bh = w * 0.66, h * 0.56  # silhouette sits in the upper middle of the shield
+    bw, bh = w * 0.66, h * 0.56
     s = min(bw / m.width, bh / m.height)
     m = m.resize((max(1, int(m.width * s)), max(1, int(m.height * s))), Image.Resampling.LANCZOS)
     x, y = (w - m.width) // 2, int(h * 0.44 - m.height / 2)
@@ -67,7 +63,7 @@ def compose(name):
     ImageDraw.Draw(inner).polygon(shield(w, h, 9 * SS), fill=255)
     full = Image.new("L", (w, h), 0)
     full.paste(m, (x, y))
-    full = ImageChops.multiply(full, inner)  # clip anything outside the shield face
+    full = ImageChops.multiply(full, inner)
     shadow = ImageChops.multiply(ImageChops.offset(full, SS, 2 * SS).filter(ImageFilter.GaussianBlur(3 * SS)), inner)
     img.paste((0, 0, 0, 255), (0, 0), shadow.point([v * 160 // 255 for v in range(256)]))
     img.paste((*charge, 255), (0, 0), full)

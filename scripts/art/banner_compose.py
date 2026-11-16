@@ -1,10 +1,4 @@
-"""Turn the raw banner scenes into the five banners: four for the report page and one for the select screen.
-
-The model draws only the scene (hill, camp, tavern map, scout ridge, guild hall); the title is drawn here on the 320x80 pixel grid, then everything is
-enlarged x3 with nearest neighbour. Output: art/banner-<slug>.png, 960x240 (4:1).
-The flatter art/banner-<slug>-<k>x1.png (k = 5..8, 960 wide, 320/k grid rows tall) cut rows off the scene at a per-scene offset and centre the title.
-Needs Noto Serif Bold (Arch: noto-fonts); used only here, never shipped.
-"""
+"""Turn the raw banner scenes into the five banners in art/: four for the report page and one for the select screen."""
 
 import os
 

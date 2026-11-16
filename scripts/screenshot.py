@@ -1,16 +1,4 @@
-"""Render the image version of the sidebar and the quest report page to SVG (for README screenshots), from a fixture file.
-Parses ANSI colors, underline colors, wide characters and Kitty Unicode placeholders.
-
-  python3 scripts/screenshot.py scripts/screenshot.json docs/img
-
-writes window.svg (the sidebar beside a pane), card.svg (one card with a legend), report.svg and report-working.svg
-(the split report page of a finished and of a working member) and help.svg (the report page in faint text with the key help box over it, as `?` draws it)
-banners.svg (the four report banners, each with the case that shows it) and select.svg (the select screen of `prefix R`: banner, member cards with a crew under its lead, the report preview of the member under the cursor beside them).
-Text is <text> with one x per character, lines and blocks are <rect>, Kitty images and Nerd Font icons are embedded
-PNGs (data URIs only), so GitHub shows the files without the fonts.
-Needs Pillow and a Nerd Font for the icons: set PARTY_FONT to a TTF path containing {} for the style
-(default: Maple Mono NF CN at /usr/share/fonts/MapleMonoNL-NF-CN/MapleMonoNL-NF-CN-{}.ttf).
-Characters that font lacks (⏎) come from PARTY_FALLBACK_FONT (default: JetBrainsMono Nerd Font Mono)."""
+"""Render the README screenshots of the sidebar, report page and select screen to SVG from a fixture file."""
 
 import base64
 import io
@@ -296,7 +284,7 @@ class Canvas:
 
     @staticmethod
     def text_runs(cells, baseline):
-        """<text> elements for one line: neighbouring cells of one color and weight share an element (spaces inside it too, so viewers that ignore the x list still keep the grid), each character has its own x."""
+        """<text> elements for one line; spaces stay inside a run so viewers that ignore the x list keep the grid."""
         runs: list[list[Any]] = []
         for cx, ch, w, fgc, b in cells:
             run = runs[-1] if runs else None
@@ -452,7 +440,7 @@ REPORT_COLS, REPORT_ROWS = report_cols(RATIO) - 1, 36
 
 
 def report_page(fixture, data, entry, helping=False, offset=0, frame=None):
-    """The split report page the way run_report draws it (fixed left frame, scrolled to offset), from a fixture entry; frame picks a step of the opening animation (report_frames), None the finished page."""
+    """The split report page as run_report draws it, from a fixture entry; frame is a step of report_frames, None the finished page."""
     towns = collect(fixture)["towns"]
     squad, a = next((t["name"], m) for t in towns for m in t["agents"] if m["pane"] == entry["pane"])
     a = {**a, **entry.get("agent", {})}

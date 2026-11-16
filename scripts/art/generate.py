@@ -1,13 +1,4 @@
-"""Regenerate the raw images behind art/ with a local ComfyUI server.
-
-Each entry in prompts.json records the exact prompt, seed and sampler settings of a shipped image.
-ComfyUI renders a batch of `batch` images per seed; `pick` is the index we kept.
-Output: scripts/art/raw/<name>.png. Then run decor.py (portraits) and crest_compose.py (crests).
-
-Models (all Apache-2.0, see ASSETS.md), placed in ComfyUI's models/ folders:
-  diffusion_models/flux-2-klein-4b.safetensors, text_encoders/qwen_3_4b.safetensors, vae/flux2-vae.safetensors
-Results may differ slightly across GPUs and ComfyUI versions.
-"""
+"""Regenerate the raw images behind art/ (scripts/art/raw/<name>.png) from prompts.json with a local ComfyUI server."""
 
 import json
 import os
