@@ -360,13 +360,13 @@ def _crew_summoned(pane):
     _crew_new_session(pane, time.time())
 
 
-def _crew_asked(pane, text, sent, agent, cwd):
+def _crew_asked(pane, text, sent, agent, cwd, lead):
     session = _crew_session(pane, sent)
     rounds = _crew_rounds(session)
     path = os.path.join(session, f"round-{int(rounds[-1][6:]) + 1 if rounds else 1:03d}")
     os.mkdir(path)
     _crew_write(os.path.join(path, "question.md"), text)
-    meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd}
+    meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd, "lead": lead}
     _crew_write(os.path.join(path, "meta.json"), json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -394,9 +394,9 @@ def crew_summoned(pane):
     return _crew_run(_crew_summoned, pane)
 
 
-def crew_asked(pane, text, sent, agent, cwd):
-    """Save a sent question as the next round. Returns "" or an error message."""
-    return _crew_run(_crew_asked, pane, text, sent, agent, cwd)
+def crew_asked(pane, text, sent, agent, cwd, lead):
+    """Save a sent question as the next round; lead is the asked member's lead pane ("" without one). Returns "" or an error message."""
+    return _crew_run(_crew_asked, pane, text, sent, agent, cwd, lead)
 
 
 def mark_seen(pane, rnd):

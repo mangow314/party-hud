@@ -456,6 +456,14 @@ def test_ask_writes_the_question_and_meta_of_round_001(crew):
     assert "asked_at" in m
 
 
+def test_ask_stores_the_members_lead_in_meta(crew, monkeypatch):
+    agent = {"pane": "%5", "kind": "codex", "round": 4, "lead": "%2"}
+    monkeypatch.setattr(party, "get_snapshot", lambda: {"towns": [{"agents": [agent]}]})
+    party.ask("%5", "first?")
+    (sess,) = os.listdir(crew)
+    assert meta(crew, sess, "round-001")["lead"] == "%2"
+
+
 def test_report_text_save_succeeds(crew):
     party.ask("%5", "first?")
     assert sidebars.crew_replied("%5", "answer\n", 0) == ""
