@@ -86,7 +86,8 @@ Every round is saved for later reference under `~/.local/state/party-hud/crew/` 
 member's lead pane, `""` when it has none) and `server_start` (the tmux server's `#{start_time}`) from `--ask`, and
 `replied_at` and `rc` once `--report-text` saves a reply.
 Party Select lists a lead's last 5 rounds from these files (see the README): only rounds whose `server_start` is the
-running server's, since pane ids start over with a new server; rounds without it are not listed.
+running server's, since pane ids start over with a new server; rounds without it are not listed. Outside a task worktree
+a round's title there is the first non-empty line of `question.md`, so leads start the `--ask` text with a short task name.
 `--summon` removes sessions untouched for 14 days. If saving fails, `--ask`,
 `--report-text` and `--summon` exit 5 after doing their job and say why on stderr (an exit 7 stays 7; the failure is only on stderr).
 

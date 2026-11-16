@@ -63,6 +63,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss %12
 ## Acting as lead
 
 - Each member has one lead; do not send it a second question before you read the reply to the first.
+- Make the first line of the `--ask` text a short task name, then the question or the brief path on the next lines. When the member is not in a task worktree, that line is the round's title in Party Select's `past rounds`; a first line like `Read /path/brief.md` makes every round look the same.
 - Answer a member yourself only when the answer is in scope, already covered by what the user asked, and easy to undo. Anything that needs the user's approval (permissions, skipping hooks, pushing, deleting) goes to the user, whether it comes as a prompt or as text.
 - Send the first question once `--summon` returned 0; send each later question only when the member's last `--report-text` returned 0. Never use text or keys to answer a permission prompt. Exit 7 means the member waits for input: show the user the printed lines.
 - When a member is blocked on the user, ask the user right away and keep doing work that does not depend on the answer. Merge questions you can ask together: at most two options and your pick.
