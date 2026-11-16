@@ -637,7 +637,7 @@ def saved(root, session, n, *, lead="%1", asked="20261101T000000Z", replied=None
     path = root / session / f"round-{n:03d}"
     path.mkdir(parents=True)
     (path / "question.md").write_text(question, encoding="utf-8")
-    m = {"asked_at": asked, "pane": "%5", "agent": "codex", "cwd": cwd, "lead": lead}
+    m: dict[str, object] = {"asked_at": asked, "pane": "%5", "agent": "codex", "cwd": cwd, "lead": lead}
     if replied:
         m.update(replied_at=replied, rc=0)
         (path / "reply.md").write_text("answer\n", encoding="utf-8")

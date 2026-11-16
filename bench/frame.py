@@ -369,9 +369,11 @@ class Scene:
             plan = ui.select_title_plan(self.art, banner, ui.select_layout(ROWS, head_rows)[2])
         body_h = ui.select_layout(ROWS, head_rows)[3]
         lw, preview = ui.select_widths(width)
-        report = None
+        report, history = None, None
         if sel and preview:
             a = next(m for _, m, _ in roster if m["pane"] == sel)
+            if not a.get("lead"):
+                history = ui.crew_history(sel, towns)
             if ui.select_reread(cached, a, time.monotonic()):
                 report = ui.report_for(a)
                 peek = ui.report_peek({}, a["pane"], report, None, lambda p: ui.capture(p, color=True))
@@ -379,7 +381,9 @@ class Scene:
             report = cached[1]
         view = ui.select_view(roster, sel, lw, body_h, True)
         plan += ui.select_image_plan(ui.select_cards(roster, view), self.art)
-        rows = ui.render_select(roster, towns, sel, width, ROWS, report, now, title, True, cached[2], view)
+        rows = ui.render_select(
+            roster, towns, sel, width, ROWS, report, now, title, True, cached[2], view, history, None
+        )
         t = time.perf_counter()
         frame = "\n".join(rows)
         anchors = (

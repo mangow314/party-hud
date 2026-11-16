@@ -47,6 +47,7 @@ from .render import (
     report_frames,
     report_parts,
     report_view,
+    saved_round_rows,
     select_cards,
     select_layout,
     select_roster,
@@ -60,6 +61,8 @@ from .sidebars import (
     EXE,
     REPORT_BANNER_MAX_ROWS,
     SELECT_BANNER_MAX_ROWS,
+    crew_history,
+    crew_round_text,
     fit_report_pane,
     install_hooks,
     mark_seen,
@@ -254,6 +257,30 @@ def select_key(key, panes, sel):
     return sel, None
 
 
+def select_round_key(key, panes, sel, at, dirs):
+    """(new sel, highlighted round dir or None, action) for a key on the select screen; action is select_key's, or "round" to open the highlighted round.
+    dirs: the round dirs of the lead under the cursor, newest first. ] moves the highlight down and [ up (from none: the first or the last), stopping at the ends; a move to another member drops it."""
+    if key in ("[", "]"):
+        if not dirs:
+            return sel, None, None
+        if at not in dirs:
+            return sel, dirs[0] if key == "]" else dirs[-1], None
+        return sel, dirs[max(0, min(len(dirs) - 1, dirs.index(at) + (1 if key == "]" else -1)))], None
+    if at in dirs and key in ("\r", "\n", "l"):
+        return sel, at, "round"
+    new, action = select_key(key, panes, sel)
+    return new, at if new == sel else None, action
+
+
+def saved_key(key, offset, limit, height):
+    """(new offset, action) for a key on a saved round's page: action "back" (h), "close" (q, Esc) or None; ⏎ does nothing, the member is gone."""
+    if key == "h":
+        return offset, "back"
+    if key in ("q", "\x1b"):
+        return offset, "close"
+    return report_scroll(key, offset, limit, height), None
+
+
 def select_reread(cached, a, mono):
     """True when the preview data cached as (key, report, peek, read at) must be read again: another member or round, or a member that works (its turn moves on)."""
     return cached[0] != (a["pane"], a["round"]) or (a["status"] == "working" and mono - cached[3] >= LIVE_REFRESH)
@@ -352,6 +379,7 @@ def run_select(sel=None, fixture=None, images=None):
     signal.signal(signal.SIGWINCH, lambda *_: None)
     signal.set_wakeup_fd(wake_w)
     last_frame, helping, cached = None, False, (None, None, [], 0.0)
+    read_history, hist_at = (None, None), None
     towns, fetched, spin = [], -1.0, None
     try:
         tty.setcbreak(fd)
@@ -376,8 +404,13 @@ def run_select(sel=None, fixture=None, images=None):
                 plan = select_title_plan(art, banner, select_layout(size.lines, head_rows)[2])
             body_h = select_layout(size.lines, head_rows)[3]
             lw, preview = select_widths(width)
+            history = None
             if sel and preview:
                 a = next(m for _, m, _ in roster if m["pane"] == sel)
+                if not a.get("lead"):
+                    if read_history[0] != (sel, fetched):
+                        read_history = ((sel, fetched), crew_history(sel, towns))
+                    history = read_history[1]
                 if select_reread(cached, a, time.monotonic()):
                     report = None if fixture else report_for(a)
                     peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
@@ -395,8 +428,23 @@ def run_select(sel=None, fixture=None, images=None):
             set_tick(tick)
             view = select_view(roster, sel, lw, body_h, art is not None)
             plan += select_image_plan(select_cards(roster, view), art)
+            dirs = [r["dir"] for r in history[0]] if history else []
+            if hist_at not in dirs:
+                hist_at = None
             rows = render_select(
-                roster, towns, sel, width, size.lines, report, now, title, art is not None, cached[2], view
+                roster,
+                towns,
+                sel,
+                width,
+                size.lines,
+                report,
+                now,
+                title,
+                art is not None,
+                cached[2],
+                view,
+                history,
+                hist_at,
             )
             if helping:
                 rows = help_overlay(rows, "select", width, size.lines)
@@ -435,7 +483,9 @@ def run_select(sel=None, fixture=None, images=None):
                 helping, eaten = help_toggle(key, helping)
                 if eaten:
                     continue
-                sel, action = select_key(key, panes, sel)
+                sel, hist_at, action = select_round_key(key, panes, sel, hist_at, dirs)
+                if action == "round" and history:
+                    return next(r for r in history[0] if r["dir"] == hist_at)
                 if action == "open":
                     return sel
                 if action == "close":
@@ -463,7 +513,7 @@ def run_menu(fixture=None):
     while pane:
         if host:
             fit_report_pane(host, False)
-        pane = run_report(pane, fixture, back=True, images=images)
+        pane = run_saved(pane) if isinstance(pane, dict) else run_report(pane, fixture, back=True, images=images)
         if pane:
             if host:
                 fit_report_pane(host, True)
@@ -885,6 +935,67 @@ def run_report(pane=None, fixture=None, back=False, images=None):
                 if new != offset:
                     offset = new
                     written = draw_report(left, right, size.lines, offset, screen)
+    finally:
+        signal.set_wakeup_fd(-1)
+        signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+        os.close(wake_r)
+        os.close(wake_w)
+        termios.tcsetattr(fd, termios.TCSADRAIN, old)
+        sys.stdout.write(MOUSE_OFF + "\033[?25h\033[?1049l")
+        sys.stdout.flush()
+
+
+def run_saved(r):
+    """Page of a saved crew round r (as crew_history gives it) on the alternate screen, scrolled like the report page, no images.
+    h, or round files that cannot be read, return r's lead pane (back to the select screen); q, Esc and closed input return None."""
+    try:
+        question, reply = crew_round_text(r["dir"])
+    except OSError:
+        log_error()
+        return r["lead"]
+    fd = sys.stdin.fileno()
+    old = termios.tcgetattr(fd)
+    sys.stdout.write("\033[?1049h\033[?25l" + MOUSE_ON)
+    wake_r, wake_w = os.pipe()
+    os.set_blocking(wake_r, False)
+    os.set_blocking(wake_w, False)
+    signal.signal(signal.SIGWINCH, lambda *_: None)
+    signal.set_wakeup_fd(wake_w)
+    offset, helping, built = 0, False, (None, [])
+    try:
+        tty.setcbreak(fd)
+        while True:
+            size = os.get_terminal_size(sys.stdout.fileno())
+            width = size.columns - 1
+            if built[0] != width:
+                built = (width, saved_round_rows(r, question, reply, width))
+            right = built[1]
+            limit = max(0, len(right) - size.lines)
+            offset = min(offset, limit)
+            rows = report_view([], right, size.lines, offset)[0]
+            draw_report(
+                [], right, size.lines, offset, help_overlay(rows, "saved", width, size.lines) if helping else rows
+            )
+            ready = select.select([fd, wake_r], [], [])[0]
+            if wake_r in ready:
+                with contextlib.suppress(BlockingIOError):
+                    os.read(wake_r, 1024)
+            if fd not in ready:
+                continue
+            data = os.read(fd, 1024)
+            if not data:
+                return None
+            for kind, key in parse_input(data.decode(errors="ignore")):
+                if kind != "key":
+                    continue
+                helping, eaten = help_toggle(key, helping)
+                if eaten:
+                    continue
+                offset, action = saved_key(key, offset, limit, size.lines)
+                if action == "back":
+                    return r["lead"]
+                if action == "close":
+                    return None
     finally:
         signal.set_wakeup_fd(-1)
         signal.signal(signal.SIGWINCH, signal.SIG_DFL)

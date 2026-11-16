@@ -437,7 +437,7 @@ def _crew_round(path):
 
 def crew_history(lead, towns):
     """(rounds, worktrees left) of a lead pane from the saved crew rounds whose meta.json "lead" is lead.
-    rounds: the newest CREW_HISTORY_ROWS, newest first, as dicts task, agent, asked_at / replied_at (epoch; replied_at None
+    rounds: the newest CREW_HISTORY_ROWS, newest first, as dicts lead, task, agent, asked_at / replied_at (epoch; replied_at None
     without a reply), asked (the meta stamp), rc (None without a reply), dir, worktree (None outside one). worktrees left: [(task, path)] of the task
     worktrees any of its rounds ran in that still exist and no agent in towns has its current directory in.
     A round whose meta.json or question.md is missing or broken is left out."""
