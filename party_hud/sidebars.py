@@ -414,17 +414,30 @@ def _crew_worktree(cwd):
     return head + mark + name if mark and name else None
 
 
-def _crew_round(path):
-    with open(os.path.join(path, "meta.json"), encoding="utf-8") as f:
+_meta_memo: dict[str, tuple[tuple[int, int], dict]] = {}
+
+
+def _crew_meta(path):
+    """A round's meta.json as a dict, remembered while its mtime and size stay the same. Raises OSError, ValueError or TypeError."""
+    file = os.path.join(path, "meta.json")
+    st = os.stat(file)
+    key = (st.st_mtime_ns, st.st_size)
+    hit = _meta_memo.get(path)
+    if hit and hit[0] == key:
+        return hit[1]
+    with open(file, encoding="utf-8") as f:
         meta = json.load(f)
-    with open(os.path.join(path, "question.md"), encoding="utf-8") as f:
-        question = f.read()
-    cwd = meta.get("cwd") or ""
-    wt = _crew_worktree(cwd)
-    first = next((l.strip() for l in question.splitlines() if l.strip()), "")
+    if not isinstance(meta, dict):
+        raise TypeError(f"{file}: not an object")
+    _meta_memo[path] = (key, meta)
+    return meta
+
+
+def _crew_round(path, meta):
+    wt = _crew_worktree(str(meta.get("cwd") or ""))
     return {
-        "lead": meta.get("lead") or "",
-        "task": wt.rpartition("/")[2] if wt else first,
+        "lead": meta["lead"],
+        "task": wt.rpartition("/")[2] if wt else None,
         "agent": str(meta.get("agent") or ""),
         "asked_at": _crew_epoch(meta["asked_at"]),
         "asked": meta["asked_at"],
@@ -435,35 +448,50 @@ def _crew_round(path):
     }
 
 
+def _crew_first_line(path):
+    with open(os.path.join(path, "question.md"), encoding="utf-8") as f:
+        return next((l.strip() for l in f if l.strip()), "")
+
+
 def crew_history(lead, towns):
     """(rounds, worktrees left) of a lead pane from the saved crew rounds whose meta.json "lead" is lead.
     rounds: the newest CREW_HISTORY_ROWS, newest first, as dicts lead, task, agent, asked_at / replied_at (epoch; replied_at None
-    without a reply), asked (the meta stamp), rc (None without a reply), dir, worktree (None outside one). worktrees left: [(task, path)] of the task
+    without a reply), asked (the meta stamp), rc (None without a reply), dir, worktree (None outside one). task is the
+    worktree's name, else the first non-empty line of question.md. worktrees left: [(task, path)] of the task
     worktrees any of its rounds ran in that still exist and no agent in towns has its current directory in.
     A round whose meta.json or question.md is missing or broken is left out."""
     root = _crew_root()
-    rounds = []
-    for session in sorted(os.listdir(root)) if os.path.isdir(root) else []:
+    found = []
+    for session in os.listdir(root) if os.path.isdir(root) else []:
         path = os.path.join(root, session)
         if not os.path.isdir(path):
             continue
         for rnd in _crew_rounds(path):
             try:
-                r = _crew_round(os.path.join(path, rnd))
-            except (OSError, ValueError, KeyError, TypeError, AttributeError):
+                meta = _crew_meta(os.path.join(path, rnd))
+                if meta.get("lead") == lead:
+                    found.append(_crew_round(os.path.join(path, rnd), meta))
+            except (OSError, ValueError, KeyError, TypeError):
                 continue
-            if r["lead"] == lead:
-                rounds.append(r)
-    rounds.sort(key=lambda r: (r["asked_at"], r["dir"]), reverse=True)
+    found.sort(key=lambda r: (r["asked_at"], r["dir"]), reverse=True)
+    rounds = []
+    for r in found:
+        if len(rounds) == CREW_HISTORY_ROWS:
+            break
+        try:
+            first = _crew_first_line(r["dir"])
+        except (OSError, ValueError):
+            continue
+        rounds.append(dict(r, task=r["task"] or first))
     cwds = [a.get("cwd") or "" for t in towns for a in t["agents"]]
     left = []
-    for r in rounds:
+    for r in found:
         wt = r["worktree"]
         if not wt or (r["task"], wt) in left or any(c == wt or c.startswith(f"{wt}/") for c in cwds):
             continue
         if os.path.isdir(wt):
             left.append((r["task"], wt))
-    return rounds[:CREW_HISTORY_ROWS], left
+    return rounds, left
 
 
 def crew_round_text(path):
