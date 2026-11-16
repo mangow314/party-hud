@@ -466,7 +466,11 @@ def crew_history(lead, towns):
         path = os.path.join(root, session)
         if not os.path.isdir(path):
             continue
-        for rnd in _crew_rounds(path):
+        try:
+            names = _crew_rounds(path)
+        except OSError:
+            continue
+        for rnd in names:
             try:
                 meta = _crew_meta(os.path.join(path, rnd))
                 if meta.get("lead") == lead:

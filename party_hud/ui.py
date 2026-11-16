@@ -379,7 +379,8 @@ def run_select(sel=None, fixture=None, images=None):
     signal.signal(signal.SIGWINCH, lambda *_: None)
     signal.set_wakeup_fd(wake_w)
     last_frame, helping, cached = None, False, (None, None, [], 0.0)
-    read_history, hist_at = (None, None), None
+    read_history: tuple[float, dict] = (-1.0, {})
+    hist_at = None
     towns, fetched, spin = [], -1.0, None
     try:
         tty.setcbreak(fd)
@@ -408,9 +409,11 @@ def run_select(sel=None, fixture=None, images=None):
             if sel and preview:
                 a = next(m for _, m, _ in roster if m["pane"] == sel)
                 if not a.get("lead"):
-                    if read_history[0] != (sel, fetched):
-                        read_history = ((sel, fetched), crew_history(sel, towns))
-                    history = read_history[1]
+                    if read_history[0] != fetched:
+                        read_history = (fetched, {})
+                    if sel not in read_history[1]:
+                        read_history[1][sel] = crew_history(sel, towns)
+                    history = read_history[1][sel]
                 if select_reread(cached, a, time.monotonic()):
                     report = None if fixture else report_for(a)
                     peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
@@ -483,7 +486,10 @@ def run_select(sel=None, fixture=None, images=None):
                 helping, eaten = help_toggle(key, helping)
                 if eaten:
                     continue
+                was = sel
                 sel, hist_at, action = select_round_key(key, panes, sel, hist_at, dirs)
+                if sel != was:
+                    history, dirs = None, []
                 if action == "round" and history:
                     return next(r for r in history[0] if r["dir"] == hist_at)
                 if action == "open":
