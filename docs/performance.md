@@ -151,6 +151,29 @@ screen never sends). Reopening from the key binding is a new process and sends a
 the page itself). A resize redraw resends only images whose cell count changed, under the same id; the script has no resize,
 so this part is read from the code, not measured.
 
+## Where a frame goes (`bench/frame.py`)
+
+`python3 bench/frame.py` (about 90 s, no tmux, stdlib only) splits the CPU of the key script above frame by frame, with
+the same fake outside world as `bench/use.py` (fixed snapshot, 70-line reports, images on, 179 x 47). Only the measuring
+process patches product functions. Parts:
+
+1. One select frame in this process (`time.perf_counter`, median of `REPS`): `render_select` for a seen, a working and
+   an unseen member (first Markdown layout), the loop body of `run_select` split into its pieces, how many rows a second
+   frame repeats, and the Markdown layout of a whole report against the part the preview lays out.
+2. The idle 5 s on the working member: frames drawn, why each wake happened, CPU per wake split into snapshot, compute,
+   write, other.
+3. Per `k` / `j` press: `report_for` stub, snapshot, Markdown, rest of the screen, images.
+4. `h`, Enter, `n`: fixed cost of entering a screen, draw, images.
+5. Process start-up and exit, against the interpreter's whole shutdown (the product and the plays leave with
+   `os._exit(0)`).
+6. Writing a whole frame against only the changed rows into a pty (CPU including the diff).
+7. cProfile ranking of the frames.
+
+Parts 2-5 and the final table come from `PLAYS` concurrent plays of `use.STEPS` in a pty; every number is the median of
+the plays. The child is `bench/use.py`'s child with timers around the product functions. A wake is the CPU time
+(`time.process_time_ns`) between two `select.select` calls; its record also holds the exclusive CPU of the wrapped
+functions in it.
+
 ## Report page: time to the first image (`bench/art.py`)
 
 `python3 bench/art.py` (about 20 s, no tmux, stdlib only) runs the real `run_report` / `run_menu` in a pty (179 x 47)
@@ -164,7 +187,8 @@ report page (only the report page is timed). Each prints process start (in (c): 
 What is measured is time inside the program. Not covered: what tmux spends forwarding the passthrough, what the terminal
 spends decoding and drawing the images, and in (c) the two tmux round trips of `fit_report_pane` (it needs `TMUX_PANE`,
 which the child does not have). In (c) `load_art()` runs when the select screen opens, so it is not in the report
-segment, and the first image of the report page is its banner (the small portrait is not on the split page).
+segment, and the first image of the report page is its banner (the small portrait is not on the split page). The child
+sees `TMUX` set, so the images are wrapped in the tmux passthrough as they are in use.
 
 AMD Ryzen 9 5900XT, Linux, Python 3.14.8, HEAD 7a96a3b plus the change that sends the images with the first frame:
 
@@ -184,6 +208,15 @@ The images are written right after the first frame, so the animation no longer d
 writing the images are 1 ms or less each. The 2 s seen in a real tmux is not in these numbers; it has to come from
 outside the program (tmux round trips such as `fit_report_pane`, forwarding and terminal decoding), or from
 `RESIZE_SETTLE` (0.15 s) restarting after the pane resize signal, which this script does not produce.
+
+## Animation: redraw vs. Kitty frames (`bench/anim.py`)
+
+`python3 bench/anim.py --mode redraw|kitty|event --fps N --term-pid <pid>` compares animation CPU in a real Ghostty +
+tmux; run it inside the tmux pane you want to test. It only measures, it does not pick a winner. `redraw` redraws the
+placeholders every frame, `kitty` uses the Kitty animation protocol, `event` draws a text-only card: an HP tween (1 s,
+`--fps` frames), then 3 border flashes (1 s), repeated every 4 s and idle in between. The report adds the script's own
+CPU (a stand-in for `party.py`) and the bytes it writes to stdout per second. Find `<pid>` with
+`ps -o pid,pcpu,comm -p "$(pgrep -d, ghostty)"` and take the Ghostty with the highest %CPU, the one drawing this window.
 
 ## Memory and start-up (`bench/mem.py`)
 
@@ -389,6 +422,21 @@ time within 1 %), AMD Ryzen 9 5900XT, Linux, Python 3.14. "Before" is about 2 ms
 `party.py --report-text` is a new process for each call, so it pays the first-call number every time (the search reads
 the log back to the prompt). The lookback stops at 32 MB before the last 1 MB; a log whose prompt is further back
 costs that search once per process (the miss is remembered too).
+
+## Idle sidebar (`bench/idle.py`)
+
+`python3 bench/idle.py` (about 60 s, no tmux, stdlib only) runs the real `run_ui` in a pty (34 x 60) with fake tmux
+replies and a fixed 5-agent snapshot served through the real `get_snapshot` (`snapshot.json` in a private state folder):
+once with one working member, once with none, once more under cProfile. Only the measuring process patches product
+functions. A wake is one return of `select.select` in the loop, which polls every 0.1 s and does its once-a-second work
+when the second is up. CPU is `time.process_time` (this process only); `RUSAGE_CHILDREN` is read where a child is
+spawned.
+
+`python3 bench/idle.py --live [N]` (inside your real tmux, N seconds, default 30) runs the real `collect()` and
+`get_snapshot()` in this process and converts what it sees into the CPU a resident sidebar spends per second. It opens
+no pane, sends no key, writes no agent file and uses no network. `get_snapshot` writes `snapshot.json` by the product's
+own rules and competes with the running sidebars for `snapshot.lock`: run it from the checkout the sidebars run from, or
+`SNAP_VERSION` differs and the copies keep overwriting each other's snapshot.
 
 ## Cheaper collection (ticket 011)
 

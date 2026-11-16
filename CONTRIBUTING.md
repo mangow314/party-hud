@@ -74,10 +74,20 @@ python3 scripts/screenshot.py scripts/screenshot.json docs/img
 ```
 
 Writes `docs/img/window.svg`, `card.svg`, `report.svg`, `report-working.svg`, `help.svg`, `banners.svg` and `select.svg` from the fixture (no tmux needed; the report pages come from the `reports` key).
+Icons need a Nerd Font: `PARTY_FONT` is a TTF path with `{}` for the style (default
+`/usr/share/fonts/MapleMonoNL-NF-CN/MapleMonoNL-NF-CN-{}.ttf`); characters that font lacks (⏎) come from
+`PARTY_FALLBACK_FONT` (default `/usr/share/fonts/TTF/JetBrainsMonoNerdFontMono-{}.ttf`).
 
 ```bash
 python3 scripts/demo.py scripts/demo.json docs/img/demo.svg
 ```
 
 Writes `docs/img/demo.svg`, the animated demo, from `scripts/demo.json` (a fixture plus a script of steps; the same drawing code, CSS animation inside the SVG, no external tools).
+`demo.json` holds `fixture` (the `screenshot.json` format, with its `reports` by name), `screens` (text beside the sidebar
+and status line, by name) and `steps`. A step is one screen shown for `dur` seconds; keys not given stay as in the step
+before, except `flash`, `reveal` (a step of the report's opening animation) and `set` (a patch of the fixture: `panes` is
+merged by pane id, a dict is merged, anything else replaced), which count for their step only. `sidebar: false` draws the
+window without the sidebar until set back to true; `view` is `window`, `select` or `report`; `sel` is the sidebar
+selection or the select cursor; `report` is the entry of `reports` the select preview or report page shows; `caption` is
+`[key, text]`. The fixture's clock runs with the animation, so RUNNING times count up.
 In dark mode the images have a transparent background and in light mode a black one; the SVG's own `prefers-color-scheme` rule decides.
