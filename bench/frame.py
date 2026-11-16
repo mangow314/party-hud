@@ -370,13 +370,11 @@ class Scene:
             plan = ui.select_title_plan(self.art, banner, ui.select_layout(ROWS, head_rows)[2])
         body_h = ui.select_layout(ROWS, head_rows)[3]
         lw, preview = ui.select_widths(width)
-        report, history = None, None
+        report = None
+        cur = next((m for _, m, _ in roster if m["pane"] == sel), None)
+        self.hist, history = ui.select_history_cache(self.hist, sel, cur, preview, towns)
         if sel and preview:
             a = next(m for _, m, _ in roster if m["pane"] == sel)
-            if not a.get("lead"):
-                if self.hist[0] != sel:
-                    self.hist = (sel, ui.crew_history(sel, towns))
-                history = self.hist[1]
             if ui.select_reread(cached, a, time.monotonic()):
                 report = ui.report_for(a)
                 peek = ui.report_peek({}, a["pane"], report, None, lambda p: ui.capture(p, color=True))

@@ -960,7 +960,7 @@ def select_card(n, rows, cursor):
 
 
 def select_preview(roster, towns, at, width, height, report, now, peek=(), history=None, hist_at=None):
-    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, a lead's past rounds (history, see select_history), the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… more" row; only the part of the report that shows is laid out."""
+    """Exactly height rows of width cells for roster[at]: time and directory, its lead's crew, a lead's past rounds (history, see select_history; when the highlighted one, hist_at, would fall below the last row, the rows scroll up until it is the last), the question, then the report as the report page draws it (peek: the pane's last lines when there is no report), cut to a dim "… more" row; only the part of the report that shows is laid out."""
     _, a, _ = roster[at]
     task = (report or {}).get("task") or {}
     rows = []
@@ -986,7 +986,11 @@ def select_preview(roster, towns, at, width, height, report, now, peek=(), histo
     if crew:
         rows.append(crew)
     if history and not a.get("lead"):
+        dirs = [r["dir"] for r in history[0]]
+        lit = len(rows) + 1 + dirs.index(hist_at) if hist_at in dirs else -1
         rows += select_history(history, width, hist_at)
+        if lit >= height:
+            rows = rows[lit - height + 1 :]
     ask = [r for r in wrap(task["ask"], width - 2) if r.strip()] if task.get("ask") else []
     if ask:
         if len(ask) > SELECT_ASK_ROWS:

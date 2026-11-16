@@ -741,3 +741,20 @@ def test_saved_round_page_shows_the_question_and_the_reply():
     assert rows[2] == "took 1m 35s  exit 7"
     assert rows.index("ASKED") < rows.index("  please fix") < next(i for i, r in enumerate(rows) if "all good" in r)
     assert "go" not in rows[-1]
+
+
+def test_saved_round_with_text_that_is_not_utf8_goes_back_to_its_lead(tmp_path, monkeypatch):
+    (tmp_path / "question.md").write_text("q\n", encoding="utf-8")
+    (tmp_path / "reply.md").write_bytes(b"\xff\xfe broken")
+    monkeypatch.setattr(ui, "log_error", lambda: None)
+    assert ui.run_saved({"dir": str(tmp_path), "lead": "%1"}) == "%1"
+
+
+def test_history_is_read_again_after_the_cursor_visits_a_member_without_preview(monkeypatch):
+    reads = []
+    monkeypatch.setattr(ui, "crew_history", lambda pane, towns: reads.append(pane) or ([], []))
+    lead_a, member_b = {"pane": "%1"}, {"pane": "%2"}
+    cache = (None, None)
+    for sel, a, preview in (("%1", lead_a, 60), ("%1", lead_a, 60), ("%2", member_b, 0), ("%1", lead_a, 60)):
+        cache, _ = ui.select_history_cache(cache, sel, a, preview, [])
+    assert reads == ["%1", "%1"]

@@ -1011,3 +1011,11 @@ def test_select_preview_highlights_only_the_picked_round():
 def test_select_preview_has_no_history_for_crew_or_a_lead_without_rounds():
     assert not any("past rounds" in strip(r) for r in hpreview("%10", 60))
     assert hpreview("%1", 60, ([], [])) == hpreview("%1", 60, None)
+
+
+def test_select_preview_scrolls_so_the_picked_round_is_on_screen():
+    five = ([hround(n, f"task{n}") for n in range(1, 6)], [])
+    i = next(i for i, (_, a, _) in enumerate(srs) if a["pane"] == "%2")
+    rows = [strip(r) for r in render.select_preview(srs, sst, i, 60, 4, srep, 4000.0, [], five, "/s/round-005")]
+    assert len(rows) == 4
+    assert rows[-1].startswith("task5 · codex")

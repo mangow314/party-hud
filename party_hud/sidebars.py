@@ -461,8 +461,12 @@ def crew_history(lead, towns):
     worktrees any of its rounds ran in that still exist and no agent in towns has its current directory in.
     A round whose meta.json or question.md is missing or broken is left out."""
     root = _crew_root()
+    try:
+        sessions = os.listdir(root)
+    except OSError:
+        sessions = []
     found = []
-    for session in os.listdir(root) if os.path.isdir(root) else []:
+    for session in sessions:
         path = os.path.join(root, session)
         if not os.path.isdir(path):
             continue
@@ -478,18 +482,15 @@ def crew_history(lead, towns):
             except (OSError, ValueError, KeyError, TypeError):
                 continue
     found.sort(key=lambda r: (r["asked_at"], r["dir"]), reverse=True)
-    rounds = []
+    cwds = [a.get("cwd") or "" for t in towns for a in t["agents"]]
+    rounds, left = [], []
     for r in found:
-        if len(rounds) == CREW_HISTORY_ROWS:
-            break
         try:
             first = _crew_first_line(r["dir"])
         except (OSError, ValueError):
             continue
-        rounds.append(dict(r, task=r["task"] or first))
-    cwds = [a.get("cwd") or "" for t in towns for a in t["agents"]]
-    left = []
-    for r in found:
+        if len(rounds) < CREW_HISTORY_ROWS:
+            rounds.append(dict(r, task=r["task"] or first))
         wt = r["worktree"]
         if not wt or (r["task"], wt) in left or any(c == wt or c.startswith(f"{wt}/") for c in cwds):
             continue
@@ -499,7 +500,7 @@ def crew_history(lead, towns):
 
 
 def crew_round_text(path):
-    """(question, reply) of a saved round directory; reply is None when it has none. Raises OSError."""
+    """(question, reply) of a saved round directory; reply is None when it has none. Raises OSError, or ValueError for text that is not UTF-8."""
     with open(os.path.join(path, "question.md"), encoding="utf-8") as f:
         question = f.read()
     try:

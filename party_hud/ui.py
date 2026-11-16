@@ -281,6 +281,17 @@ def saved_key(key, offset, limit, height):
     return report_scroll(key, offset, limit, height), None
 
 
+def select_history_cache(cache, sel, a, preview, towns):
+    """(new cache, history to show or None). cache: (pane, history) of the lead the cursor last landed on, dropped once the cursor is on another member, preview or not; a: the member under the cursor. crew_history runs when the cursor is on a lead, the preview shows and the cache holds no other pane."""
+    if cache[0] != sel:
+        cache = (None, None)
+    if not (a and preview) or a.get("lead"):
+        return cache, None
+    if cache[0] != sel:
+        cache = (sel, crew_history(sel, towns))
+    return cache, cache[1]
+
+
 def select_reread(cached, a, mono):
     """True when the preview data cached as (key, report, peek, read at) must be read again: another member or round, or a member that works (its turn moves on)."""
     return cached[0] != (a["pane"], a["round"]) or (a["status"] == "working" and mono - cached[3] >= LIVE_REFRESH)
@@ -405,15 +416,10 @@ def run_select(sel=None, fixture=None, images=None):
                 plan = select_title_plan(art, banner, select_layout(size.lines, head_rows)[2])
             body_h = select_layout(size.lines, head_rows)[3]
             lw, preview = select_widths(width)
-            history = None
+            cur = next((m for _, m, _ in roster if m["pane"] == sel), None)
+            read_history, history = select_history_cache(read_history, sel, cur, preview, towns)
             if sel and preview:
                 a = next(m for _, m, _ in roster if m["pane"] == sel)
-                if a.get("lead"):
-                    read_history = (None, None)
-                else:
-                    if read_history[0] != sel:
-                        read_history = (sel, crew_history(sel, towns))
-                    history = read_history[1]
                 if select_reread(cached, a, time.monotonic()):
                     report = None if fixture else report_for(a)
                     peek = report_peek({}, a["pane"], report, fixture, lambda p: capture(p, color=True))
@@ -956,7 +962,7 @@ def run_saved(r):
     h, or round files that cannot be read, return r's lead pane (back to the select screen); q, Esc and closed input return None."""
     try:
         question, reply = crew_round_text(r["dir"])
-    except OSError:
+    except (OSError, ValueError):
         log_error()
         return r["lead"]
     fd = sys.stdin.fileno()

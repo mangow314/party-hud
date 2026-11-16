@@ -687,3 +687,19 @@ def test_worktrees_left_are_existing_ones_no_live_pane_is_in(crew, tmp_path):
     saved(crew, "s-6", 1, lead="%2", cwd=str(wt / "deep"))
     towns = [{"agents": [{"cwd": str(wt / "busy")}, {"cwd": str(wt / "deep" / "src")}]}]
     assert sidebars.crew_history("%1", towns)[1] == [("left", str(wt / "left"))]
+
+
+def test_history_of_an_unreadable_crew_root_is_empty(crew):
+    saved(crew, "s-5", 1)
+    crew.chmod(0)
+    try:
+        assert sidebars.crew_history("%1", []) == ([], [])
+    finally:
+        crew.chmod(0o755)
+
+
+def test_a_round_without_question_md_leaves_no_worktree(crew, tmp_path):
+    wt = tmp_path / "r" / ".git" / "harness" / "wt" / "task"
+    wt.mkdir(parents=True)
+    (saved(crew, "s-5", 1, cwd=str(wt)) / "question.md").unlink()
+    assert sidebars.crew_history("%1", []) == ([], [])
