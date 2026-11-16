@@ -1,8 +1,4 @@
-"""Sidebar integration tests on a separate tmux server (-L party-test), leaving your running tmux alone.
-
-A real client is attached through `script` (util-linux or BSD/macOS), so "visible" means the same as for you.
-The tests run in file order and share one server: each step builds on the state the previous one left.
-"""
+"""Sidebar integration tests on a separate tmux server (-L party-test); they run in file order and share one server."""
 
 import json
 import os

@@ -497,8 +497,7 @@ def test_report_text_rc_7_is_saved_to_the_reply_and_meta(crew):
 
 @pytest.fixture
 def run_main(crew, monkeypatch, capsys):
-    """party.py --report-text %5 with report_text returning result (and setting the read round to rnd)
-    and crew_replied returning save_err: ((exit code, stdout, stderr), what crew_replied got)."""
+    """party.py --report-text %5 with report_text and crew_replied faked: ((exit code, stdout, stderr), what crew_replied got)."""
 
     def run(result, save_err, rnd=None):
         saved = []

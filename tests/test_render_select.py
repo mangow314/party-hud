@@ -1,6 +1,5 @@
 # pyright: reportOptionalSubscript=false, reportOperatorIssue=false
-"""Tests index results they expect to exist, and member fields read from the fixture JSON are typed as unions;
-a None or a wrong type there fails the test anyway, so those checks are off."""
+"""Tests index results they expect to exist and read union-typed fixture fields; a wrong value fails the test anyway."""
 
 import os
 from itertools import pairwise
