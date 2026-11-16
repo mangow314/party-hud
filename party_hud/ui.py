@@ -121,7 +121,9 @@ def parse_input(data):
         elif data.startswith(("\x1b[B", "\x1bOB"), i):
             events.append(("key", "j"))
             i += 3
-        elif data.startswith("\x1b[", i) or data.startswith("\x1bO", i):
+        elif data.startswith("\x1b[", i):
+            i = next((j for j in range(i + 2, len(data)) if "@" <= data[j] <= "~"), len(data)) + 1
+        elif data.startswith("\x1bO", i):
             i += 3
         else:
             events.append(("key", data[i]))

@@ -224,7 +224,11 @@ def test_wheel_is_k_and_j():
 
 
 def test_arrow_keys_are_k_and_j():
-    assert pi("\x1b[A\x1b[B") == [("key", "k"), ("key", "j")]
+    assert pi("\x1b[A\x1b[B\x1bOA\x1bOB") == [("key", "k"), ("key", "j"), ("key", "k"), ("key", "j")]
+
+
+def test_unknown_escape_sequences_are_dropped_whole():
+    assert pi("\x1b[1;5A\x1b[15~\x1b[1~\x1b[4~\x1b[Z\x1bOPj") == [("key", "j")]
 
 
 def test_lone_esc_and_plain_keys():
