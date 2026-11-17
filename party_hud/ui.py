@@ -260,8 +260,9 @@ def select_key(key, panes, sel):
 
 
 def select_round_key(key, panes, sel, at, dirs):
-    """(new sel, highlighted round dir or None, action) for a key on the select screen; action is select_key's, or "round" to open the highlighted round.
-    dirs: the round dirs of the lead under the cursor, newest first. ] moves the highlight down and [ up (from none: the first or the last), stopping at the ends; a move to another member drops it."""
+    """(new sel, highlighted round dir or None, action): action is select_key's, or "round" to open the highlighted round.
+    dirs: the round dirs of the cursor's lead, newest first; ] / [ move the highlight down / up (from none: the first /
+    the last), stopping at the ends; another member drops it."""
     if key in ("[", "]"):
         if not dirs:
             return sel, None, None
@@ -317,8 +318,8 @@ def tick_wait(now, anchors):
 
 
 def select_phase(now, spins, timed, prev=None):
-    """(spinner tick, anchors, state) of a select frame. spins: a member works or has HP <= 10; timed: the cursor member's time_anchor or None; prev: the state of the last frame, or None. A time that turns every second also turns the spinner (and the HP blink), so one anchor wakes both; otherwise the spinner turns on the whole second.
-    When the phase changes the tick holds, so it never steps back or jumps, and the next step falls on the new phase's next boundary; but a change that finds the last step at least 1 s old makes that step at once, so a cursor that keeps moving cannot freeze the spinner. With frames at most g s apart a step is shown for less than 2 + g s, and for at most 1 + g s while every frame changes the phase. state = (phase, offset, tick, time of the last step)."""
+    """(spinner tick, anchors, state) of a select frame. spins: a member works or has HP <= 10; timed: the cursor member's
+    time_anchor or None; prev: the state of the last frame, or None. state = (phase, offset, tick, time of the last step)."""
     sync = timed if timed and timed[1] == 1.0 else None
     anchors = [sync] if sync else [SECOND] if spins else []
     if timed and not sync:
@@ -378,8 +379,8 @@ def load_images(fixture):
 
 
 def run_select(sel=None, fixture=None, images=None):
-    """Select screen (prefix R): the member cards beside the report preview of the member under the cursor. Returns the pane whose report to open, or None when it was closed.
-    With images, the banner and the portraits of the cards on screen are sent once the window size has settled; they stay in the terminal on exit, since another pane may still show them under the same id."""
+    """Select screen (prefix R). Returns the pane whose report to open, the saved round (as crew_history gives it) to
+    open, or None when it was closed."""
     art, sent = images or load_images(fixture)
     server = tmux("display-message", "-p", "#{start_time}").strip()
     queue: list = []
@@ -574,8 +575,9 @@ def fit_banner(cols, max_rows, ratio):
 
 
 def banner_cells(width, ratio):
-    """(cols, rows, k) of the report banner, using the k:1 image (k = 4..8) closest to its pixel shape, at most REPORT_BANNER_MAX_ROWS tall.
-    Narrow: 4:1, as wide as the text up to BANNER_MAX_COLS, a capped height narrows it. Split: as wide as the right column (up to the placeholder diacritics); a cell shape the images do not fill is cut to the nearest image."""
+    """(cols, rows, k) of the report banner, using the k:1 image (k = 4..8) closest to its pixel shape, at most
+    REPORT_BANNER_MAX_ROWS tall. Narrow: 4:1, as wide as the text up to BANNER_MAX_COLS; split: as wide as the right
+    column."""
     if width < SPLIT_MIN_WIDTH:
         cols = min(BANNER_MAX_COLS, max(28, width))
         rows = max(1, round(cols * ratio / 4))
@@ -610,7 +612,9 @@ def report_image_plan(a, has_report, art, width, banner, big, labels=()):
 
 
 def report_images(a, has_report, art, width, banner, big, drawn=None, labels=(), sent=None):
-    """Kitty sequences for the report page. drawn=None is a fresh page, judged against sent (id -> (cols, rows) this pane already sent, kept across pages): same cells are skipped, other cells are resent under the same id, an id never sent is deleted first (not the sidebar portrait) so a stale image in the terminal is replaced. With drawn (what the page has on screen) it is a redraw: an image whose cells are unchanged is skipped and a resized one is resent under the same id without a delete, so no placeholder is left without an image."""
+    """Kitty sequences for the report page, judged against sent (id -> (cols, rows) this pane sent). drawn None: a fresh
+    page, an id never sent is deleted first (not the sidebar portrait); with drawn: a redraw, nothing is deleted.
+    Images already at the same cells are skipped."""
     out = ""
     known = (sent or {}) if drawn is None else drawn
     for img_id, cols, rows in report_image_plan(a, has_report, art, width, banner, big, labels):
@@ -734,10 +738,9 @@ def draw_report(left, right, height, offset, screen=None):
 
 
 def run_report(pane=None, fixture=None, back=False, images=None):
-    """Report pane (prefix R, or r in the sidebar): draws one member's last report on the alternate screen and scrolls it itself
-    (j/k, arrows, wheel, PgUp/PgDn, g/G): in the split page only the right column moves. Rows are overwritten in place, also on a
-    resize (at most one redraw per RESIZE_INTERVAL), and never scroll the pane. Images follow a resize only once it has settled.
-    With back (opened from the select screen) h ends it and returns the pane id of the member on screen; every other exit returns None."""
+    """Report pane: draws one member's last report on the alternate screen and scrolls it itself (j/k, arrows, wheel,
+    PgUp/PgDn, g/G). With back (opened from the select screen) h ends it and returns the pane id of the member on screen;
+    every other exit returns None."""
     here = os.environ.get("TMUX_PANE", "")
     window = tmux("display-message", "-p", "-t", here, "#{window_id}").strip() if here and not fixture else ""
     queue = report_queue(get_snapshot(fixture)["towns"], pane, window)

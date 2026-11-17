@@ -219,7 +219,9 @@ def md_table(src, width):
 
 
 def render_markdown(text, width, code_width=None, limit=None):
-    """Markdown subset -> rows of at most width columns (fenced code up to code_width, default width) with SGR styles. Tables are aligned columns when they fit, else one "name: value" group per row. Nested lists, images and HTML stay raw. With limit, laying out stops after the block that brings the rows past limit: the rows are the first rows of the full layout, and more than limit only when the text goes on. The last 32 results are kept; callers get their own copy of the rows."""
+    """Markdown subset -> rows of at most width columns (fenced code up to code_width, default width) with SGR styles;
+    nested lists, images and HTML stay raw. With limit, layout stops after the block that brings the rows past limit (a
+    prefix of the full layout). The caller owns the returned list."""
     return list(_markdown_rows(text, width, code_width or width, limit))
 
 

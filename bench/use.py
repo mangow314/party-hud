@@ -1,10 +1,4 @@
-"""Benchmark of the select screen and report page in use: a fixed key script in a pty, CPU time per step.
-
-The parent starts `python3 bench/use.py --child DATA` in a pty (179 x 47), sends the keys of STEPS on a fixed schedule
-and reads the output like a terminal. The child runs the real `run_menu` with the outside world replaced (see
-`child_main`): a fixed snapshot and fixed reports, no tmux, images on. CPU time of a step is the growth of the child's
-user+sys time between the start and the end of the step. The whole script runs RUNS times; every number is the median.
-"""
+"""Benchmark of the select screen and report page in use: a fixed key script in a pty, CPU time per step."""
 
 import fcntl
 import json
@@ -130,7 +124,7 @@ def child_main(data_path):
 
 
 def cpu_seconds(pid):
-    """user+sys seconds of a live single-threaded process: /proc schedstat (ns) or stat (10 ms ticks) on Linux, `ps -o time=` (10 ms) elsewhere."""
+    """user+sys seconds of a live single-threaded process."""
     if os.path.exists(f"/proc/{pid}/schedstat"):
         with open(f"/proc/{pid}/schedstat") as f:
             return int(f.read().split()[0]) / 1e9

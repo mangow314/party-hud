@@ -1,9 +1,4 @@
-"""Draw the report page's small-heading labels: art/label-<name>.png, one terminal row tall, no raw images needed.
-
-Each label is a 5x7 hand-drawn pixel word with a dark outline and a soft glow in its own color, a pixel gem on the left
-and a tab plate that fades out to the right. The pixel grid is 4 px per dot (2x the 10x22 px cell the sizes assume),
-so a label N cells wide is N*20 x 44 px; the terminal scales it into its cells.
-"""
+"""Draw the report page's small-heading labels: art/label-<name>.png, one terminal row tall."""
 
 import os
 

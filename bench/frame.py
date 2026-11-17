@@ -2,20 +2,9 @@
 
   python3 bench/frame.py
 
-About 90 s, no tmux, stdlib only. Same fake outside world as bench/use.py (a fixed snapshot, 70-line reports, images on,
-179 x 47); only the measuring process patches product functions, no product file is touched. Parts:
-  1. One select frame in this process (`time.perf_counter`, REPS runs, median): `render_select` for a seen, a working and
-     an unseen member (first Markdown layout), then the whole loop body of `run_select` split into its pieces, how many
-     rows a second frame repeats, and the Markdown layout of a whole report against the part the preview lays out.
-  2. The idle 5 s on the working member: frames drawn, why each wake happened, CPU per wake split into snapshot, compute,
-     write, other. 3. Per k / j press: report_for stub, snapshot, Markdown, rest of the screen, images.
-  4. h, Enter, n: fixed cost of entering a screen, draw, images. 5. Process start-up and exit, against the interpreter's
-     whole shutdown (the product leaves with `os._exit(0)`, the plays do too). 6. Writing a whole frame against only the changed rows into a pty (CPU incl.
-     the diff). 7. cProfile ranking of the frames.
-Parts 2-5 and the final table come from PLAYS concurrent plays of the fixed key script (use.STEPS) in a pty. The child
-(`child_main`) is bench/use.py's child with timers around the product functions and a record of every wake: CPU time
-(`time.process_time_ns`) between two `select.select` calls is one wake, and the exclusive CPU of the wrapped functions
-in it. Every number is the median of the plays.
+About 90 s, no tmux, stdlib only. Parts: 1. one select frame in this process; 2. idle 5 s on the working member, per
+wake; 3. per k / j press; 4. h, Enter, n; 5. start-up and exit; 6. writing a whole frame against only the changed rows;
+7. cProfile of the frames. Parts 2-5 are the median of PLAYS concurrent plays of use.STEPS in a pty.
 """
 
 import fcntl
@@ -157,9 +146,6 @@ class Sink:
         self.drain.wait()
 
 
-# ---------------------------------------------------------------- the child of the pty plays
-
-
 class Rec:
     """One record per wake: CPU between two `select.select` calls and the exclusive CPU of the wrapped functions in it."""
 
@@ -264,7 +250,7 @@ class Out:
 
 
 def child_main(data_path, rec_path, exit_mode):
-    """bench/use.py's child with timers and a wake record. exit_mode "os_exit" leaves the way the product does (ui.leave_without_teardown) after the record is written; "normal" is the control that runs the interpreter's whole shutdown."""
+    """bench/use.py's child with timers and a wake record; exit_mode "os_exit" leaves as the product does, "normal" runs the whole interpreter shutdown."""
     t_entry = time.process_time_ns()
     from party_hud import collect, render, ui
 
@@ -325,9 +311,6 @@ def child_main(data_path, rec_path, exit_mode):
         json.dump({"t_entry": t_entry, "t_ready": t_ready, "iters": rec.iters, "events": rec.events}, f)
     if exit_mode == "os_exit":
         ui.leave_without_teardown()
-
-
-# ---------------------------------------------------------------- parts 1, 6, 7: this process
 
 
 class Scene:
@@ -547,7 +530,6 @@ def part1(sc, sink, emit):
             f"{[i for i, (x, y) in enumerate(zip(a, b)) if x != y]}; same instant again: {sum(x == y for x, y in zip(a, c))} of {len(a)}",
         )
     emit(1, "")
-    # What the preview saves: the report page lays out the whole report, the preview only what shows
     out = {}
     width = sc.ui.select_widths(COLS - 1)[1]
     for name, sel in (("unseen member", unseen), ("working member, previous report", working)):
@@ -661,9 +643,6 @@ def part7(sc, sink, emit):
             if l.lstrip().startswith("Ordered by") or l.lstrip().startswith("List reduced"):
                 continue
             emit(7, "  " + l)
-
-
-# ---------------------------------------------------------------- parts 2-5: the plays
 
 
 def play_main(data_path, work):
@@ -859,7 +838,7 @@ def run_plays(data_path, tmp):
 
 
 def exit_trials(data_path, tmp):
-    """Child CPU of open -> first frame and images -> q: "normal" is the interpreter's whole shutdown (what the product did before), "os_exit" is the product's exit; alternating."""
+    """Child CPU of open -> first frame and images -> q, per exit_mode ("normal", "os_exit"), alternating."""
     from use import Child
 
     cpus = {"normal": [], "os_exit": []}
@@ -924,9 +903,6 @@ def instrumentation(res):
         "harness": harness - bare,
         "product": product - bare,
     }
-
-
-# ---------------------------------------------------------------- printing
 
 
 def print_steps(M, steps, emit):

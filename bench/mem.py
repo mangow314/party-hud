@@ -3,21 +3,7 @@ time from spawn to the first frame of the select screen.
 
   python3 bench/mem.py
 
-About 60 s, no tmux, stdlib only; Linux and macOS (RSS from `/proc/<pid>/status` VmRSS, else `ps -o rss= -p`). Four parts:
-  1. RSS of the sidebar (`run_ui`), the select screen (`run_menu`, which runs `run_select`) and the report page
-     (`run_report`) in a pty (179 x 47), read from outside, after the first frame and its images, after 5 s idle and after
-     a round of keys. RUNS runs each, median; the three kinds of a run go at the same time.
-  2. RSS and time of fresh `python3` processes: empty, the standard library modules the product imports (read from the
-     module-level import statements of `party.py` and `party_hud/*.py`), then `party_hud.common` ... `party_hud.ui` one more module
-     per process, then `load_art()`; and the RSS added by each of those standard library modules alone.
-  3. (the table of which sub-command needs which module is in docs/performance.md, read from the code)
-  4. Spawn to first frame and first image of `run_menu`, split into segments timed inside the child.
-
-What it measures: the real `party_hud.ui` functions in a child process with only the outside world replaced (a fixed
-snapshot and reports from `bench/use.py`, `capture`, `tmux`, the cursor file, `art_supported` forcing images on).
-`load_art` and `kitty_image` are real and the images are really written to the pty. `import party` plus `party_hud.ui` is what the
-long-running sub-commands pay; the children never run `party.main`. Every child imports `time` first (a built-in module) to take its
-clock; the empty-Python row includes it.
+About 60 s, no tmux, stdlib only; Linux and macOS.
 """
 
 import ast

@@ -1,9 +1,4 @@
-"""Turn raw/portrait-<class>.png into the framed portraits in art/ (192x216 and 384x432 RGBA, both with a gold octagon frame and glow; the small one is simplified for the sidebar).
-
-Steps: crop to 8:9, cut the character out of the plain dark background (flood fill from the edges),
-paint a new background (radial glow, light rays, bokeh, four-point stars, one color per class),
-add a soft halo behind the character and a gold frame.
-"""
+"""Turn raw/portrait-<class>.png into the framed portraits in art/."""
 
 import math
 import os
@@ -45,8 +40,7 @@ def crop89(im):
 
 
 def cutout(im):
-    """Character mask (L, 255 = character). The background is a dark navy close to the corner color;
-    flood fill it from the top, left and right edges (the bottom edge is the character's shoulders)."""
+    """Character mask (L, 255 = character); the top, left and right edges must be the plain dark background."""
     a = np.asarray(im.convert("RGB")).astype(int)
     h, w, _ = a.shape
     corners = np.concatenate([a[:8, :8].reshape(-1, 3), a[:8, -8:].reshape(-1, 3)])
@@ -63,8 +57,8 @@ def cutout(im):
             if flood.getpixel(seed) == 255:
                 ImageDraw.floodfill(flood, seed, 128)
     mask = Image.fromarray(np.where(np.asarray(flood) == 128, 0, 255).astype(np.uint8), "L")
-    mask = mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))  # drop stray pixels
-    return mask.filter(ImageFilter.GaussianBlur(1.2))  # feather the edge
+    mask = mask.filter(ImageFilter.MinFilter(3)).filter(ImageFilter.MaxFilter(3))
+    return mask.filter(ImageFilter.GaussianBlur(1.2))
 
 
 def gacha_bg(size, base, glow, seed):
@@ -165,9 +159,7 @@ def star(d, cx, cy, r):
 
 
 def gold_frame(im, glow, small=False):
-    """RGBA gold frame on the 4x work canvas: a transparent margin of GLOW_MARGIN holds a translucent class-colored glow and
-    four-point stars; inside it a cut-corner octagon with 8 bevel bands of 12 px (3 output px), corner gems and rivets.
-    small: the sidebar version (about 55 screen px wide) with 4 bands, a thin margin, bigger corner cuts, no rivets or stars."""
+    """RGBA gold frame on the 4x work canvas; small is the sidebar version."""
     w, h = im.size
     m = SMALL_MARGIN if small else GLOW_MARGIN
     cut = SMALL_CUT if small else FRAME_CUT
@@ -219,7 +211,7 @@ def portrait(cls, big=False):
     work = im.resize((OUT_W * k * 4, OUT_H * k * 4), Image.Resampling.LANCZOS)
     mask = cutout(work)
     bg = gacha_bg(work.size, base, glow, seed=sum(map(ord, cls)))
-    halo = mask.filter(ImageFilter.MaxFilter(8 * k + 1)).filter(ImageFilter.GaussianBlur(10 * k))  # soft rim light
+    halo = mask.filter(ImageFilter.MaxFilter(8 * k + 1)).filter(ImageFilter.GaussianBlur(10 * k))
     bg = Image.composite(Image.new("RGB", work.size, glow), bg, halo.point(lambda v: int(v * 0.35)))
     comp = Image.composite(work, bg, mask)
     out = gold_frame(comp, glow, small=not big)
@@ -229,7 +221,6 @@ def portrait(cls, big=False):
 if __name__ == "__main__":
     os.makedirs(OUT, exist_ok=True)
     for cls in COLORS:
-        # Reduced to 256 colors for size but stored as RGBA truecolor (PNG type 6), not a palette
         small = portrait(cls).quantize(256, method=Image.Quantize.FASTOCTREE).convert("RGBA")
         small.save(os.path.join(OUT, f"portrait-{cls}.png"), optimize=True)
         print(f"portrait-{cls}.png")
