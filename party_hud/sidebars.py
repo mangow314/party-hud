@@ -360,13 +360,13 @@ def _crew_summoned(pane):
     _crew_new_session(pane, time.time())
 
 
-def _crew_asked(pane, text, sent, agent, cwd, lead):
+def _crew_asked(pane, text, sent, agent, cwd, lead, server):
     session = _crew_session(pane, sent)
     rounds = _crew_rounds(session)
     path = os.path.join(session, f"round-{int(rounds[-1][6:]) + 1 if rounds else 1:03d}")
     os.mkdir(path)
     _crew_write(os.path.join(path, "question.md"), text)
-    meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd, "lead": lead}
+    meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd, "lead": lead, "server_start": server}
     _crew_write(os.path.join(path, "meta.json"), json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -394,9 +394,9 @@ def crew_summoned(pane):
     return _crew_run(_crew_summoned, pane)
 
 
-def crew_asked(pane, text, sent, agent, cwd, lead):
-    """Save a sent question as the next round; lead is the asked member's lead pane ("" without one). Returns "" or an error message."""
-    return _crew_run(_crew_asked, pane, text, sent, agent, cwd, lead)
+def crew_asked(pane, text, sent, agent, cwd, lead, server):
+    """Save a sent question as the next round; lead is the asked member's lead pane ("" without one), server the tmux server's #{start_time}. Returns "" or an error message."""
+    return _crew_run(_crew_asked, pane, text, sent, agent, cwd, lead, server)
 
 
 CREW_HISTORY_ROWS = 5
@@ -453,8 +453,9 @@ def _crew_first_line(path):
         return next((l.strip() for l in f if l.strip()), "")
 
 
-def crew_history(lead, towns):
-    """(rounds, worktrees left) of a lead pane from the saved crew rounds whose meta.json "lead" is lead.
+def crew_history(lead, towns, server):
+    """(rounds, worktrees left) of a lead pane from the saved crew rounds whose meta.json "lead" is lead and "server_start" is server
+    (the current tmux server's #{start_time}; pane ids restart with the server). Nothing when server is "".
     rounds: the newest CREW_HISTORY_ROWS, newest first, as dicts lead, task, agent, asked_at / replied_at (epoch; replied_at None
     without a reply), asked (the meta stamp), rc (None without a reply), dir, worktree (None outside one). task is the
     worktree's name, else the first non-empty line of question.md. worktrees left: [(task, path)] of the task
@@ -462,7 +463,7 @@ def crew_history(lead, towns):
     A round whose meta.json or question.md is missing or broken is left out."""
     root = _crew_root()
     try:
-        sessions = os.listdir(root)
+        sessions = os.listdir(root) if server else []
     except OSError:
         sessions = []
     found = []
@@ -477,7 +478,7 @@ def crew_history(lead, towns):
         for rnd in names:
             try:
                 meta = _crew_meta(os.path.join(path, rnd))
-                if meta.get("lead") == lead:
+                if meta.get("lead") == lead and meta.get("server_start") == server:
                     found.append(_crew_round(os.path.join(path, rnd), meta))
             except (OSError, ValueError, KeyError, TypeError):
                 continue

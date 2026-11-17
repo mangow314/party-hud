@@ -65,10 +65,10 @@ def ask(pane, text):
     The text goes in as one bracketed paste, then Enter: codex takes an Enter right after typed keys as a newline."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
-    found, err = pane_values(pane, "#{pane_current_path}")
+    found, err = pane_values(pane, "#{pane_current_path}", "#{start_time}")
     if found is None:
         return 2, "", err
-    cwd = found[0]
+    cwd, server = found
     agent = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
     if agent is None:
         return 4, "", f"not a known agent: {pane}\n"
@@ -82,7 +82,7 @@ def ask(pane, text):
         rc, _, err = tmux_run(["send-keys", "-t", pane, "Enter"])
     if rc != 0:
         return 2, "", err or f"tmux could not send to {pane}\n"
-    err = crew_asked(pane, text, sent, agent["kind"], cwd, agent.get("lead", ""))
+    err = crew_asked(pane, text, sent, agent["kind"], cwd, agent.get("lead", ""), server)
     return (5 if err else 0), f"{sent}\n", err
 
 

@@ -756,9 +756,9 @@ def test_saved_round_with_text_that_is_not_utf8_goes_back_to_its_lead(tmp_path, 
 
 def test_history_is_read_again_after_the_cursor_visits_a_member_without_preview(monkeypatch):
     reads = []
-    monkeypatch.setattr(ui, "crew_history", lambda pane, towns: reads.append(pane) or ([], []))
+    monkeypatch.setattr(ui, "crew_history", lambda pane, towns, server: reads.append(pane) or ([], []))
     lead_a, member_b = {"pane": "%1"}, {"pane": "%2"}
     cache = (None, None)
     for sel, a, preview in (("%1", lead_a, 60), ("%1", lead_a, 60), ("%2", member_b, 0), ("%1", lead_a, 60)):
-        cache, _ = ui.select_history_cache(cache, sel, a, preview, [])
+        cache, _ = ui.select_history_cache(cache, sel, a, preview, [], "1700000000")
     assert reads == ["%1", "%1"]

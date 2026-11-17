@@ -59,7 +59,7 @@ Codex 有 HP；agy、Grok 看得到忙不忙，也讀得到最後的回覆。
 用過 crew 的 lead，預覽還會列出它最近 5 筆存下的問答，新的在上：任務、agent、回覆花了多久（沒抓到回覆就寫「no reply」）。
 接著，它的問答待過、目錄還在、而且沒有任何 agent pane 在裡面的任務 worktree（`<repo>/.git/harness/wt/<task>`），每個一行 `wt left: <task>`。
 `[`、`]` 選一筆，`Enter` 打開：問了什麼、存下的回覆，排版和報告頁一樣。`h` 回選隊畫面；那一頁的 `Enter` 不做事，因為隊員已經不在。
-party-hud 開始記錄 lead 之前存的問答不會列出。
+只列出這次 tmux server 啟動後存的問答：server 重開後 pane 編號會從頭算。
 
 `j`／`k` 或方向鍵移動，`1`–`9`、`Enter`、`l` 開報告，`q`／`Esc` 關閉，`?` 看全部按鍵。
 要去某位的 pane：先開它的報告，在報告頁再按 `Enter`。選了一筆過去的問答時，`Enter` 和 `l` 改成打開那一筆；游標移到別人身上就取消選取。

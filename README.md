@@ -64,7 +64,8 @@ For a lead whose crew you used, the preview also lists its last 5 saved rounds, 
 long it took to reply ("no reply" when no reply was fetched), then `wt left: <task>` for each task worktree
 (`<repo>/.git/harness/wt/<task>`) that one of its rounds ran in, still exists, and has no agent pane in it. `[` and `]`
 pick a round and `Enter` opens it: what was asked and the saved reply, laid out like a report. `h` goes back; `Enter`
-there does nothing, since the member is gone. Rounds saved before party-hud recorded the lead are not listed.
+there does nothing, since the member is gone. Only rounds saved since the tmux server started are listed: pane ids
+start over when the server restarts.
 
 Move with `j`/`k` or the arrow keys, open a report with `1`–`9`, `Enter` or `l`, close with `q`/`Esc`; `?` shows the
 keys. To go to a member's pane, open its report and press `Enter` there. With a past round picked, `Enter` and `l` open
