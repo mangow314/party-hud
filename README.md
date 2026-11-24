@@ -41,7 +41,7 @@ The whole flow, from the sidebar to a report and back:
 | 1 | Agent: claude, codex, agy or grok |
 | 2 | Portrait: one of 8 classes, picked from the session id; up to 8 members of one squad do not repeat |
 | 3 | Class icon and name: the Claude Code session name (`/rename` or its automatic title), else the tmux window name; other agents show their kind |
-| 4 | Status: busy, idle, wait (waiting for you), done, zzz (idle, prompt cache expired) |
+| 4 | Status: busy, idle, wait (waiting for you; `limit` when Claude Code or Codex hit its usage limit), done, zzz (idle, prompt cache expired) |
 | 5 | HP: context left (`620k/1M`), blinking at 10% or less |
 | 6 | Model |
 | 7 | SP (Claude Code only): prompt cache minutes left (`59/60m`); at 0 the next message re-reads the whole context |

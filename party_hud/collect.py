@@ -341,8 +341,8 @@ def wait_channel(pane):
 
 def report_text(pane, wait=False, timeout=600, after=None, read=None):
     """(rc, stdout, stderr) for party.py --report-text; rc 0 ok, 2 bad or missing pane, 3 timeout, 4 not an agent, 7
-    waiting for input (wait and after: docs/crew.md). A dict passed as read gets read["round"] = the round of the
-    returned report."""
+    waiting for input, 8 hit a usage limit (wait and after: docs/crew.md). A dict passed as read gets read["round"] =
+    the round of the returned report."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
     if not math.isfinite(timeout):
@@ -361,6 +361,9 @@ def report_text(pane, wait=False, timeout=600, after=None, read=None):
             if found is None:
                 return 2, "", err
             return 4, "", f"not a known agent: {pane}\n"
+        limit = a.get("limit") if wait else None
+        if limit and (after is None or (limit["end"] or 0) > after):
+            return 8, limit["text"] + "\n", f"{pane} hit a usage limit\n"
         busy = wait and (a["status"] == "working" or a.get("summons") or claude_log.subagent_unanswered(a))
         rep = None if busy else report_for(a)
         if rep and rep.get("live"):
@@ -453,6 +456,7 @@ def collect(fixture=None, now=None):
         get_codex = lambda pane, pid, cwd: (
             tuple(data["codex"][pane]) if pane in data.get("codex", {}) else None,
             pane in data.get("codex_done", []),
+            None,
         )
     else:
         get_cmdlines, get_changed = processes.child_cmdlines, screen_changed
@@ -460,7 +464,7 @@ def collect(fixture=None, now=None):
         def get_codex(pane, pid, cwd):
             path = codex_log.codex_rollout(pid, cwd, panes)
             lines = codex_log._tail_lines(path) if path else []
-            return codex_log._codex_usage(lines), codex_log._turn_done(lines)
+            return codex_log._codex_usage(lines), *codex_log._turn_state(lines)
 
         panes = read_tmux()
         pane_pids = {p["pane_id"]: p["pane_pid"] for p in panes}
@@ -512,7 +516,7 @@ def collect(fixture=None, now=None):
             info = {}
         tx = info.get("transcript") or (get_transcript(sid) if sid else None)
         ci = get_cache(tx) if tx else None
-        hp, sp = info.get("ctx_left"), None
+        hp, sp, limit = info.get("ctx_left"), None, None
         hp_max = info.get("ctx_size")
         left = round(hp * hp_max / 100) if hp is not None and hp_max else None
         if ci:
@@ -521,6 +525,7 @@ def collect(fixture=None, now=None):
             if sp[0] == 0 and status == "idle":
                 status = "sleep"
             used = ci[2] if len(ci) > 2 else None
+            limit = ci[3] if len(ci) > 3 else None
             if hp is None and used:
                 window = 1_000_000 if used > 200_000 else 200_000
                 hp = max(0, round(100 - used * 100 / window))
@@ -529,7 +534,7 @@ def collect(fixture=None, now=None):
         if fresh and hp is None:
             hp = 100
         if kind == "codex":
-            usage, done = get_codex(p["pane_id"], p.get("pane_pid", ""), p.get("pane_current_path", ""))
+            usage, done, limit = get_codex(p["pane_id"], p.get("pane_pid", ""), p.get("pane_current_path", ""))
             if done:
                 finished.add(p["pane_id"])
             if usage and usage[1]:
@@ -556,6 +561,8 @@ def collect(fixture=None, now=None):
                 "round": 0,
             }
         )
+        if limit:
+            t["agents"][-1].update(status="waiting", reason="limited", limit=limit)
 
     others = [a for t in towns.values() for a in t["agents"] if a["kind"] != "claude" and a["status"] == "idle"]
     if others:

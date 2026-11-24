@@ -368,3 +368,30 @@ def test_tail_memory_is_capped_and_drops_the_oldest(roll):
         codex_log._tail_lines(roll, 1000 + i)
     assert len(codex_log._tail_memo) == codex_log.TAIL_MEMO_MAX
     assert (roll, 1000) not in codex_log._tail_memo
+
+
+def limit_event(stamp):
+    error = {
+        "message": "You've hit your usage limit. Try again at 5:23 AM.",
+        "codex_error_info": "usage_limit_exceeded",
+    }
+    payload = {"type": "task_complete", "last_agent_message": None, "error": error, "completed_at": 1794678933}
+    return json.dumps({"timestamp": stamp, "type": "event_msg", "payload": payload}) + "\n"
+
+
+def test_turn_state_gives_the_usage_limit_error_of_the_newest_task_complete(tmp_path):
+    path = write(tmp_path, "r.jsonl", ts("a"), limit_event("2026-11-14T17:55:33.044Z"))
+    done, limit = codex_log._turn_state(codex_log._tail_lines(path))
+    assert done
+    assert limit == {
+        "text": "You've hit your usage limit. Try again at 5:23 AM.",
+        "end": datetime(2026, 11, 14, 17, 55, 33, 44000, timezone.utc).timestamp(),
+    }
+    assert codex_log.codex_report(path) is None
+
+
+def test_turn_state_usage_limit_is_cleared_by_a_later_turn(tmp_path):
+    started = write(tmp_path, "s.jsonl", limit_event("2026-11-14T17:55:33.044Z"), ts("b"))
+    answered = write(tmp_path, "a.jsonl", limit_event("2026-11-14T17:55:33.044Z"), ts("b"), NULL_ANSWER)
+    assert codex_log._turn_state(codex_log._tail_lines(started)) == (False, None)
+    assert codex_log._turn_state(codex_log._tail_lines(answered)) == (True, None)
