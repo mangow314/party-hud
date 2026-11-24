@@ -1,4 +1,4 @@
-# pytest 9.2.0, pinned in CI like ruff; run it with `uvx pytest@9.2.0`
+# pytest 9.2.0, pinned in CI like ruff; python3 scripts/check.py runs it with the other checks
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = [".", "tests"]

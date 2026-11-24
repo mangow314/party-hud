@@ -8,7 +8,8 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
   Claude Code sandbox; ask the user to run `! uvx pytest@9.2.0 -m tmux`. They run in file order on one shared server,
   so run them as a whole with `-m tmux`, never pick one with `-k`.
 - New unit tests go in `tests/test_*.py` (pytest); run one with `uvx pytest@9.2.0 -k NAME`.
-- Before done, run: `ruff check . && ruff format --check . && basedpyright . && uvx pytest@9.2.0`.
+- Before done, run: `python3 scripts/check.py` (lint, format check, type check, unit tests; its last line names the
+  failed steps and it exits non-zero).
 - Code must run on Linux and macOS (CI runs both): `/proc` exists only on Linux, macOS goes through `ps`.
 - Local runs cover one OS only; macOS differences (`ps` output, locale, Python's `Python.app` re-exec) show up only in
   CI. CI runs on pull requests and on `master` only, so on a branch that will run for more than a commit or two, open

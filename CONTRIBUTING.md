@@ -40,12 +40,16 @@ Rules for the comments that stay:
 ## Tests
 
 ```bash
-uvx pytest@9.2.0                # unit tests in tests/test_*.py (pytest 9.2.0, same as CI); -k NAME runs one
+python3 scripts/check.py        # lint, format check, type check and unit tests; run it before every pull request
 uvx pytest@9.2.0 -m tmux        # integration tests on a private tmux server (-L party-test), about 60 s
-ruff check .                    # ruff 0.17.1 default rules, same as CI (settings: ruff.toml)
-ruff format .                   # 120-column lines; CI runs ruff format --check
-basedpyright .                  # type check, standard mode (settings: pyrightconfig.json); keep it at 0 errors
 ```
+
+`scripts/check.py` is the one list of checks. It runs every step even after one fails, names the failed steps on its
+last line and exits non-zero. It uses the tools installed on your machine: ruff (0.17.1, pinned in CI; default rules
+and 120-column lines, settings in `ruff.toml`), basedpyright (standard mode, settings in `pyrightconfig.json`; keep it
+at 0 errors) and the pytest of the `python3` that runs it (9.2.0, pinned in CI).
+
+While working, `ruff format .` fixes the format and `uvx pytest@9.2.0 -k NAME` runs one unit test.
 
 Unit tests run party-hud against JSON fixtures (`--fixture`), which replace tmux, `/proc` and agent files.
 To test a new agent, add its panes and data to a fixture. New unit tests go in `tests/test_*.py`.
