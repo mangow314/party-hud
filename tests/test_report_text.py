@@ -281,6 +281,25 @@ def test_after_waiting_agy_in_a_fresh_snapshot_gives_7_with_the_screen_tail(fk):
     assert not fk.waits()
 
 
+def test_wait_member_at_the_usage_limit_gives_8_and_the_limit_message_even_while_working(fk):
+    limited = snap("working", limit={"text": "limit reached", "end": A + 1})
+    assert fk.run([limited], "%5", True, 0.3) == (8, "limit reached\n", "%5 hit a usage limit\n")
+    assert fk.run([limited], "%5", True, 0.3, after=A) == (8, "limit reached\n", "%5 hit a usage limit\n")
+    assert not fk.waits()
+
+
+def test_after_ignores_a_usage_limit_hit_before_epoch(fk):
+    old = {"t": A + 3, **snap("waiting", limit={"text": "limit reached", "end": A - 5})}
+    fk.mp.setattr(collect, "report_for", lambda a: {"text": "answer", "end": A + 2})
+    fk.rounds([old])
+    fk.tmux()
+    assert collect.report_text("%5", True, 0.3, A) == (0, "answer\n", "")
+
+
+def test_without_wait_a_usage_limit_does_not_give_8(fk):
+    assert fk.run([snap("waiting", limit={"text": "limit reached", "end": A + 1})], "%5")[0] == 0
+
+
 def test_after_without_wait_gives_2(fk):
     assert fk.run([snap("waiting")], "%5", False, 30, after=A)[0] == 2
 

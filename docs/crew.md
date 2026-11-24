@@ -23,6 +23,9 @@ yet, it waits until that stops and then prints. `--timeout` is the most seconds 
 | 4 | The pane exists but is not a known agent |
 | 5 | The report was printed but saving the round failed (see below) |
 | 7 | With `--wait --after`: the member is waiting for input and has no new report from this round. stdout is the last 20 non-empty lines of its screen, stderr `PANE is waiting for input` |
+| 8 | With `--wait`: the member's newest turn ended on its usage limit (Claude Code and Codex only). stdout is the agent's limit message, stderr `PANE hit a usage limit`. With `--after`, only a limit hit after `EPOCH` counts |
+
+Exit 8 comes at once, without waiting for the member to stop working. The limit stays until someone sends the member a new prompt, so asking again before the limit resets gives 8 again: take it to the user. Until then the HUD shows the member as waiting, so `--dismiss` refuses it like any waiting member.
 
 Exit 7 needs a snapshot taken after the question, so right after `--ask` it can take a moment. A member that waits for input while it still has subagents running does not give 7 until they finish; if they never finish, it waits until `--timeout` (exit 3). Only Claude Code and Codex reports carry a time; for agy and grok, `--after` only waits for a snapshot newer than `EPOCH` in which the member is not working, so the printed lines may be from before it started.
 
@@ -38,12 +41,13 @@ t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "your question")
 python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
 ```
 
-`--summon AGENT [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]` (default timeout 60 s) decides where the pane goes:
+`--summon AGENT [--model MODEL] [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]` (default timeout 60 s) decides where the pane goes:
 
 - Default: a new window in a detached session `crew-<your pane number>` (`crew-12` for `%12`), created at your window's size if it does not exist yet. That session gets no sidebar; the sidebar lists the member in your squad, under you. After you switch to `crew-N`, tmux's own last-session key takes you back to the session you came from: `prefix L` by default (`switch-client -l`).
 - `--window`: a new window in your own session. `--here`: a split beside your pane. Giving both exits 2.
 - `--summon` only opens a tmux pane running the agent. Whether it asks for permission and which commands it allows is the user's setting in that agent; party-hud neither sets nor bypasses it. A member stopped at a permission prompt gives the lead exit 7, and the user answers in that pane.
 - `--read-only` starts the agent read-only. Only codex is enforced by the system (`codex -s read-only`). claude (`--permission-mode plan`), grok (`--permission-mode plan`) and agy (`--mode plan`) start in their own plan mode: the agent refuses edits itself, nothing enforces it. Plan mode can stop a member midway: agy still asks permission for each shell command (the HUD shows it as waiting), and claude may stop at a plan approval prompt. Codex can stop too: when a command needs more than the read-only sandbox allows, it asks the user to approve running it outside the sandbox (the HUD shows it as waiting).
+- `--model MODEL` starts the agent on that model, through the agent's own option: `claude --model`, `codex -m`, `agy --model`, `grok -m`. It works together with `--read-only`, `--cwd`, `--window` and `--here`; without it the agent starts on its own default. MODEL is passed as one shell-quoted argument and is not checked: a model the agent refuses at startup ends like any failed start (exit 2, stderr `no such pane: PANE`). `--model` without `--summon` exits 2. It cannot change the model of a member that is already running.
 - codex is started with `-c check_for_update_on_startup=false`, with or without `--read-only`. Otherwise, when a newer Codex is out, it opens on an update prompt, the Enter of the first `--ask` picks "Update now" there, and Codex updates itself and exits.
 - For a review, pass `--read-only` to codex (the sandbox enforces it); to change code, do not. For claude, agy and grok you may omit it and write "do not edit files" in the question; then nothing stops an edit except the permission settings the user has in that agent.
 - A member that was itself summoned (its pane has a lead that still exists) cannot summon: exit 6, nothing is opened, stderr `PANE is crew of LEAD: report to your lead instead of summoning`. If the lead's pane is gone, it works as usual.
@@ -76,6 +80,7 @@ Exit 0 closed (nothing is saved), 2 not in tmux, not a pane id, pane does not ex
 | 5 | The action was done but saving the round failed (stderr says why) |
 | 6 | The rules do not allow it; stderr says which one (`--summon` by a summoned member, `--dismiss`) |
 | 7 | `--report-text --wait --after`: the member is waiting for input and has no new report |
+| 8 | `--report-text --wait`: the member hit its usage limit; stdout is the limit message |
 
 ## Working together
 
@@ -83,13 +88,13 @@ Each member has one lead. A member does only what it was asked; when it needs he
 
 Every round is saved for later reference under `~/.local/state/party-hud/crew/` (`$XDG_STATE_HOME/party-hud/crew/` when `XDG_STATE_HOME` is set), one directory `<start time UTC>-<pane number>/round-NNN/` (the pane id without the `%`, for example `20260101T120000Z-12` for `%12`)
 (`question.md`, `reply.md`, `meta.json`). `meta.json` holds `asked_at`, `pane`, `agent`, `cwd`, `lead` (the asked
-member's lead pane, `""` when it has none) and `server_start` (the tmux server's `#{start_time}`) from `--ask`, and
-`replied_at` and `rc` once `--report-text` saves a reply.
+member's lead pane, `""` when it has none) and `server_start` (the tmux server's `#{start_time}`) and `model` (the `--model` the member was summoned with; left out when there was none) from `--ask`, and
+`replied_at` and `rc` once `--report-text` saves a reply (a report, the screen lines of an exit 7 or the limit message of an exit 8).
 Party Select lists a lead's last 5 rounds from these files (see the README): only rounds whose `server_start` is the
 running server's, since pane ids start over with a new server; rounds without it are not listed. Outside a task worktree
 a round's title there is the first non-empty line of `question.md`, so leads start the `--ask` text with a short task name.
 `--summon` removes sessions untouched for 14 days. If saving fails, `--ask`,
-`--report-text` and `--summon` exit 5 after doing their job and say why on stderr (an exit 7 stays 7; the failure is only on stderr).
+`--report-text` and `--summon` exit 5 after doing their job and say why on stderr (an exit 7 or 8 stays as it is; the failure is only on stderr).
 
 ## Claude Code skill (party-crew)
 

@@ -5,7 +5,7 @@ import subprocess
 import sys
 import time
 
-from party_hud.collect import get_snapshot, pane_values, report_text
+from party_hud.collect import FIELD_SEP, get_snapshot, pane_values, report_text
 from party_hud.common import tmux_run
 from party_hud.sidebars import (
     crew_asked,
@@ -31,10 +31,10 @@ def ask(pane, text):
     or tmux failure, 4 not an agent, 5 sent but not saved."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
-    found, err = pane_values(pane, "#{pane_current_path}", "#{start_time}")
+    found, err = pane_values(pane, "#{pane_current_path}", "#{start_time}", "#{@party_model}")
     if found is None:
         return 2, "", err
-    cwd, server = found
+    cwd, server, model = found[0], found[1], FIELD_SEP.join(found[2:])
     agent = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
     if agent is None:
         return 4, "", f"not a known agent: {pane}\n"
@@ -49,7 +49,7 @@ def ask(pane, text):
         rc, _, err = tmux_run(["send-keys", "-t", pane, "Enter"])
     if rc != 0:
         return 2, "", err or f"tmux could not send to {pane}\n"
-    err = crew_asked(pane, text, sent, agent["kind"], cwd, agent.get("lead", ""), server)
+    err = crew_asked(pane, text, sent, agent["kind"], cwd, agent.get("lead", ""), server, model)
     return (5 if err else 0), f"{sent}\n", err
 
 
@@ -80,6 +80,7 @@ def main():
         epilog="--ask, --report-text and --summon save each round under ${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/ "
         "(kept 14 days). Exit code 5: the action was done but saving failed (see stderr). "
         "--report-text exit code 7: the member is waiting for input, stdout is the end of its screen. "
+        "--report-text --wait exit code 8: the member hit its usage limit, stdout is the limit message. "
         "Exit code 6: the rules do not allow it (stderr says which one).",
     )
     ap.add_argument("--sidebar", action="store_true")
@@ -103,6 +104,11 @@ def main():
     ap.add_argument(
         "--summon", metavar="AGENT", help="open a pane running AGENT (exit 6 if the caller is itself a summoned member)"
     )
+    ap.add_argument(
+        "--model",
+        metavar="MODEL",
+        help="with --summon: start the agent on MODEL, passed to its own model option (claude --model, codex -m, agy --model, grok -m) and saved in each round's meta.json; a model the agent refuses at startup ends like any failed start (exit 2, no such pane: PANE)",
+    )
     ap.add_argument("--cwd", metavar="DIR")
     ap.add_argument("--window", action="store_true")
     ap.add_argument("--here", action="store_true")
@@ -116,6 +122,8 @@ def main():
     ap.add_argument("--width", type=int)
     ap.add_argument("--fixture")
     args = ap.parse_args()
+    if args.model is not None and args.summon is None:
+        ap.error("--model needs --summon")
     if args.toggle:
         toggle()
     elif args.ensure:
@@ -159,7 +167,7 @@ def main():
             args.report_text, args.wait, 600 if args.timeout is None else args.timeout, args.after, read
         )
         record_seen = rc == 0 and bool(out) and "round" in read
-        if rc in (0, 7) and out:
+        if rc in (0, 7, 8) and out:
             save_err = crew_replied(args.report_text, out, rc)
             if save_err:
                 rc, err = (5 if rc == 0 else rc), err + save_err
@@ -184,7 +192,13 @@ def main():
         sys.exit(rc)
     elif args.summon is not None:
         rc, out, err = summon(
-            args.summon, args.cwd, args.window, 60 if args.timeout is None else args.timeout, args.read_only, args.here
+            args.summon,
+            args.cwd,
+            args.window,
+            60 if args.timeout is None else args.timeout,
+            args.read_only,
+            args.here,
+            args.model,
         )
         if rc == 0:
             save_err = crew_summoned(out.strip())

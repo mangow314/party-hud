@@ -2,6 +2,7 @@
 
 import json
 import os
+import shlex
 import subprocess
 import sys
 import time
@@ -145,6 +146,59 @@ def test_summon_read_only_starts_each_agent_in_its_plan_mode(tm, tmp_path, kind,
     rc, _, _ = sidebars.summon(kind, str(tmp_path), False, 5, True, True)
     assert rc == 0
     assert tm.opened()[-1] == cmd
+
+
+@pytest.mark.parametrize(
+    ("kind", "cmd"),
+    [
+        ("claude", "claude --model m-1"),
+        ("codex", "codex -c check_for_update_on_startup=false -m m-1"),
+        ("agy", "agy --model m-1"),
+        ("grok", "grok -m m-1"),
+    ],
+)
+def test_summon_model_goes_to_each_agents_own_model_option(tm, tmp_path, kind, cmd):
+    rc, _, _ = sidebars.summon(kind, str(tmp_path), False, 5, model="m-1")
+    assert rc == 0
+    assert tm.opened()[-1] == cmd
+
+
+def test_summon_model_reaches_the_agent_as_one_shell_quoted_argument(tm, tmp_path):
+    hostile = "a b'c\"; touch x #$(id)"
+    sidebars.summon("claude", str(tmp_path), False, 5, model=hostile)
+    assert shlex.split(tm.opened()[-1]) == ["claude", "--model", hostile]
+
+
+@pytest.mark.parametrize(
+    ("kw", "opened"),
+    [
+        ({"read_only": True}, ("new-session", "codex -c check_for_update_on_startup=false -s read-only -m m-1")),
+        ({"window": True}, ("new-window", "codex -c check_for_update_on_startup=false -m m-1")),
+        ({"here": True}, ("split-window", "codex -c check_for_update_on_startup=false -m m-1")),
+    ],
+    ids=["read-only", "window", "here"],
+)
+def test_summon_model_works_with_read_only_window_and_here(tm, tmp_path, kw, opened):
+    sub = tmp_path / "sub"
+    sub.mkdir()
+    rc, _, _ = sidebars.summon(
+        "codex", str(sub), kw.get("window", False), 5, kw.get("read_only", False), kw.get("here", False), "m-1"
+    )
+    call = tm.opened()
+    assert rc == 0
+    assert (call[0], call[-1]) == opened
+    assert call[call.index("-c") + 1] == str(sub)
+
+
+def test_summon_model_is_set_on_the_new_pane(tm, tmp_path):
+    sidebars.summon("claude", str(tmp_path), False, 5, model="m-1")
+    assert ("set-option", "-p", "-t", "%9", "@party_model", "m-1") in tm.calls
+
+
+def test_summon_without_model_sets_no_model_on_the_pane(tm, tmp_path):
+    sidebars.summon("claude", str(tmp_path), False, 5)
+    assert tm.opened()[-1] == "claude"
+    assert not any("@party_model" in c for c in tm.calls)
 
 
 @pytest.mark.parametrize(
@@ -471,6 +525,27 @@ def test_ask_stores_the_tmux_server_start_in_meta(crew):
     assert meta(crew, sess, "round-001")["server_start"] == "1700000000"
 
 
+def test_ask_stores_the_model_the_member_was_summoned_with_in_meta(crew, monkeypatch):
+    vals = {
+        "#{pane_id}": "%5",
+        "#{pane_current_path}": "/work/dir",
+        "#{start_time}": "1700000000",
+        "#{@party_model}": "m-1",
+    }
+    monkeypatch.setattr(
+        collect, "tmux_run", lambda args, timeout=None: (0, FS.join(vals[f] for f in args[-1].split(FS)) + "\n", "")
+    )
+    party.ask("%5", "first?")
+    (sess,) = os.listdir(crew)
+    assert meta(crew, sess, "round-001")["model"] == "m-1"
+
+
+def test_ask_of_a_member_summoned_without_model_stores_no_model_in_meta(crew):
+    party.ask("%5", "first?")
+    (sess,) = os.listdir(crew)
+    assert "model" not in meta(crew, sess, "round-001")
+
+
 def test_report_text_save_succeeds(crew):
     party.ask("%5", "first?")
     assert sidebars.crew_replied("%5", "answer\n", 0) == ""
@@ -530,6 +605,13 @@ def test_report_text_rc_7_prints_the_screen_and_saves_it_with_rc_7(run_main):
 def test_report_text_rc_7_with_a_failed_save_stays_7_and_reports_the_error(run_main):
     got, _ = run_main((7, "screen\n", "%5 is waiting for input\n"), "save failed\n")
     assert got == (7, "screen\n", "%5 is waiting for input\nsave failed\n")
+
+
+def test_report_text_rc_8_prints_the_limit_message_saves_it_with_rc_8_and_records_no_round(run_main):
+    got, saved = run_main((8, "limit reached\n", "%5 hit a usage limit\n"), "", 3)
+    assert got == (8, "limit reached\n", "%5 hit a usage limit\n")
+    assert saved == [("%5", "limit reached\n", 8)]
+    assert not os.path.exists(seen_path())
 
 
 def test_report_text_rc_0_with_a_failed_save_is_rc_5(run_main):

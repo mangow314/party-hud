@@ -41,7 +41,7 @@ The whole flow, from the sidebar to a report and back:
 | 1 | Agent: claude, codex, agy or grok |
 | 2 | Portrait: one of 8 classes, picked from the session id; up to 8 members of one squad do not repeat |
 | 3 | Class icon and name: the Claude Code session name (`/rename` or its automatic title), else the tmux window name; other agents show their kind |
-| 4 | Status: busy, idle, wait (waiting for you), done, zzz (idle, prompt cache expired) |
+| 4 | Status: busy, idle, wait (waiting for you; `limit` when Claude Code or Codex hit its usage limit), done, zzz (idle, prompt cache expired) |
 | 5 | HP: context left (`620k/1M`), blinking at 10% or less |
 | 6 | Model |
 | 7 | SP (Claude Code only): prompt cache minutes left (`59/60m`); at 0 the next message re-reads the whole context |
@@ -104,6 +104,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 `--summon` opens the member in a background tmux session, listed under its lead in the sidebar.
 Every round is saved; after `--dismiss` you can still read a lead's last rounds in Party Select (`[`, `]`, `Enter`).
 `--read-only` makes codex read-only through its sandbox; claude, grok and agy use their own plan mode, which the agent enforces itself.
+`--summon AGENT --model MODEL` starts the member on that model (the agent's own model option) and saves it with each round.
 
 To let Claude Code use it for you, link the bundled `party-crew` skill once:
 

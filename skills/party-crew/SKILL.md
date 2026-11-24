@@ -18,11 +18,12 @@ The HUD itself only reads. These subcommands open or close a pane or send keys o
 
 ## Commands
 
-`party.py --summon AGENT [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]`
+`party.py --summon AGENT [--model MODEL] [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]`
 - Default: a new window in your own detached session `crew-<your pane number>` (created at your window's size if it does not exist yet). That session gets no sidebar; the sidebar lists the member under you. `--window`: a new window in your session. `--here`: a split beside your pane. `--window` and `--here` together exit 2.
 - Working dir `--cwd` (default: current).
 - `--summon` only opens a pane running the agent. Whether it asks permission and what it allows is the user's setting in that agent; you neither set nor bypass it.
 - `--read-only`: starts the agent read-only. Only `codex` is enforced by the system (`codex -s read-only`). `claude`, `grok` and `agy` start in their own plan mode: the agent refuses edits itself, nothing enforces it. Plan mode can stop a member midway: `agy` still asks permission for each shell command (the HUD shows it as waiting), and `claude` may stop at a plan approval prompt. `codex` can stop too, when it asks the user to approve a command its read-only sandbox blocks (also shown as waiting).
+- `--model MODEL`: starts the agent on that model through its own option (`claude --model`, `codex -m`, `agy --model`, `grok -m`); works with `--read-only`, `--cwd`, `--window` and `--here`. Omit it for the agent's default. The name is not checked: a model the agent refuses at startup ends like any failed start (exit 2, stderr `no such pane: PANE`). The model is saved as `model` in each round's `meta.json`. `--model` without `--summon` exits 2; it cannot change a member that is already running.
 - Review: pass `--read-only` to `codex`; to have it change code, do not. For `claude`, `agy` and `grok` you may omit it and write "do not edit files" in the question; then only the user's permission settings in that agent stop an edit.
 - stdout: the new pane id, e.g. `%12`. `--timeout` default 60.
 - A member that was itself summoned (its pane has a lead that still exists) gets exit 6 and no pane is opened: stderr `PANE is crew of LEAD: report to your lead instead of summoning`. If the lead's pane is gone, it works as usual.
@@ -38,7 +39,8 @@ The HUD itself only reads. These subcommands open or close a pane or send keys o
 - Without `--after` it prints the current report (add `--wait` to let the agent finish first).
 - If the agent is waiting for input and has no report newer than EPOCH, it returns 7 at once: stdout is the last 20 non-empty lines of the pane's screen, stderr `PANE is waiting for input`. This also covers agy and grok. It needs a snapshot taken after your question, so right after `--ask` it can take a moment.
 - A member that waits for input while it has subagents running, or a finished subagent's result not yet answered, does not give 7; it keeps waiting. It gives 7 once the subagents are done and their results are handled; if that never happens, the wait ends at the timeout (exit 3).
-- Exit: 0 printed (a known agent with no report: empty stdout, stderr `no report for PANE`), 2 bad arguments or missing pane, 3 timeout, 4 not a known agent, 7 waiting for input.
+- If the newest turn of a claude or codex member ended on its usage limit, `--wait` returns 8 at once: stdout is the agent's limit message, stderr `PANE hit a usage limit`. With `--after`, only a limit hit after EPOCH counts.
+- Exit: 0 printed (a known agent with no report: empty stdout, stderr `no report for PANE`), 2 bad arguments or missing pane, 3 timeout, 4 not a known agent, 7 waiting for input, 8 hit a usage limit.
 - Only claude and codex reports carry a time. For agy and grok, `--after` only waits for a snapshot newer than EPOCH in which the agent is not working, so it can print the pane's lines from before the agent started. Prefer codex or claude when you need this round's answer.
 
 `party.py --dismiss PANE`
@@ -65,11 +67,11 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss %12
 - Each member has one lead; do not send it a second question before you read the reply to the first.
 - Make the first line of the `--ask` text a short task name, then the question or the brief path on the next lines. When the member is not in a task worktree, that line is the round's title in Party Select's `past rounds`; a first line like `Read /path/brief.md` makes every round look the same.
 - Answer a member yourself only when the answer is in scope, already covered by what the user asked, and easy to undo. Anything that needs the user's approval (permissions, skipping hooks, pushing, deleting) goes to the user, whether it comes as a prompt or as text.
-- Send the first question once `--summon` returned 0; send each later question only when the member's last `--report-text` returned 0. Never use text or keys to answer a permission prompt. Exit 7 means the member waits for input: show the user the printed lines.
+- Send the first question once `--summon` returned 0; send each later question only when the member's last `--report-text` returned 0. Never use text or keys to answer a permission prompt. Exit 7 means the member waits for input: show the user the printed lines. Exit 8 means the member hit its usage limit: take the printed message to the user and do not ask that member again until the user says so; asking again only gives 8 again.
 - When a member is blocked on the user, ask the user right away and keep doing work that does not depend on the answer. Merge questions you can ask together: at most two options and your pick.
 - For review questions, ask the member to answer directly rather than propose a plan (claude in plan mode may otherwise stop on a plan approval). Even when asked this way, claude in plan mode can still stop on a plan approval prompt: `--report-text` then returns 7 and the printed lines hold its conclusion. Hand them to the user as for any exit 7; do not approve with keys.
 - For review questions, ask the member to list what it checked and what it did not check, and to give `path:line` for each finding. Treat a finding without a location as unconfirmed: open the file and check it yourself before you use it.
-- Dismiss a member only after you checked its report and expect no follow-up. Timeout, exit 7, or exit 5 does not mean done.
+- Dismiss a member only after you checked its report and expect no follow-up. Timeout, exit 7, exit 8, or exit 5 does not mean done.
 - `--dismiss` exits 6 for a member that waits for input: answer it or take it to the user first. Do not dismiss right after `--ask`: the HUD may still show the member idle for about two seconds.
 
 ## Working as a member
@@ -83,4 +85,4 @@ Claude Code's Bash sandbox blocks the tmux socket (`Error connecting to /tmp/tmu
 
 Every round is saved under `${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/<start time UTC>-<pane id>/round-NNN/` (`question.md`, `reply.md`, `meta.json`); `--summon` deletes sessions older than 14 days. Exit 5 from `--summon`, `--ask` or `--report-text` means the action was done but saving the round failed (see stderr).
 
-Check the exit code of each step: 2 with stderr `no such pane: PANE` means the member's pane is gone (its agent exited or the pane was closed): tell the user and summon again; 3 from `--summon` or `--report-text` means it timed out and the pane may still be alive; 4 means the pane is not an agent; 6 means a rule refused it, read stderr.
+Check the exit code of each step: 2 with stderr `no such pane: PANE` means the member's pane is gone (its agent exited or the pane was closed): tell the user and summon again; 3 from `--summon` or `--report-text` means it timed out and the pane may still be alive; 4 means the pane is not an agent; 6 means a rule refused it, read stderr; 8 from `--report-text` means the member hit its usage limit, take it to the user and do not retry.

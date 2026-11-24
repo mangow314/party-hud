@@ -39,7 +39,7 @@ Codex 有 HP；agy、Grok 看得到忙不忙，也讀得到最後的回覆。
 | 1 | agent 種類：claude、codex、agy 或 grok |
 | 2 | 頭像：8 種職業之一，依 session id 分配，同一小隊 8 人以內不重複 |
 | 3 | 職業圖示和名稱：Claude Code 的 session 名稱（`/rename` 或自動標題），沒有才用 tmux window 名稱；其他 agent 顯示種類 |
-| 4 | 狀態：busy（工作中）、idle（閒置）、wait（等你）、done（做完）、zzz（快取過期的閒置成員） |
+| 4 | 狀態：busy（工作中）、idle（閒置）、wait（等你；Claude Code 或 Codex 用量到上限時顯示 `limit`）、done（做完）、zzz（快取過期的閒置成員） |
 | 5 | HP：剩餘的 context（`620k/1M`），10% 以下會閃爍 |
 | 6 | 模型 |
 | 7 | SP（只有 Claude Code 有）：prompt cache 還剩幾分鐘（`59/60m`）；歸零後，下一句話會重新讀入整段 context |
@@ -95,6 +95,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 `--summon` 預設把隊員開在背景的 tmux session，側欄把它列在召喚它的隊員底下。
 每一輪問答都會存下來；`--dismiss` 之後，仍可在選隊畫面讀 lead 最近的問答（`[`、`]`、`Enter`）。
 `--read-only` 讓 codex 用沙箱唯讀；claude、grok、agy 用自己的 plan 模式，由 agent 自己擋改檔。
+`--summon AGENT --model MODEL` 讓隊員用指定的模型啟動（傳給該 agent 自己的 model 選項），每一輪的紀錄也會存下這個模型。
 
 想讓 Claude Code 代你使用，只要把內附的 `party-crew` skill 連結一次：
 

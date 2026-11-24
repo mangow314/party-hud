@@ -541,3 +541,33 @@ def test_printable_drops_every_unicode_cc_character():
     mixed += ["\ud800", "a\udbffb\udc00\x00", "é\x07中\x9f\x7f"]
     assert all(common.printable(c) == old_printable(c) for c in every)
     assert all(common.printable(s) == old_printable(s) for s in mixed)
+
+
+LIMIT = {"text": "limit reached", "end": 990}
+
+
+def test_codex_turn_that_ended_on_the_usage_limit_is_waiting_with_reason_limited(cx_status, tmp_path):
+    error = {"message": "limit reached", "codex_error_info": "usage_limit_exceeded"}
+    path = tmp_path / "limited.jsonl"
+    event = {
+        "type": "event_msg",
+        "timestamp": "1970-01-01T00:16:30Z",
+        "payload": {"type": "task_complete", "error": error},
+    }
+    path.write_text(json.dumps(event) + "\n")
+    a = next(a for t in cx_status(str(path))["towns"] for a in t["agents"])
+    assert (a["status"], a["reason"], a["limit"]) == ("waiting", "limited", LIMIT)
+
+
+def test_claude_at_the_usage_limit_is_waiting_with_reason_limited(tmp_path):
+    data = {
+        "now": 1000,
+        "panes": [pane("%20", "claude"), pane("%21", "claude")],
+        "sessions": {"%20": {"sid": "a", "status": "idle"}, "%21": {"sid": "b", "status": "idle"}},
+        "transcripts": {"a": "/a", "b": "/b"},
+        "cache": {"/a": [990, 300, 0, LIMIT], "/b": [990, 300, 1000, None]},
+    }
+    new = members(collect.collect(write_fixture(tmp_path, data)))
+    assert (new["%20"]["status"], new["%20"]["reason"], new["%20"]["limit"]) == ("waiting", "limited", LIMIT)
+    assert new["%21"]["status"] == "idle"
+    assert "reason" not in new["%21"]
