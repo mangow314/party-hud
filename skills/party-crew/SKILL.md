@@ -18,11 +18,12 @@ The HUD itself only reads. These subcommands open or close a pane or send keys o
 
 ## Commands
 
-`party.py --summon AGENT [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]`
+`party.py --summon AGENT [--model MODEL] [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]`
 - Default: a new window in your own detached session `crew-<your pane number>` (created at your window's size if it does not exist yet). That session gets no sidebar; the sidebar lists the member under you. `--window`: a new window in your session. `--here`: a split beside your pane. `--window` and `--here` together exit 2.
 - Working dir `--cwd` (default: current).
 - `--summon` only opens a pane running the agent. Whether it asks permission and what it allows is the user's setting in that agent; you neither set nor bypass it.
 - `--read-only`: starts the agent read-only. Only `codex` is enforced by the system (`codex -s read-only`). `claude`, `grok` and `agy` start in their own plan mode: the agent refuses edits itself, nothing enforces it. Plan mode can stop a member midway: `agy` still asks permission for each shell command (the HUD shows it as waiting), and `claude` may stop at a plan approval prompt. `codex` can stop too, when it asks the user to approve a command its read-only sandbox blocks (also shown as waiting).
+- `--model MODEL`: starts the agent on that model through its own option (`claude --model`, `codex -m`, `agy --model`, `grok -m`); works with `--read-only`, `--cwd`, `--window` and `--here`. Omit it for the agent's default. The name is not checked: a model the agent refuses at startup ends like any failed start (exit 2, stderr `no such pane: PANE`). The model is saved as `model` in each round's `meta.json`. `--model` without `--summon` exits 2; it cannot change a member that is already running.
 - Review: pass `--read-only` to `codex`; to have it change code, do not. For `claude`, `agy` and `grok` you may omit it and write "do not edit files" in the question; then only the user's permission settings in that agent stop an edit.
 - stdout: the new pane id, e.g. `%12`. `--timeout` default 60.
 - A member that was itself summoned (its pane has a lead that still exists) gets exit 6 and no pane is opened: stderr `PANE is crew of LEAD: report to your lead instead of summoning`. If the lead's pane is gone, it works as usual.

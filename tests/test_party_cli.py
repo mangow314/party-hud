@@ -78,7 +78,13 @@ CASES = [
     (["--toggle"], "party.toggle", [], SHORT),
     (["--ask", "%5", "hi"], "party.ask", ["%5", "hi"], SHORT),
     (["--dismiss", "%5"], "party.dismiss", ["%5"], SHORT),
-    (["--summon", "codex"], "party.summon", ["codex", None, False, 60, False, False], SHORT),
+    (["--summon", "codex"], "party.summon", ["codex", None, False, 60, False, False, None], SHORT),
+    (
+        ["--summon", "codex", "--model", "m-1", "--read-only", "--cwd", "/d", "--here"],
+        "party.summon",
+        ["codex", "/d", False, 60, True, True, "m-1"],
+        SHORT,
+    ),
     (["--report-text", "%5"], "party.report_text", ["%5", False, 600, None, {}], SHORT),
     (["--open-report", "%5"], "party.open_report_pane", ["", "%5"], SHORT),
     (["--sidebar", "--fixture", "F"], UI + "run_ui", ["F"], ()),
@@ -97,6 +103,12 @@ def test_each_sub_command_calls_its_function_and_loads_only_what_it_needs(argv, 
     assert not [m for m in out["loaded"] if m in forbidden]
 
 
+def test_model_without_summon_is_rc_2_and_runs_nothing():
+    out = run_main(["--ask", "%5", "hi", "--model", "m-1"], "party.ask")
+    assert out["rc"] == 2
+    assert out["calls"] == []
+
+
 def test_fixture_goes_through_argparse():
     assert "argparse" in run_main(["--report", "%1", "--fixture", "F"], UI + "run_report")["loaded"]
 
@@ -108,6 +120,7 @@ def test_help_prints_the_usage_description_and_exit_codes():
     assert flat.startswith("usage: party.py")
     assert "tmux party sidebar: sessions as squads, agents as members" in flat
     assert "Exit code 6: the rules do not allow it (stderr says which one)." in flat
+    assert "--model MODEL with --summon: start the agent on MODEL" in flat
     assert "exit code 8: the member hit its usage limit" in flat
 
 

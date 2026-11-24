@@ -66,6 +66,9 @@ READ_ONLY_CMDS = {
 }
 
 
+MODEL_OPTS = {"claude": "--model", "codex": "-m", "agy": "--model", "grok": "-m"}
+
+
 ACTIVE_WINDOW = 4.0  # screen changed this recently = working (spinners and timers keep changing)
 
 
