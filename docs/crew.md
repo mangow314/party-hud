@@ -48,7 +48,17 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t
 - For a review, pass `--read-only` to codex (the sandbox enforces it); to change code, do not. For claude, agy and grok you may omit it and write "do not edit files" in the question; then nothing stops an edit except the permission settings the user has in that agent.
 - A member that was itself summoned (its pane has a lead that still exists) cannot summon: exit 6, nothing is opened, stderr `PANE is crew of LEAD: report to your lead instead of summoning`. If the lead's pane is gone, it works as usual.
 
-`--ask` exits 0 sent, 2 bad or missing pane or tmux failure, 4 not an agent.
+`--ask` exit codes:
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Sent; stdout is the time just before sending |
+| 2 | Bad or missing pane, or tmux failure |
+| 4 | The pane exists but is not a known agent |
+| 5 | Sent, but saving the round failed (see below) |
+| 6 | Not allowed, nothing is sent. The pane is a member of another lead whose pane still exists (stderr `PANE is crew of LEAD`), or it waits for input (stderr `PANE: waiting for input, not sent`) |
+
+An agent with no lead, your own member and a member whose lead pane is gone can be asked. When a pane is both another lead's member and waiting, the crew message is the one printed. The check reads the last snapshot, so a member that began to wait after it is not caught.
 
 ## Dismiss
 
