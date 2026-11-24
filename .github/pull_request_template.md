@@ -4,7 +4,7 @@
 
 ## Checklist
 
-- [ ] `ruff check . && ruff format --check . && basedpyright . && uvx pytest@9.2.0` passes
+- [ ] `python3 scripts/check.py` passes
 - [ ] `uvx pytest@9.2.0 -m tmux` passes (needs a real tmux)
 - [ ] If this adds work per frame or per collection: `python3 bench/bench.py` numbers before and after are below
 - [ ] If user-visible behavior changed: both `README.md` and `README.zh-TW.md` are updated
