@@ -82,3 +82,36 @@ def live_turn():
             ],
         ),
     ]
+
+
+LIMIT_TEXT = "You've hit your weekly limit · resets Nov 9, 2am (UTC). /model to switch models."
+
+
+def limit_tail(t):
+    """What Claude Code 2.1.325 writes when a prompt is refused at the usage limit: the error record, then bookkeeping lines."""
+    zero = {
+        "input_tokens": 0,
+        "output_tokens": 0,
+        "cache_creation_input_tokens": 0,
+        "cache_read_input_tokens": 0,
+        "cache_creation": {"ephemeral_1h_input_tokens": 0, "ephemeral_5m_input_tokens": 0},
+    }
+    error = rec(
+        "assistant",
+        t,
+        [text(LIMIT_TEXT)],
+        isSidechain=False,
+        apiError="usage_limit_reached",
+        error="rate_limit",
+        isApiErrorMessage=True,
+        apiErrorStatus=429,
+        apiErrorType="rate_limit_error",
+    )
+    error["message"].update(model="<synthetic>", role="assistant", stop_reason="stop_sequence", usage=zero)
+    stamp = error["timestamp"]
+    return [
+        error,
+        {"type": "system", "subtype": "turn_duration", "isSidechain": False, "isMeta": False, "timestamp": stamp},
+        {"type": "last-prompt", "lastPrompt": "go on"},
+        {"type": "cost-state", "totalCostUSD": 0},
+    ]

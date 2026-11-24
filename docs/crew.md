@@ -23,6 +23,9 @@ yet, it waits until that stops and then prints. `--timeout` is the most seconds 
 | 4 | The pane exists but is not a known agent |
 | 5 | The report was printed but saving the round failed (see below) |
 | 7 | With `--wait --after`: the member is waiting for input and has no new report from this round. stdout is the last 20 non-empty lines of its screen, stderr `PANE is waiting for input` |
+| 8 | With `--wait`: the member's newest turn ended on its usage limit (Claude Code and Codex only). stdout is the agent's limit message, stderr `PANE hit a usage limit`. With `--after`, only a limit hit after `EPOCH` counts |
+
+Exit 8 comes at once, without waiting for the member to stop working. The limit stays until someone sends the member a new prompt, so asking again before the limit resets gives 8 again: take it to the user. Until then the HUD shows the member as waiting, so `--dismiss` refuses it like any waiting member.
 
 Exit 7 needs a snapshot taken after the question, so right after `--ask` it can take a moment. A member that waits for input while it still has subagents running does not give 7 until they finish; if they never finish, it waits until `--timeout` (exit 3). Only Claude Code and Codex reports carry a time; for agy and grok, `--after` only waits for a snapshot newer than `EPOCH` in which the member is not working, so the printed lines may be from before it started.
 
@@ -76,6 +79,7 @@ Exit 0 closed (nothing is saved), 2 not in tmux, not a pane id, pane does not ex
 | 5 | The action was done but saving the round failed (stderr says why) |
 | 6 | The rules do not allow it; stderr says which one (`--summon` by a summoned member, `--dismiss`) |
 | 7 | `--report-text --wait --after`: the member is waiting for input and has no new report |
+| 8 | `--report-text --wait`: the member hit its usage limit; stdout is the limit message |
 
 ## Working together
 
@@ -84,12 +88,12 @@ Each member has one lead. A member does only what it was asked; when it needs he
 Every round is saved for later reference under `~/.local/state/party-hud/crew/` (`$XDG_STATE_HOME/party-hud/crew/` when `XDG_STATE_HOME` is set), one directory `<start time UTC>-<pane number>/round-NNN/` (the pane id without the `%`, for example `20260101T120000Z-12` for `%12`)
 (`question.md`, `reply.md`, `meta.json`). `meta.json` holds `asked_at`, `pane`, `agent`, `cwd`, `lead` (the asked
 member's lead pane, `""` when it has none) and `server_start` (the tmux server's `#{start_time}`) from `--ask`, and
-`replied_at` and `rc` once `--report-text` saves a reply.
+`replied_at` and `rc` once `--report-text` saves a reply (a report, the screen lines of an exit 7 or the limit message of an exit 8).
 Party Select lists a lead's last 5 rounds from these files (see the README): only rounds whose `server_start` is the
 running server's, since pane ids start over with a new server; rounds without it are not listed. Outside a task worktree
 a round's title there is the first non-empty line of `question.md`, so leads start the `--ask` text with a short task name.
 `--summon` removes sessions untouched for 14 days. If saving fails, `--ask`,
-`--report-text` and `--summon` exit 5 after doing their job and say why on stderr (an exit 7 stays 7; the failure is only on stderr).
+`--report-text` and `--summon` exit 5 after doing their job and say why on stderr (an exit 7 or 8 stays as it is; the failure is only on stderr).
 
 ## Claude Code skill (party-crew)
 

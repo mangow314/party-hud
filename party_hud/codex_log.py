@@ -127,20 +127,30 @@ def _codex_usage(lines):
 
 def codex_turn_done(path):
     """True when the newest turn event in a rollout's tail is task_complete (no task_started after it)."""
-    return _turn_done(_tail_lines(path))
+    return _turn_state(_tail_lines(path))[0]
 
 
-def _turn_done(lines):
+def _turn_state(lines):
+    """(done, limit) from the newest turn event in these lines: done when it is task_complete, limit = {"text", "end"}
+    when that turn ended on the usage limit, else None."""
     for raw in reversed(lines):
         if b'"task_complete"' not in raw and b'"task_started"' not in raw:
             continue
         try:
-            kind = json.loads(raw)["payload"].get("type")
+            rec = json.loads(raw)
+            p = rec["payload"]
+            kind = p.get("type")
         except (ValueError, KeyError, TypeError, AttributeError):
             continue
-        if kind in ("task_complete", "task_started"):
-            return kind == "task_complete"
-    return False
+        if kind == "task_started":
+            return False, None
+        if kind == "task_complete":
+            err = p.get("error")
+            if isinstance(err, dict) and err.get("codex_error_info") == "usage_limit_exceeded":
+                # completed_at is in whole seconds, too coarse to compare with the send time of --ask
+                return True, {"text": str(err.get("message") or ""), "end": iso_epoch(rec.get("timestamp"))}
+            return True, None
+    return False, None
 
 
 TAIL_MEMO_MAX = 16  # (path, size) entries; when full the entry stored longest ago goes

@@ -108,6 +108,7 @@ def test_help_prints_the_usage_description_and_exit_codes():
     assert flat.startswith("usage: party.py")
     assert "tmux party sidebar: sessions as squads, agents as members" in flat
     assert "Exit code 6: the rules do not allow it (stderr says which one)." in flat
+    assert "exit code 8: the member hit its usage limit" in flat
 
 
 def test_a_mistyped_flag_is_rc_2_and_named():
