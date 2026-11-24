@@ -6,7 +6,7 @@ import subprocess
 import sys
 import time
 
-from party_hud.collect import get_snapshot, pane_values, report_text
+from party_hud.collect import get_snapshot, pane_values, report_text, turn_answered
 from party_hud.common import tmux_run
 from party_hud.sidebars import (
     crew_asked,
@@ -30,7 +30,7 @@ from party_hud.sidebars import (
 def ask(pane, text):
     """(rc, stdout, stderr) for party.py --ask. rc: 0 sent (stdout: the time just before sending), 2 bad or missing pane
     or tmux failure, 4 not an agent, 5 sent but not saved, 6 not allowed and nothing sent (crew of another lead whose
-    pane still exists, or waiting for input)."""
+    pane still exists, or waiting for input with its newest turn not answered)."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
     found, err = pane_values(pane, "#{pane_current_path}", "#{start_time}", "#{@party_lead}")
@@ -42,7 +42,7 @@ def ask(pane, text):
         return 4, "", f"not a known agent: {pane}\n"
     if lead and lead != os.environ.get("TMUX_PANE", "") and pane_values(lead)[0] is not None:
         return 6, "", f"{pane} is crew of {lead}\n"
-    if agent["status"] == "waiting":
+    if agent["status"] == "waiting" and not turn_answered(agent):
         return 6, "", f"{pane}: waiting for input, not sent\n"
     sent = time.time()
     # one bracketed paste, then Enter: codex takes an Enter right after typed keys as a newline

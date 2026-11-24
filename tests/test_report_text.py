@@ -7,6 +7,7 @@ import subprocess
 import time
 
 import pytest
+import records
 
 import party
 from party_hud import claude_log, collect, common
@@ -285,9 +286,9 @@ def test_after_without_wait_gives_2(fk):
     assert fk.run([snap("waiting")], "%5", False, 30, after=A)[0] == 2
 
 
-def fake_ask(monkeypatch, pane, status="idle", lead="", panes=()):
+def fake_ask(monkeypatch, pane, status="idle", lead="", panes=(), **kw):
     """party.ask against a pane whose @party_lead is lead, with tmux and subprocess.run recorded; display-message finds
-    that pane and those in panes."""
+    that pane and those in panes. kw: more fields of the agent in the snapshot."""
     calls = []
 
     def tmux_run(args, timeout=None):
@@ -299,7 +300,7 @@ def fake_ask(monkeypatch, pane, status="idle", lead="", panes=()):
             return 0, FS.join([pane, "/w", "1700000000", lead]) + "\n", ""
         return 0, f"{target}\n" if target in panes else GONE_OUT[0], ""
 
-    monkeypatch.setattr(party, "get_snapshot", lambda: {"towns": [{"agents": [{**agent(status), "pane": pane}]}]})
+    monkeypatch.setattr(party, "get_snapshot", lambda: {"towns": [{"agents": [{**agent(status, **kw), "pane": pane}]}]})
     monkeypatch.setattr(party, "tmux_run", tmux_run)
     monkeypatch.setattr(collect, "tmux_run", tmux_run)
     monkeypatch.setattr(
@@ -360,6 +361,42 @@ def test_ask_refuses_a_pane_that_waits_for_input_and_sends_nothing(monkeypatch):
     calls = fake_ask(monkeypatch, "%5", status="waiting", lead="%1", panes=("%1",))
     assert party.ask("%5", "hi") == (6, "", "%5: waiting for input, not sent\n")
     assert only_looked_up(calls)
+
+
+PENDING_CALL = records.rec("assistant", 10, [{"type": "tool_use", "id": "y", "name": "Bash", "input": {}}])
+
+
+def test_ask_sends_to_a_waiting_claude_whose_newest_turn_is_answered(monkeypatch, tmp_path):
+    calls = fake_ask(monkeypatch, "%5", status="waiting", transcript=records.transcript(tmp_path, *records.turn()))
+    assert party.ask("%5", "hi")[0] == 0
+    assert calls[-3:] == sent_steps("%5", "hi")
+
+
+@pytest.mark.parametrize("newest", [PENDING_CALL, records.rec("user", 10, "next question")], ids=["tool", "prompt"])
+def test_ask_refuses_a_waiting_claude_with_an_older_answer_only(monkeypatch, tmp_path, newest):
+    tx = records.transcript(tmp_path, *records.turn(), newest)
+    calls = fake_ask(monkeypatch, "%5", status="waiting", transcript=tx)
+    assert party.ask("%5", "hi") == (6, "", "%5: waiting for input, not sent\n")
+    assert only_looked_up(calls)
+
+
+@pytest.mark.parametrize(
+    "kind,rep,rc",
+    [
+        ("claude", {"text": "done", "end": A}, 0),
+        ("claude", None, 6),
+        ("codex", {"text": "done", "end": A}, 0),
+        ("codex", {"live": True, "prev": {"text": "done", "end": A}}, 6),
+        ("codex", None, 6),
+        ("agy", {"text": "done", "end": None}, 6),
+    ],
+    ids=["claude-report", "claude-no-report", "codex-turn-done", "codex-turn-open", "codex-no-report", "agy"],
+)
+def test_ask_to_a_waiting_member_goes_by_its_report_and_agy_is_refused(monkeypatch, kind, rep, rc):
+    fake_ask(monkeypatch, "%5", status="waiting", kind=kind)
+    stale = {"text": "done", "end": A}
+    monkeypatch.setattr(collect, "report_for", lambda a: rep if kind == "claude" or a["status"] == "working" else stale)
+    assert party.ask("%5", "hi")[0] == rc
 
 
 @pytest.mark.parametrize("status", ["idle", "waiting"])
