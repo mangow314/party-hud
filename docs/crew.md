@@ -38,12 +38,13 @@ t=$(python3 ~/.tmux/plugins/party-hud/party.py --ask "$m" "your question")
 python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t"
 ```
 
-`--summon AGENT [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]` (default timeout 60 s) decides where the pane goes:
+`--summon AGENT [--model MODEL] [--cwd DIR] [--window | --here] [--read-only] [--timeout SEC]` (default timeout 60 s) decides where the pane goes:
 
 - Default: a new window in a detached session `crew-<your pane number>` (`crew-12` for `%12`), created at your window's size if it does not exist yet. That session gets no sidebar; the sidebar lists the member in your squad, under you. After you switch to `crew-N`, tmux's own last-session key takes you back to the session you came from: `prefix L` by default (`switch-client -l`).
 - `--window`: a new window in your own session. `--here`: a split beside your pane. Giving both exits 2.
 - `--summon` only opens a tmux pane running the agent. Whether it asks for permission and which commands it allows is the user's setting in that agent; party-hud neither sets nor bypasses it. A member stopped at a permission prompt gives the lead exit 7, and the user answers in that pane.
 - `--read-only` starts the agent read-only. Only codex is enforced by the system (`codex -s read-only`). claude (`--permission-mode plan`), grok (`--permission-mode plan`) and agy (`--mode plan`) start in their own plan mode: the agent refuses edits itself, nothing enforces it. Plan mode can stop a member midway: agy still asks permission for each shell command (the HUD shows it as waiting), and claude may stop at a plan approval prompt. Codex can stop too: when a command needs more than the read-only sandbox allows, it asks the user to approve running it outside the sandbox (the HUD shows it as waiting).
+- `--model MODEL` starts the agent on that model, through the agent's own option: `claude --model`, `codex -m`, `agy --model`, `grok -m`. It works together with `--read-only`, `--cwd`, `--window` and `--here`; without it the agent starts on its own default. MODEL is passed as one shell-quoted argument and is not checked: a model the agent refuses at startup ends like any failed start (exit 2, stderr `no such pane: PANE`). `--model` without `--summon` exits 2. It cannot change the model of a member that is already running.
 - codex is started with `-c check_for_update_on_startup=false`, with or without `--read-only`. Otherwise, when a newer Codex is out, it opens on an update prompt, the Enter of the first `--ask` picks "Update now" there, and Codex updates itself and exits.
 - For a review, pass `--read-only` to codex (the sandbox enforces it); to change code, do not. For claude, agy and grok you may omit it and write "do not edit files" in the question; then nothing stops an edit except the permission settings the user has in that agent.
 - A member that was itself summoned (its pane has a lead that still exists) cannot summon: exit 6, nothing is opened, stderr `PANE is crew of LEAD: report to your lead instead of summoning`. If the lead's pane is gone, it works as usual.
@@ -83,7 +84,7 @@ Each member has one lead. A member does only what it was asked; when it needs he
 
 Every round is saved for later reference under `~/.local/state/party-hud/crew/` (`$XDG_STATE_HOME/party-hud/crew/` when `XDG_STATE_HOME` is set), one directory `<start time UTC>-<pane number>/round-NNN/` (the pane id without the `%`, for example `20260101T120000Z-12` for `%12`)
 (`question.md`, `reply.md`, `meta.json`). `meta.json` holds `asked_at`, `pane`, `agent`, `cwd`, `lead` (the asked
-member's lead pane, `""` when it has none) and `server_start` (the tmux server's `#{start_time}`) from `--ask`, and
+member's lead pane, `""` when it has none) and `server_start` (the tmux server's `#{start_time}`) and `model` (the `--model` the member was summoned with; left out when there was none) from `--ask`, and
 `replied_at` and `rc` once `--report-text` saves a reply.
 Party Select lists a lead's last 5 rounds from these files (see the README): only rounds whose `server_start` is the
 running server's, since pane ids start over with a new server; rounds without it are not listed. Outside a task worktree

@@ -16,6 +16,7 @@ from .art import ART_MIN_WIDTH, SPLIT_GAP, SPLIT_MIN_WIDTH, SPLIT_SIDE_COLS
 from .collect import (
     AGENT_CMDS,
     FIELD_SEP,
+    MODEL_OPTS,
     READ_ONLY_CMDS,
     SUMMON_CMDS,
     agent_kind,
@@ -196,7 +197,7 @@ def fit_report_pane(pane, select):
 SUMMON_POLL = 1.0
 
 
-def summon(agent, cwd, window, timeout, read_only=False, here=False):
+def summon(agent, cwd, window, timeout, read_only=False, here=False, model=None):
     """(rc, stdout, stderr) for party.py --summon; rc 0 ready (stdout: pane id, already in the snapshot), 2 bad arguments,
     tmux failure or the new pane closed before it was ready, 3 timeout, 6 the caller is crew of a lead whose pane still
     exists. Where the pane goes (default, window, here): docs/crew.md."""
@@ -221,6 +222,8 @@ def summon(agent, cwd, window, timeout, read_only=False, here=False):
     if lead and pane_values(lead)[0] is not None:
         return 6, "", f"{caller} is crew of {lead}: report to your lead instead of summoning\n"
     cmd = (READ_ONLY_CMDS if read_only else SUMMON_CMDS)[agent]
+    if model is not None:
+        cmd += f" {MODEL_OPTS[agent]} {shlex.quote(model)}"
     if window:
         where = ["new-window"]
     elif here:
@@ -243,6 +246,8 @@ def summon(agent, cwd, window, timeout, read_only=False, here=False):
     if rc != 0 or not pane:
         return 2, "", err or "tmux could not open the pane\n"
     tmux("set-option", "-p", "-t", pane, "@party_lead", caller)
+    if model is not None:
+        tmux("set-option", "-p", "-t", pane, "@party_model", model)
     deadline, last = time.monotonic() + timeout, None
     while True:
         found, err = pane_values(pane, "#{pane_current_command}", "#{pane_pid}")
@@ -353,13 +358,15 @@ def _crew_summoned(pane):
     _crew_new_session(pane, time.time())
 
 
-def _crew_asked(pane, text, sent, agent, cwd, lead, server):
+def _crew_asked(pane, text, sent, agent, cwd, lead, server, model):
     session = _crew_session(pane, sent)
     rounds = _crew_rounds(session)
     path = os.path.join(session, f"round-{int(rounds[-1][6:]) + 1 if rounds else 1:03d}")
     os.mkdir(path)
     _crew_write(os.path.join(path, "question.md"), text)
     meta = {"asked_at": _utc(sent), "pane": pane, "agent": agent, "cwd": cwd, "lead": lead, "server_start": server}
+    if model:
+        meta["model"] = model
     _crew_write(os.path.join(path, "meta.json"), json.dumps(meta, ensure_ascii=False, indent=2) + "\n")
 
 
@@ -387,9 +394,9 @@ def crew_summoned(pane):
     return _crew_run(_crew_summoned, pane)
 
 
-def crew_asked(pane, text, sent, agent, cwd, lead, server):
-    """Save a sent question as the next round; lead is the asked member's lead pane ("" without one), server the tmux server's #{start_time}. Returns "" or an error message."""
-    return _crew_run(_crew_asked, pane, text, sent, agent, cwd, lead, server)
+def crew_asked(pane, text, sent, agent, cwd, lead, server, model):
+    """Save a sent question as the next round; lead is the asked member's lead pane ("" without one), server the tmux server's #{start_time}, model the --model the member was summoned with ("" without one). Returns "" or an error message."""
+    return _crew_run(_crew_asked, pane, text, sent, agent, cwd, lead, server, model)
 
 
 CREW_HISTORY_ROWS = 5
