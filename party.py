@@ -80,6 +80,7 @@ def main():
         epilog="--ask, --report-text and --summon save each round under ${XDG_STATE_HOME:-~/.local/state}/party-hud/crew/ "
         "(kept 14 days). Exit code 5: the action was done but saving failed (see stderr). "
         "--report-text exit code 7: the member is waiting for input, stdout is the end of its screen. "
+        "--report-text --wait exit code 8: the member hit its usage limit, stdout is the limit message. "
         "Exit code 6: the rules do not allow it (stderr says which one).",
     )
     ap.add_argument("--sidebar", action="store_true")
@@ -166,7 +167,7 @@ def main():
             args.report_text, args.wait, 600 if args.timeout is None else args.timeout, args.after, read
         )
         record_seen = rc == 0 and bool(out) and "round" in read
-        if rc in (0, 7) and out:
+        if rc in (0, 7, 8) and out:
             save_err = crew_replied(args.report_text, out, rc)
             if save_err:
                 rc, err = (5 if rc == 0 else rc), err + save_err

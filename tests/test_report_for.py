@@ -4,6 +4,7 @@
 import os
 
 import pytest
+import records
 
 from party_hud import collect
 
@@ -229,3 +230,10 @@ def test_screen_report_fake_agy_screen_gives_the_reply(monkeypatch):
 def test_screen_report_blank_screen_is_none(monkeypatch):
     screen(monkeypatch, "\n\n")
     assert collect.report_for({"kind": "grok", "pane": "%3"}) is None
+
+
+def test_report_for_claude_skips_the_usage_limit_record(tmp_path):
+    path = records.transcript(tmp_path, *records.turn(), records.rec("user", 10, "go on"), *records.limit_tail(11))
+    rep = collect.report_for({"kind": "claude", "status": "waiting", "transcript": path})
+    assert rep["text"] == "## 結果\nDone\n\nOne more line"
+    assert rep["task"]["ask"] == "fix it"

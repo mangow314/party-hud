@@ -36,9 +36,9 @@ def status_icon(status):
     return SPINNER[_tick % len(SPINNER)] if icon is None else icon
 
 
-def status_label(status):
-    _, word, color = STATUS_TAG[status]
-    return f"{status_icon(status)} {word}", color
+def status_label(a):
+    _, word, color = STATUS_TAG[a["status"]]
+    return f"{status_icon(a['status'])} {'limit' if a.get('reason') == 'limited' else word}", color
 
 
 def hp_color(pct):
@@ -196,7 +196,7 @@ def fmt_tokens(n):
 
 
 def status_rows(a, width, sel=True):
-    label, lc = status_label(a["status"])
+    label, lc = status_label(a)
     job = CLASS_NAMES[a["cls"]]
     name = clip(a["name"], width - 4 - cw(job) - 1 - cw(label) - 1)
     pad = width - 3 - cw(name) - 1 - cw(job) - cw(label) - 1
@@ -1102,7 +1102,7 @@ def squad_rows_art(t, pid, width, lit, cursor=False, home=False, pulse=False):
 def art_rows(a, width, sel):
     pid = portrait_id(a)
     tw = width - PORTRAIT_CELLS[0] - 3
-    label, lc = status_label(a["status"])
+    label, lc = status_label(a)
     name = clip(a["name"], tw - 2 - cw(label) - 1)
     text = [
         (
