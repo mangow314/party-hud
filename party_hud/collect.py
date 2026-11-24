@@ -322,6 +322,22 @@ def report_for(a) -> dict | None:
     return rep
 
 
+def turn_answered(a) -> bool:
+    """True when the newest turn of a Claude Code or Codex member has its final answer; agy and grok logs carry no
+    turns, so False."""
+    if a["kind"] == "claude":
+        rep = report_for(a)
+        if not rep or not rep.get("end"):
+            return False
+        tx = a.get("transcript")
+        asked = (claude_log.claude_live(tx) or {}).get("start") if tx else None
+        return not asked or asked <= rep["end"]
+    if a["kind"] == "codex":
+        rep = report_for({**a, "status": "working"})
+        return bool(rep and not rep.get("live"))
+    return False
+
+
 def wait_channel(pane):
     return "party-" + pane.lstrip("%")
 

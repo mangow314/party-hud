@@ -52,7 +52,17 @@ python3 ~/.tmux/plugins/party-hud/party.py --report-text "$m" --wait --after "$t
 - For a review, pass `--read-only` to codex (the sandbox enforces it); to change code, do not. For claude, agy and grok you may omit it and write "do not edit files" in the question; then nothing stops an edit except the permission settings the user has in that agent.
 - A member that was itself summoned (its pane has a lead that still exists) cannot summon: exit 6, nothing is opened, stderr `PANE is crew of LEAD: report to your lead instead of summoning`. If the lead's pane is gone, it works as usual.
 
-`--ask` exits 0 sent, 2 bad or missing pane or tmux failure, 4 not an agent.
+`--ask` exit codes:
+
+| Exit code | Meaning |
+|---|---|
+| 0 | Sent; stdout is the time just before sending |
+| 2 | Bad or missing pane, or tmux failure |
+| 4 | The pane exists but is not a known agent |
+| 5 | Sent, but saving the round failed (see below) |
+| 6 | Not allowed, nothing is sent. The pane is a member of another lead whose pane still exists (stderr `PANE is crew of LEAD`), or it waits for input and its newest turn has no final answer (stderr `PANE: waiting for input, not sent`) |
+
+An agent with no lead, your own member and a member whose lead pane is gone can be asked. So can a Claude Code or Codex member shown as waiting whose newest turn is answered (with workmux, `💬` stays on a Claude that finished and waits for the next prompt); agy and grok logs carry no turns, so a waiting one is always refused. When a pane is both another lead's member and waiting, the crew message is the one printed. The check reads the last snapshot, so a member that began to wait after it is not caught.
 
 ## Dismiss
 
@@ -78,7 +88,7 @@ Exit 0 closed (nothing is saved), 2 not in tmux, not a pane id, pane does not ex
 | 3 | Timeout (`--summon` ready, or `--report-text --wait`); the pane may still be alive |
 | 4 | The pane is not a known agent |
 | 5 | The action was done but saving the round failed (stderr says why) |
-| 6 | The rules do not allow it; stderr says which one (`--summon` by a summoned member, `--dismiss`) |
+| 6 | The rules do not allow it; stderr says which one (`--summon` by a summoned member, `--ask`, `--dismiss`) |
 | 7 | `--report-text --wait --after`: the member is waiting for input and has no new report |
 | 8 | `--report-text --wait`: the member hit its usage limit; stdout is the limit message |
 

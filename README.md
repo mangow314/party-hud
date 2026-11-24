@@ -102,6 +102,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 ```
 
 `--summon` opens the member in a background tmux session, listed under its lead in the sidebar.
+`--ask` sends nothing (exit 6) to a member of another lead whose pane still exists, or to an agent stopped at a prompt for input, such as a permission prompt.
 Every round is saved; after `--dismiss` you can still read a lead's last rounds in Party Select (`[`, `]`, `Enter`).
 `--read-only` makes codex read-only through its sandbox; claude, grok and agy use their own plan mode, which the agent enforces itself.
 `--summon AGENT --model MODEL` starts the member on that model (the agent's own model option) and saves it with each round.

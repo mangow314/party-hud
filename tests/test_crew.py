@@ -477,9 +477,11 @@ def crew(monkeypatch, tmp_path):
     monkeypatch.setattr(sidebars, "PARTY_DIR", str(tmp_path / "run"))
     monkeypatch.setattr(collect, "PARTY_DIR", str(tmp_path / "run"))
     monkeypatch.setattr(
-        party, "get_snapshot", lambda: {"towns": [{"agents": [{"pane": "%5", "kind": "codex", "round": 4}]}]}
+        party,
+        "get_snapshot",
+        lambda: {"towns": [{"agents": [{"pane": "%5", "kind": "codex", "status": "idle", "round": 4}]}]},
     )
-    shown = (0, FS.join(["%5", "/work/dir", "1700000000"]) + "\n", "")
+    shown = (0, FS.join(["%5", "/work/dir", "1700000000", ""]) + "\n", "")
     monkeypatch.setattr(party, "tmux_run", lambda args, timeout=None: shown)
     monkeypatch.setattr(collect, "tmux_run", lambda args, timeout=None: shown)
     monkeypatch.setattr(party.subprocess, "run", lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0, "", ""))
@@ -512,7 +514,7 @@ def test_ask_writes_the_question_and_meta_of_round_001(crew):
 
 
 def test_ask_stores_the_members_lead_in_meta(crew, monkeypatch):
-    agent = {"pane": "%5", "kind": "codex", "round": 4, "lead": "%2"}
+    agent = {"pane": "%5", "kind": "codex", "status": "idle", "round": 4, "lead": "%2"}
     monkeypatch.setattr(party, "get_snapshot", lambda: {"towns": [{"agents": [agent]}]})
     party.ask("%5", "first?")
     (sess,) = os.listdir(crew)
@@ -530,6 +532,7 @@ def test_ask_stores_the_model_the_member_was_summoned_with_in_meta(crew, monkeyp
         "#{pane_id}": "%5",
         "#{pane_current_path}": "/work/dir",
         "#{start_time}": "1700000000",
+        "#{@party_lead}": "",
         "#{@party_model}": "m-1",
     }
     monkeypatch.setattr(

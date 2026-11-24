@@ -1,11 +1,12 @@
 #!/usr/bin/env python3
 """party-hud: tmux sessions as squads, the coding agents running in them as members."""
 
+import os
 import subprocess
 import sys
 import time
 
-from party_hud.collect import FIELD_SEP, get_snapshot, pane_values, report_text
+from party_hud.collect import FIELD_SEP, get_snapshot, pane_values, report_text, turn_answered
 from party_hud.common import tmux_run
 from party_hud.sidebars import (
     crew_asked,
@@ -28,16 +29,21 @@ from party_hud.sidebars import (
 
 def ask(pane, text):
     """(rc, stdout, stderr) for party.py --ask. rc: 0 sent (stdout: the time just before sending), 2 bad or missing pane
-    or tmux failure, 4 not an agent, 5 sent but not saved."""
+    or tmux failure, 4 not an agent, 5 sent but not saved, 6 not allowed and nothing sent (crew of another lead whose
+    pane still exists, or waiting for input with its newest turn not answered)."""
     if not pane.startswith("%") or not pane[1:].isdigit():
         return 2, "", f"not a pane id: {pane}\n"
-    found, err = pane_values(pane, "#{pane_current_path}", "#{start_time}", "#{@party_model}")
+    found, err = pane_values(pane, "#{pane_current_path}", "#{start_time}", "#{@party_lead}", "#{@party_model}")
     if found is None:
         return 2, "", err
-    cwd, server, model = found[0], found[1], FIELD_SEP.join(found[2:])
+    cwd, server, lead, model = found[0], found[1], found[2], FIELD_SEP.join(found[3:])
     agent = next((a for t in get_snapshot()["towns"] for a in t["agents"] if a["pane"] == pane), None)
     if agent is None:
         return 4, "", f"not a known agent: {pane}\n"
+    if lead and lead != os.environ.get("TMUX_PANE", "") and pane_values(lead)[0] is not None:
+        return 6, "", f"{pane} is crew of {lead}\n"
+    if agent["status"] == "waiting" and not turn_answered(agent):
+        return 6, "", f"{pane}: waiting for input, not sent\n"
     sent = time.time()
     # one bracketed paste, then Enter: codex takes an Enter right after typed keys as a newline
     buf = f"party-ask-{pane[1:]}"
@@ -98,7 +104,12 @@ def main():
     ap.add_argument("--open-report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report", nargs="?", const="", metavar="PANE")
     ap.add_argument("--report-text", metavar="PANE")
-    ap.add_argument("--ask", nargs=2, metavar=("PANE", "TEXT"))
+    ap.add_argument(
+        "--ask",
+        nargs=2,
+        metavar=("PANE", "TEXT"),
+        help="paste TEXT into the agent in PANE and press Enter (exit 6, nothing sent, if PANE is crew of another lead whose pane still exists or is waiting for input)",
+    )
     ap.add_argument("--dismiss", metavar="PANE")
     ap.add_argument("--after", type=float, metavar="EPOCH")
     ap.add_argument(

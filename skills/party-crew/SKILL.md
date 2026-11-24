@@ -32,7 +32,8 @@ The HUD itself only reads. These subcommands open or close a pane or send keys o
 `party.py --ask PANE TEXT`
 - Pastes TEXT into the agent's pane as one paste (several lines included) and presses Enter.
 - stdout: the time sent (epoch seconds). Keep it for `--after`.
-- Exit: 0 sent, 2 bad or missing pane or tmux failure, 4 pane is not a known agent.
+- Refused with exit 6 and nothing is sent, stderr says which: the pane is a member of another lead whose pane still exists (`PANE is crew of LEAD`), or it waits for input and has not answered its newest turn (`PANE: waiting for input, not sent`; agy and grok: whenever they wait). Your own members, agents with no lead and members whose lead pane is gone can be asked.
+- Exit: 0 sent, 2 bad or missing pane or tmux failure, 4 pane is not a known agent, 6 the rules do not allow it (stderr says which one).
 
 `party.py --report-text PANE --wait --after EPOCH [--timeout SEC]`
 - Waits while the agent is working, has subagents running, or has a finished subagent whose result its main conversation has not answered yet, and until a report newer than EPOCH exists, then prints it. `--after` requires `--wait`. `--timeout` default 600.
