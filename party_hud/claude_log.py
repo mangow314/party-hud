@@ -62,7 +62,12 @@ def summons_for(transcript, now):
                 continue
         except (OSError, ValueError):
             continue
-        out.append({"type": d.get("agentType", "agent"), "desc": d.get("description", "")})
+        out.append(
+            {
+                "type": printable(str(d.get("agentType") or "agent")),
+                "desc": printable(str(d.get("description") or "")),
+            }
+        )
     return out
 
 
@@ -443,8 +448,8 @@ def finished_subagents(transcript, since=None):
                 continue
             out.append(
                 {
-                    "type": d.get("agentType", "agent"),
-                    "desc": d.get("description", ""),
+                    "type": printable(str(d.get("agentType") or "agent")),
+                    "desc": printable(str(d.get("description") or "")),
                     "text": rep["text"] if rep else "",
                 }
             )

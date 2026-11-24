@@ -533,3 +533,18 @@ def test_cache_info_takes_the_last_usage_time_the_ttl_of_the_last_cache_write_an
 
 def test_cache_info_finds_the_last_usage_behind_300_kb_of_attachments(tmp_path):
     assert claude_log.cache_info(write_cache_transcript(tmp_path / "t.jsonl", 300))[1:] == (3600, 40100)
+
+
+def test_subagent_labels_drop_control_characters(transcript, turn):
+    sess = transcript(*turn)
+    sdir = os.path.join(sess[:-6], "subagents")
+    os.makedirs(sdir)
+    desc = "\x1b[2J\x1b]0;t\x07Run\r\nthe\x9b tests"
+    for name, finished in (("run", False), ("fin", True)):
+        with open(os.path.join(sdir, f"agent-{name}.meta.json"), "w") as m:
+            json.dump({"agentType": "exec\x1butor", "description": desc, "finished": finished}, m)
+        with open(os.path.join(sdir, f"agent-{name}.jsonl"), "w") as g:
+            g.write(json.dumps(rec("user", 0, "go", isSidechain=True)) + "\n")
+    label = {"type": "executor", "desc": "[2J]0;tRunthe tests"}
+    assert claude_log.summons_for(sess, os.path.getmtime(os.path.join(sdir, "agent-run.jsonl"))) == [label]
+    assert claude_log.finished_subagents(sess) == [dict(label, text="")]
