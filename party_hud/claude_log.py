@@ -67,7 +67,9 @@ def summons_for(transcript, now):
 
 
 def cache_info(path):
-    """(epoch of the last API call, cache TTL seconds, context tokens sent), from the transcript tail; cached while the file is unchanged."""
+    """(epoch of the last API call, cache TTL seconds, context tokens sent, usage limit), from the transcript tail; cached
+    while the file is unchanged. usage limit = {"text", "end"} when the newest turn ended on Claude Code's usage-limit
+    message, else None."""
     try:
         mtime = os.stat(path).st_mtime
     except OSError:
@@ -75,7 +77,7 @@ def cache_info(path):
     memo = _cache_memo.get(path)
     if memo and memo[0] == mtime:
         return memo[1]
-    last, ttl, used = None, None, None
+    last, ttl, used, limit = None, None, None, False
     try:
         with open(path, "rb") as f:
             end, carry = f.seek(0, os.SEEK_END), b""
@@ -86,26 +88,51 @@ def cache_info(path):
                 lines = (f.read(end - start) + carry).split(b"\n")
                 carry = lines.pop(0) if start else b""
                 end = start
-                last, ttl, used = _scan_usage(lines)
+                last, ttl, used, limit = _scan_usage(lines, limit)
     except OSError:
         return None
-    result = (last, ttl or 300, used) if last else None  # TTL unknown: assume the 5-minute default
+    result = (last, ttl or 300, used, limit or None) if last else None  # TTL unknown: assume the 5-minute default
     _cache_memo[path] = (mtime, result)
     return result
 
 
-def _scan_usage(lines):
-    """(time of the last main-thread usage entry, TTL seen from there back, its context tokens) in these lines."""
+def is_limit(rec):
+    return (
+        rec.get("type") == "assistant"
+        and rec.get("isApiErrorMessage") is True
+        and rec.get("apiError") == "usage_limit_reached"
+    )
+
+
+def _block_text(content):
+    blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
+    return "\n".join(str(b.get("text") or "") for b in blocks if isinstance(b, dict) and b.get("type") == "text")
+
+
+def _scan_usage(lines, limit: dict | bool | None = False):
+    """(time of the last main-thread usage entry, TTL seen from there back, its context tokens, usage limit) in these
+    lines. limit is False until the newest main-thread assistant record or typed prompt is seen, then {"text", "end"}
+    when that record is the usage-limit message, else None; pass the value of the lines after these."""
     last, ttl, used = None, None, None
     for raw in reversed(lines):
-        if b'"usage"' not in raw:
+        if b'"usage"' not in raw and (limit is not False or b'"user"' not in raw or b'"tool_result"' in raw):
             continue
         try:
             rec = json.loads(raw)
-            usage = rec["message"]["usage"]
-        except (ValueError, KeyError, TypeError):
+            content = rec["message"].get("content")
+        except (ValueError, KeyError, TypeError, AttributeError):
             continue
         if rec.get("isSidechain"):
+            continue
+        if limit is False:
+            if rec.get("type") == "assistant":
+                limit = None
+                if is_limit(rec):
+                    limit = {"text": _block_text(content).strip(), "end": iso_epoch(rec.get("timestamp"))}
+            elif rec.get("type") == "user" and not rec.get("isMeta") and claude_typed(rec, _block_text(content)):
+                limit = None
+        usage = rec["message"].get("usage")
+        if not isinstance(usage, dict):
             continue
         if last is None and rec.get("timestamp"):
             # Python 3.10 fromisoformat does not accept a trailing Z
@@ -120,7 +147,7 @@ def _scan_usage(lines):
             ttl = 300
         if last is not None and ttl:
             break
-    return last, ttl, used
+    return last, ttl, used, limit
 
 
 def _lines_backwards(f, lo, hi, complete=False):
@@ -178,7 +205,7 @@ def claude_report(path, sidechain=False):
 def _claude_answer(records, sidechain=False):
     texts, end, collecting, replied = [], None, True, False
     for rec, content in records:
-        if (rec.get("isSidechain") and not sidechain) or rec.get("isMeta"):
+        if (rec.get("isSidechain") and not sidechain) or rec.get("isMeta") or is_limit(rec):
             continue
         blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
         blocks = [b for b in blocks if isinstance(b, dict)]
@@ -283,7 +310,7 @@ def _claude_turn(records, live=False):
     steps, cmds, agents, replied = [], 0, 0, False
     ask = start = tool = said = None
     for rec, content in records:
-        if rec.get("isSidechain") or rec.get("isMeta"):
+        if rec.get("isSidechain") or rec.get("isMeta") or is_limit(rec):
             continue
         blocks = content if isinstance(content, list) else [{"type": "text", "text": content}]
         blocks = [b for b in blocks if isinstance(b, dict)]

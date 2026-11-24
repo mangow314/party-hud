@@ -532,6 +532,13 @@ def test_report_text_rc_7_with_a_failed_save_stays_7_and_reports_the_error(run_m
     assert got == (7, "screen\n", "%5 is waiting for input\nsave failed\n")
 
 
+def test_report_text_rc_8_prints_the_limit_message_saves_it_with_rc_8_and_records_no_round(run_main):
+    got, saved = run_main((8, "limit reached\n", "%5 hit a usage limit\n"), "", 3)
+    assert got == (8, "limit reached\n", "%5 hit a usage limit\n")
+    assert saved == [("%5", "limit reached\n", 8)]
+    assert not os.path.exists(seen_path())
+
+
 def test_report_text_rc_0_with_a_failed_save_is_rc_5(run_main):
     got, _ = run_main((0, "answer\n", ""), "save failed\n")
     assert got == (5, "answer\n", "save failed\n")

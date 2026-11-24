@@ -593,3 +593,11 @@ def test_squad_list_taller_than_the_pane_cuts_the_row_map(towns):
     tall = render.render(many, 33, "%1", height=24, hints="sidebar", row_map=rm, art=True)
     assert len(tall.split("\n")) == 24
     assert len(rm) == 23
+
+
+def test_member_at_the_usage_limit_says_limit_in_a_33_column_card(agents):
+    a = dict(next(a for a in agents if a["status"] == "waiting"), reason="limited", name="a long name " * 4)
+    for art in (False, True):
+        rows = [strip(ln) for ln in render.card(a, 33, False, art)]
+        assert any("! limit" in ln for ln in rows)
+        assert all(width(ln) == 33 for ln in rows)

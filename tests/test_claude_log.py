@@ -525,11 +525,27 @@ def write_cache_transcript(path, pad_kb=0):
 def test_cache_info_takes_the_last_usage_time_the_ttl_of_the_last_cache_write_and_main_context(tmp_path):
     info = claude_log.cache_info(write_cache_transcript(tmp_path / "t.jsonl"))
     assert info is not None
-    last, ttl, used = info
+    last, ttl, used, limit = info
+    assert limit is None
     assert last == datetime.fromisoformat("2026-11-03T04:06:00+00:00").timestamp()
     assert ttl == 3600
     assert used == 40100
 
 
 def test_cache_info_finds_the_last_usage_behind_300_kb_of_attachments(tmp_path):
-    assert claude_log.cache_info(write_cache_transcript(tmp_path / "t.jsonl", 300))[1:] == (3600, 40100)
+    assert claude_log.cache_info(write_cache_transcript(tmp_path / "t.jsonl", 300))[1:3] == (3600, 40100)
+
+
+def test_cache_info_gives_the_usage_limit_message_that_ended_the_newest_turn(transcript, turn):
+    path = transcript(*turn, rec("user", 10, "go on"), *records.limit_tail(11))
+    assert claude_log.cache_info(path)[3] == {"text": records.LIMIT_TEXT, "end": t0 + 11 * 60}
+
+
+def test_cache_info_usage_limit_is_cleared_by_a_later_prompt_but_not_by_an_injected_one(transcript, turn):
+    limited = records.limit_tail(11)
+    noted = transcript(*limited, rec("user", 12, "<task-notification>x</task-notification>"))
+    asked = transcript(*limited, rec("user", 12, "try again"))
+    answered = transcript(*limited, *turn)
+    assert claude_log.cache_info(noted)[3] is not None
+    assert claude_log.cache_info(asked)[3] is None
+    assert claude_log.cache_info(answered)[3] is None

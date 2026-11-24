@@ -444,7 +444,7 @@ WATCHED = (
     "rollouts_since",
     "_tail_lines",
     "_codex_usage",
-    "_turn_done",
+    "_turn_state",
     "screen_changed",
     "git_branch",
     "proc_table",
