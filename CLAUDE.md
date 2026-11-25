@@ -5,8 +5,10 @@ Commands and ground rules: `CONTRIBUTING.md`. Design: `docs/architecture.md`. Pe
 ## Running checks
 
 - The tmux tests (`tests/test_tmux.py`, marker `tmux`, skipped by default) need a real tmux socket and fail inside the
-  Claude Code sandbox; ask the user to run `! uvx pytest@9.2.0 -m tmux`. They run in file order on one shared server,
-  so run them as a whole with `-m tmux`, never pick one with `-k`.
+  Claude Code sandbox. If `~/.claude/scripts/party-hud-tmux-test.sh` exists, run it yourself from the repo or worktree
+  root as one standalone Bash call (no leading `cd`, no `&&`, `;` or redirect; timeout 300000); otherwise ask the user
+  to run `! uvx pytest@9.2.0 -m tmux`. They run in file order on one shared server, so run them as a whole with
+  `-m tmux`, never pick one with `-k`.
 - New unit tests go in `tests/test_*.py` (pytest); run one with `uvx pytest@9.2.0 -k NAME`.
 - Before done, run: `python3 scripts/check.py` (lint, format check, type check, unit tests; its last line names the
   failed steps and it exits non-zero).
