@@ -222,7 +222,7 @@ pane 的指令是上面這些 agent，或它的子行程裡有這些 agent，就
 
 - [docs/sidebar.md](docs/sidebar.md)：小隊顏色、HP／SP、閃爍、窄側欄、圖片
 - [docs/reports.md](docs/reports.md)：任務回報頁的完整說明
-- [docs/crew.md](docs/crew.md)：`--summon`、`--ask`、`--report-text`、`--dismiss` 和 party-crew skill
+- [docs/crew.md](docs/crew.md)：`--summon`、`--ask`、`--report-text`、`--dismiss`、`--list` 和 party-crew skill
 - [docs/integrations.md](docs/integrations.md)：每種 agent 讀了哪些資料
 - [docs/architecture.md](docs/architecture.md)、[docs/performance.md](docs/performance.md)：設計與效能數據
 

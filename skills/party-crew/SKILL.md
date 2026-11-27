@@ -49,6 +49,10 @@ The HUD itself only reads. These subcommands open or close a pane or send keys o
 - Refused with exit 6, stderr says which: the member was not summoned by you, it is still working (or has subagents running, or a finished subagent's result its main conversation has not answered yet; stderr `PANE: still working`), it waits for input (`PANE: waiting for input, not dismissed`), or it is done and you did not read its report (run `--report-text` first).
 - Exit: 0 closed, 2 not in tmux, bad or missing pane, tmux could not close the pane, 4 not a known agent, 6 the rules do not allow it (stderr says which one).
 
+`party.py --list --json`
+- Only reads. Prints every agent as one JSON array, one object per agent with `pane`, `kind`, `name`, `status`, `cwd` and `lead` (the lead's pane id, `null` for an agent with no lead).
+- Exit: 0 printed, 2 when only one of `--list` and `--json` is given.
+
 ## Example
 
 Run each step as its own command and copy the value it prints into the next one:
