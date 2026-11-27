@@ -418,6 +418,59 @@ def test_seen_reading_a_done_round_clears_done_on_next_collection():
     assert mr("idle", {"%50": {"status": "idle", "unseen": True, "round": 3}}, {"%50": 3})[0]["status"] == "idle"
 
 
+def wm(state, seen=None, focus=False, raw="done", sp=None):
+    """One collection of a workmux pane: raw "done" is the ✅ icon."""
+    ts = [{"agents": [{"pane": "%50", "status": raw, "focus": focus, "sp": sp}]}]
+    new_state = collect.mark_unseen(ts, state, seen)
+    return ts[0]["agents"][0], new_state
+
+
+WM_WORKING = {"%50": {"status": "working", "unseen": False, "round": 2}}
+
+
+def test_workmux_done_after_working_is_a_new_round_shown_done():
+    a, s = wm(WM_WORKING)
+    a2, _ = wm(s)
+    assert (a["round"], a["status"], s["%50"]["round"]) == (3, "done", 3)
+    assert (a2["round"], a2["status"]) == (3, "done")
+
+
+@pytest.mark.parametrize(("sp", "status"), [(None, "idle"), ((120.0, 300), "idle"), ((0.0, 300), "sleep")])
+def test_workmux_done_whose_round_was_read_falls_back_to_idle_or_sleep(sp, status):
+    _, s1 = wm(WM_WORKING)
+    a2, s2 = wm(s1, {"%50": 3}, sp=sp)
+    a3, _ = wm(s2, {"%50": 3}, sp=sp)
+    assert a2["status"] == a3["status"] == status
+
+
+def test_workmux_done_cleared_by_looking_does_not_light_up_again():
+    _, s1 = wm(WM_WORKING)
+    a2, s2 = wm(s1, focus=True)
+    a3, s3 = wm(s2)
+    a4, _ = wm(s3, raw="idle")
+    assert a2["status"] == a3["status"] == a4["status"] == "idle"
+    assert a4["round"] == 3
+
+
+def test_workmux_done_seen_first_with_no_state_is_shown_done():
+    a, s = wm({})
+    assert (a["status"], a["round"], s["%50"]["round"]) == ("done", 1, 1)
+
+
+def test_workmux_done_again_after_a_read_round_is_shown_done():
+    _, s1 = wm(WM_WORKING)
+    _, s2 = wm(s1, {"%50": 3})
+    _, s3 = wm(s2, {"%50": 3}, raw="working")
+    a4, _ = wm(s3, {"%50": 3})
+    assert (a4["status"], a4["round"]) == ("done", 4)
+
+
+def test_workmux_done_left_over_from_a_read_round_hides_a_round_run_between_collections():
+    _, s1 = wm(WM_WORKING)
+    a2, _ = wm(s1, {"%50": 3})
+    assert (a2["status"], a2["round"]) == ("idle", 3)
+
+
 def test_seen_no_seen_json_reads_as_empty():
     assert collect.read_seen() == {}
 

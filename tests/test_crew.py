@@ -444,6 +444,16 @@ def test_dismiss_of_a_done_member_whose_round_was_read_kills_the_pane_once(dm):
     assert dm.calls.count(("kill-pane", "-t", "%9")) == 1
 
 
+def test_dismiss_of_a_workmux_member_done_in_round_2_with_its_report_unread_is_rc_6(dm):
+    write_seen({"%9": 1})
+    dm.member = {"pane": "%9", "kind": "claude", "status": "done", "focus": False, "summons": []}
+    collect.mark_unseen([{"agents": [dm.member]}], {"%9": {"status": "working", "round": 1}}, collect.read_seen())
+    rc, _, err = sidebars.dismiss("%9")
+    assert rc == 6
+    assert "report not read yet" in err
+    assert not dm.killed()
+
+
 def test_dismiss_of_a_pane_that_is_not_an_agent_is_rc_4(dm):
     rc, _, _ = dm.dismiss("%8")
     assert rc == 4
