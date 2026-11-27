@@ -241,7 +241,7 @@ status is used too. Everything is read locally; nothing is sent anywhere. Detail
 
 - [docs/sidebar.md](docs/sidebar.md): squad colors, HP / SP, blinking, narrow sidebars, images
 - [docs/reports.md](docs/reports.md): the quest report page in full
-- [docs/crew.md](docs/crew.md): `--summon`, `--ask`, `--report-text`, `--dismiss` and the party-crew skill
+- [docs/crew.md](docs/crew.md): `--summon`, `--ask`, `--report-text`, `--dismiss`, `--list` and the party-crew skill
 - [docs/integrations.md](docs/integrations.md): what is read for each agent
 - [docs/architecture.md](docs/architecture.md), [docs/performance.md](docs/performance.md): design and numbers
 
