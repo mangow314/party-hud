@@ -131,10 +131,20 @@ def main():
     ap.add_argument("--wait", action="store_true")
     ap.add_argument("--timeout", type=float)
     ap.add_argument("--width", type=int)
+    ap.add_argument(
+        "--list",
+        action="store_true",
+        help="with --json: print every agent as one JSON array of objects with pane, kind, name, status, cwd and lead (the lead's pane, or null)",
+    )
+    ap.add_argument("--json", action="store_true")
     ap.add_argument("--fixture")
     args = ap.parse_args()
     if args.model is not None and args.summon is None:
         ap.error("--model needs --summon")
+    if args.list and not args.json:
+        ap.error("--list needs --json")
+    if args.json and not args.list:
+        ap.error("--json needs --list")
     if args.toggle:
         toggle()
     elif args.ensure:
@@ -217,6 +227,22 @@ def main():
         sys.stdout.write(out)
         sys.stderr.write(err)
         sys.exit(rc)
+    elif args.list:
+        import json
+
+        agents = [
+            {
+                "pane": a["pane"],
+                "kind": a["kind"],
+                "name": a["name"],
+                "status": a["status"],
+                "cwd": a["cwd"],
+                "lead": a.get("lead"),
+            }
+            for t in get_snapshot(args.fixture)["towns"]
+            for a in t["agents"]
+        ]
+        print(json.dumps(agents))
     elif args.sidebar:
         from party_hud.ui import run_ui
 

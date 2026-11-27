@@ -130,6 +130,53 @@ def test_a_mistyped_flag_is_rc_2_and_named():
     assert "unrecognized arguments: --sidbar" in r.stderr
 
 
+def list_json(*argv):
+    return subprocess.run(
+        [sys.executable, PARTY, *argv, "--fixture", FIXTURE], capture_output=True, text=True, cwd=ROOT, check=False
+    )
+
+
+def test_list_json_prints_every_agent_with_the_six_keys_and_a_null_lead():
+    r = list_json("--list", "--json")
+    agents = json.loads(r.stdout)
+    assert r.returncode == 0
+    assert [list(a) for a in agents] == [["pane", "kind", "name", "status", "cwd", "lead"]] * 3
+    assert {a["pane"] for a in agents} == {"%1", "%2", "%4"}
+    assert next(a for a in agents if a["pane"] == "%2") == {
+        "pane": "%2",
+        "kind": "claude",
+        "name": "審查員",
+        "status": "waiting",
+        "cwd": "/r/studio/src",
+        "lead": None,
+    }
+
+
+def test_list_json_gives_a_summoned_member_its_lead_pane(tmp_path):
+    with open(FIXTURE, encoding="utf-8") as f:
+        fixture = json.load(f)
+    next(p for p in fixture["panes"] if p["pane_id"] == "%2")["@party_lead"] = "%1"
+    path = tmp_path / "crew.json"
+    path.write_text(json.dumps(fixture), encoding="utf-8")
+    r = subprocess.run(
+        [sys.executable, PARTY, "--list", "--json", "--fixture", str(path)],
+        capture_output=True,
+        text=True,
+        cwd=ROOT,
+        check=False,
+    )
+    assert r.returncode == 0
+    assert {a["pane"]: a["lead"] for a in json.loads(r.stdout)} == {"%1": None, "%2": "%1", "%4": None}
+
+
+@pytest.mark.parametrize(("flag", "message"), [("--list", "--list needs --json"), ("--json", "--json needs --list")])
+def test_list_and_json_without_each_other_are_rc_2_and_print_nothing(flag, message):
+    r = list_json(flag)
+    assert r.returncode == 2
+    assert r.stdout == ""
+    assert r.stderr.splitlines()[-1] == f"party.py: error: {message}"
+
+
 class Stream(io.StringIO):
     def __init__(self, name, events):
         super().__init__()
