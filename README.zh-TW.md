@@ -97,6 +97,7 @@ python3 ~/.tmux/plugins/party-hud/party.py --dismiss PANE
 每一輪問答都會存下來；`--dismiss` 之後，仍可在選隊畫面讀 lead 最近的問答（`[`、`]`、`Enter`）。
 `--read-only` 讓 codex 用沙箱唯讀；claude、grok、agy 用自己的 plan 模式，由 agent 自己擋改檔。
 `--summon AGENT --model MODEL` 讓隊員用指定的模型啟動（傳給該 agent 自己的 model 選項），每一輪的紀錄也會存下這個模型。
+`--list --json` 只讀：把所有隊員印成一個 JSON 陣列，每筆有 `pane`、`kind`、`name`、`status`、`cwd` 和 `lead`（lead 的 pane，沒有 lead 就是 `null`）。
 
 想讓 Claude Code 代你使用，只要把內附的 `party-crew` skill 連結一次：
 

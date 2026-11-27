@@ -4,6 +4,17 @@
 The paths below assume the TPM install at `~/.tmux/plugins/party-hud`; replace it with your install path.
 
 The sidebar still only reads; these commands open panes or send keys only when called.
+A fifth subcommand, `--list --json`, only reads: it lists the agents.
+
+## Listing agents
+
+```sh
+python3 ~/.tmux/plugins/party-hud/party.py --list --json
+```
+
+Prints one JSON array with one object per agent of every squad. Each object has exactly these keys: `pane` (the tmux
+pane id), `kind` (the agent, such as `codex`), `name`, `status` (such as `working` or `waiting`), `cwd` and `lead` (the
+lead's pane id, `null` for an agent with no lead). Non-ASCII characters are written as `\u` escapes. Exit 0. `--list` without `--json`, and `--json` without `--list`, exit 2.
 
 ## Reading a report from a script
 
