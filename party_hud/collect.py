@@ -616,18 +616,17 @@ def mark_unseen(towns, state, seen=None):
         for a in t["agents"]:
             prev = state.get(a["pane"], {})
             raw = a["status"]
-            settled = raw in ("idle", "sleep")
-            rnd = prev.get("round", 0) + (settled and prev.get("status") == "working")
-            unseen = (
-                settled
-                and not a["focus"]
-                and (prev.get("unseen") or prev.get("status") == "working")
-                and seen.get(a["pane"], -1) < rnd
-            )
+            settled = raw in ("idle", "sleep", "done")
+            # workmux keeps ✅ after the round it marks, so a done read from it starts a round only once
+            finished = prev.get("status") != "done" if raw == "done" else prev.get("status") == "working"
+            rnd = prev.get("round", 0) + (settled and finished)
+            unseen = settled and not a["focus"] and (prev.get("unseen") or finished) and seen.get(a["pane"], -1) < rnd
             out[a["pane"]] = {"status": raw, "unseen": unseen, "round": rnd}
             a["round"] = rnd
             if unseen:
                 a["status"] = "done"
+            elif raw == "done":
+                a["status"] = "sleep" if a.get("sp") and a["sp"][0] == 0 else "idle"
         order = {a["pane"]: STATUS_ORDER.index(a["status"]) for a in t["agents"]}
         t["agents"].sort(key=lambda a: order[a.get("lead") or a["pane"]])
     for pane, prev in state.items():

@@ -81,6 +81,7 @@ The report's `WHERE` is tmux `pane_current_path` (home directory written `~`) pl
 If a pane has the tmux option `@workmux_pane_status` set by [workmux](https://github.com/raine/workmux)
 (`🤖` working, `💬` waiting, `✅` done), that status wins over the others, except that Claude Code's own
 `waiting` wins over `🤖` (workmux switches to `💬` only when Claude's notification hook runs, a few seconds later).
+A `✅` whose round was seen (looked at, or read through `--report-text`) shows idle or asleep, even while the icon stays.
 
 ## Adding an agent
 

@@ -550,7 +550,7 @@ def test_collector_party_reports_ignores_a_done_crew_and_is_set_only_on_change(c
         return [a[3] for a in collector(*agents) if a[:3] == ("set-option", "-g", "@party_reports")]
 
     lead_p = {"pane": "%1", "status": "idle", "focus": True}
-    crew_w = {"pane": "%2", "status": "working", "lead": "%1"}
+    crew_w = {"pane": "%2", "status": "working", "lead": "%1", "focus": False}
     crew_d = {**crew_w, "status": "done"}
     s1, s2 = reports(lead_p, crew_w), reports(lead_p, crew_d)
     s3, s4 = reports(dict(crew_d, lead="")), reports(dict(crew_d, lead=""))
