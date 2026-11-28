@@ -42,7 +42,7 @@ Exit 7 needs a snapshot taken after the question, so right after `--ask` it can 
 
 ## Summon and ask
 
-`--summon AGENT` opens a pane running `claude`, `codex`, `agy` or `grok` and prints its pane id once it takes input.
+`--summon AGENT` opens a pane running `claude`, `codex`, `agy` or `grok` and prints its pane id once the agent's process runs there and its screen has stopped changing; it does not check that the agent reads input yet.
 `--ask PANE TEXT` pastes text into an agent's pane, presses Enter, and prints the time it was sent. Together with `--report-text PANE
 --wait --after EPOCH` (above), one agent can hand work to another and wait for the answer:
 
